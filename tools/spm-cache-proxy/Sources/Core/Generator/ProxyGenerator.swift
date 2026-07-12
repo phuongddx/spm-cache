@@ -29,14 +29,15 @@ struct ProxyGenerator {
         var entries: [GraphEntry] = []
 
         for pkg in packages {
-            let slug = pkg.slug.c99extidentifier
+            let slug = pkg.slug
+            let productName = pkg.resolvedProductName
             let proxyDir = proxiesDir.appendingPathComponent(slug)
             try proxyDir.mkdir()
 
-            let cachedBinary = cache.hit(module: pkg.name ?? slug)
+            let cachedBinary = cache.hit(module: productName)
             let status: GraphEntry.Status = cachedBinary != nil ? .hit : .missed
 
-            let packageSwift = generateProxyManifest(pkg: pkg, cacheHit: cachedBinary, artifactsDir: artifactsDir)
+            let packageSwift = generateProxyManifest(pkg: pkg, productName: productName, cacheHit: cachedBinary, artifactsDir: artifactsDir)
             let packageSwiftPath = proxyDir.appendingPathComponent("Package.swift")
             try packageSwift.write(to: packageSwiftPath, atomically: true, encoding: .utf8)
 
@@ -47,10 +48,15 @@ struct ProxyGenerator {
                     at: dest,
                     withDestinationURL: binary
                 )
+            } else {
+                // Create stub source for cache misses
+                let sourcesDir = proxyDir.appendingPathComponent("Sources").appendingPathComponent("\(slug)_source")
+                try sourcesDir.mkdir()
+                try "".write(to: sourcesDir.appendingPathComponent("\(slug)_source.swift"), atomically: true, encoding: .utf8)
             }
 
             entries.append(GraphEntry(
-                module: pkg.name ?? slug,
+                module: productName,
                 status: status,
                 dependencies: [],
                 hasMacro: false
@@ -60,6 +66,11 @@ struct ProxyGenerator {
         let rootProxy = generateRootProxy(packages: packages)
         let rootProxyPath = outputDir.appendingPathComponent("Package.swift")
         try rootProxy.write(to: rootProxyPath, atomically: true, encoding: .utf8)
+
+        // Create source stub for root proxy target
+        let rootSrcDir = outputDir.appendingPathComponent("src").appendingPathComponent("root")
+        try rootSrcDir.mkdir()
+        try "".write(to: rootSrcDir.appendingPathComponent("spm_cache_root.swift"), atomically: true, encoding: .utf8)
 
         return entries
     }
@@ -73,39 +84,37 @@ struct ProxyGenerator {
         Logger.info("Generated graph.json at \(path.path)")
     }
 
-    private func generateProxyManifest(pkg: Lockfile.PackageRef, cacheHit: URL?, artifactsDir: URL) -> String {
-        let slug = pkg.slug.c99extidentifier
-        let name = pkg.name ?? slug
+    private func generateProxyManifest(pkg: Lockfile.PackageRef, productName: String, cacheHit: URL?, artifactsDir: URL) -> String {
+        let slug = pkg.slug
 
-        if let binary = cacheHit {
-            let relativePath = ".build/artifacts/\(binary.lastPathComponent)"
+        if cacheHit != nil {
+            let relativePath = "../../.build/artifacts/\(productName).xcframework"
             return """
-            // swift-tools-version: 5.9
+            // swift-tools-version: 6.0
             import PackageDescription
 
             let package = Package(
                 name: "\(slug)_proxy",
                 products: [
-                    .library(name: "\(name)", targets: ["\(slug).binary"]),
+                    .library(name: "\(productName)", targets: ["\(slug)_binary"]),
                 ],
                 targets: [
-                    .binaryTarget(name: "\(slug).binary", path: "\(relativePath)"),
+                    .binaryTarget(name: "\(slug)_binary", path: "\(relativePath)"),
                 ]
             )
             """
-        } else
-        {
+        } else {
             return """
-            // swift-tools-version: 5.9
+            // swift-tools-version: 6.0
             import PackageDescription
 
             let package = Package(
                 name: "\(slug)_proxy",
                 products: [
-                    .library(name: "\(name)", targets: ["\(slug).source"]),
+                    .library(name: "\(productName)", targets: ["\(slug)_source"]),
                 ],
                 targets: [
-                    .target(name: "\(slug).source"),
+                    .target(name: "\(slug)_source"),
                 ]
             )
             """
@@ -114,25 +123,31 @@ struct ProxyGenerator {
 
     private func generateRootProxy(packages: [Lockfile.PackageRef]) -> String {
         var deps: [String] = []
-        var products: [String] = []
+        var targetDeps: [String] = []
 
         for pkg in packages {
-            let slug = pkg.slug.c99extidentifier
+            let slug = pkg.slug
+            let productName = pkg.resolvedProductName
             deps.append(".package(path: \".proxies/\(slug)\")")
-            products.append(".library(name: \"\(pkg.name ?? slug)\", targets: [\"\(pkg.name ?? slug)\"])")
+            targetDeps.append(".product(name: \"\(productName)\", package: \"\(slug)\")")
         }
 
         return """
-        // swift-tools-version: 5.9
+        // swift-tools-version: 6.0
         import PackageDescription
 
         let package = Package(
             name: "spm_cache_proxy",
+            products: [
+                .library(name: "spm_cache_proxy", targets: ["spm_cache_root"])
+            ],
             dependencies: [
                 \(deps.joined(separator: ",\n        "))
             ],
-            products: [
-                \(products.joined(separator: ",\n        "))
+            targets: [
+                .target(name: "spm_cache_root", dependencies: [
+                    \(targetDeps.joined(separator: ",\n                    "))
+                ], path: "src/root")
             ]
         )
         """

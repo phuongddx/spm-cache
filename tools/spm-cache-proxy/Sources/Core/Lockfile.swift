@@ -5,20 +5,39 @@ struct Lockfile: Codable {
         let repositoryURL: String?
         let pathFromRoot: String?
         let name: String?
+        let productName: String?
+        let version: String?
 
         var isLocal: Bool {
             pathFromRoot != nil
         }
 
         var slug: String {
-            if let name = name { return name }
             if let url = repositoryURL {
                 return (url as NSString).deletingPathExtension.components(separatedBy: "/").last ?? url
             }
+            if let name = name { return name }
             if let path = pathFromRoot {
                 return (path as NSString).lastPathComponent
             }
             return "unknown"
+        }
+
+        var resolvedProductName: String {
+            productName ?? name ?? slug
+        }
+
+        var versionRequirement: String {
+            guard let version = version, !version.isEmpty else {
+                return "from: \"0.1.0\""
+            }
+            let parts = version.split(separator: ".").map(String.init)
+            let major = Int(parts[0]) ?? 1
+            if major >= 1 {
+                return "from: \"\(version)\""
+            } else {
+                return "from: \"\(version)\""
+            }
         }
     }
 
@@ -36,7 +55,6 @@ struct Lockfile: Codable {
         self.dependencies = dependencies
         self.platforms = platforms
     }
-
     init(from dict: [String: Any]) {
         let pkgList = (dict["packages"] as? [[String: Any]]) ?? []
         self.packages = pkgList.compactMap { pkgDict in
@@ -44,7 +62,9 @@ struct Lockfile: Codable {
             return PackageRef(
                 repositoryURL: pkgDict["repositoryURL"] as? String,
                 pathFromRoot: pkgDict["path_from_root"] as? String,
-                name: name
+                name: name,
+                productName: pkgDict["product_name"] as? String,
+                version: pkgDict["version"] as? String
             )
         }
         self.dependencies = (dict["dependencies"] as? [String: [String]]) ?? [:]

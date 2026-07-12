@@ -16,26 +16,67 @@ struct UmbrellaGenerator {
         var targets: [String] = []
 
         for pkg in lockfile.packages {
-            let slug = pkg.slug.c99extidentifier
+            let slug = pkg.slug
+            let productName = pkg.resolvedProductName
+            let packageIdentity = slug
+            let targetName = "\(slug.c99extidentifier)_spm_cache"
+
             if pkg.isLocal, let path = pkg.pathFromRoot {
                 dependencies.append(".package(path: \"\(path)\")")
             } else if let url = pkg.repositoryURL {
-                dependencies.append(".package(url: \"\(url)\", from: \"0.0.0\")")
+                let req = pkg.versionRequirement
+                dependencies.append(".package(url: \"\(url)\", \(req))")
             }
             targets.append("""
                 .target(
-                    name: "\(slug).spm_cache",
-                    dependencies: .product(name: "\(pkg.name ?? slug)", package: "\(slug)")
+                    name: "\(targetName)",
+                    dependencies: [.product(name: "\(productName)", package: "\(packageIdentity)")]
                 )
             """)
+
+            // Create stub source directory
+            let sourcesDir = outputDir.appendingPathComponent("Sources").appendingPathComponent(targetName)
+            try sourcesDir.mkdir()
+            try "".write(to: sourcesDir.appendingPathComponent("\(targetName).swift"), atomically: true, encoding: .utf8)
         }
 
-        let platforms = lockfile.platforms.map { platform, version in
-            ".\(platform)(.v\(version.replacingOccurrences(of: ".", with: "_")))"
-        }.joined(separator: ", ")
+        let platformStrings = lockfile.platforms.map { platform, version -> String in
+            let parts = version.split(separator: ".").map(String.init)
+            let major = Int(parts[0]) ?? 15
+            let pName: String
+            switch platform.lowercased() {
+            case "ios": pName = "iOS"
+            case "macos": pName = "macOS"
+            case "tvos": pName = "tvOS"
+            case "watchos": pName = "watchOS"
+            case "visionos": pName = "visionOS"
+            default: pName = platform
+            }
+            let versionEnum: String
+            switch major {
+            case 13: versionEnum = "v13"
+            case 14: versionEnum = "v14"
+            case 15: versionEnum = "v15"
+            case 16: versionEnum = "v16"
+            case 17: versionEnum = "v17"
+            case 18: versionEnum = "v18"
+            default:
+                if major >= 18 { versionEnum = "v18" }
+                else if major >= 15 { versionEnum = "v15" }
+                else { versionEnum = "v13" }
+            }
+            return ".\(pName)(.\(versionEnum))"
+        }
+
+        // Always include macOS for swift build compatibility
+        var allPlatforms = platformStrings
+        if !lockfile.platforms.keys.contains(where: { $0.lowercased() == "macos" }) {
+            allPlatforms.append(".macOS(.v14)")
+        }
+        let platforms = allPlatforms.joined(separator: ", ")
 
         let content = """
-        // swift-tools-version: 5.9
+        // swift-tools-version: 6.0
         import PackageDescription
 
         let package = Package(

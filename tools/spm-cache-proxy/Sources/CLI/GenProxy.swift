@@ -16,13 +16,15 @@ struct GenProxy: AsyncParsableCommand, CommandRunning {
     @Option(help: "Cache directory for xcframeworks")
     var cache: String
 
+    @Option(help: "Path to spm-cache.lock file")
+    var lockfile: String
+
     func run() async throws {
         let umbrellaDir = URL(fileURLWithPath: umbrella)
         let outputDir = URL(fileURLWithPath: output)
         let cacheDir = URL(fileURLWithPath: cache)
 
-        let lockfilePath = umbrellaDir.appendingPathComponent("spm-cache.lock")
-        let lockfiles = Lockfile.load(from: lockfilePath.path)
+        let lockfiles = Lockfile.load(from: lockfile)
 
         var allPackages: [Lockfile.PackageRef] = []
         for (_, lf) in lockfiles {

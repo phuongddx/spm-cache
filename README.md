@@ -89,8 +89,8 @@ remote:
 
 spm-cache consists of two components:
 
-1. **Ruby Gem** - CLI orchestrator, xcodeproj manipulation, installer pipeline
-2. **Swift Proxy Tool** (`spm-cache-proxy`) - SPM manifest generation and dependency graph resolution
+1. **Ruby Gem** (`lib/spm_cache/`) - CLI orchestrator, xcodeproj manipulation, installer pipeline
+2. **Swift Proxy Tool** (`tools/spm-cache-proxy/`) - SPM manifest generation and dependency graph resolution
 
 ### Build Pipeline
 
@@ -101,6 +101,13 @@ swift build --target Alamofire --sdk iphonesimulator
 libtool -static -> .framework
 xcodebuild -create-xcframework -> .xcframework
 ```
+
+### Key Concepts
+
+- **Umbrella Package** - A synthetic `Package.swift` that references all project SPM dependencies in one place, enabling graph resolution.
+- **Proxy Package** - Per-dependency `Package.swift` that switches between `.binaryTarget` (cache hit) and source target (cache miss).
+- **Cachemap** - Graph of all dependencies with `hit`/`missed`/`ignored` status, used to drive build decisions and visualization.
+- **Lockfile** (`spm-cache.lock`) - JSON snapshot of project SPM dependencies (packages, targets, platforms).
 
 ## Development
 
@@ -116,6 +123,26 @@ make test
 
 # Format code
 make format
+```
+
+## Project Structure
+
+```
+spm-cache/
+├── bin/spm-cache              # CLI entry point
+├── lib/spm_cache/             # Ruby gem
+│   ├── command/               # CLAide commands (use, build, off, rollback, cache, pkg, remote)
+│   ├── core/                  # Config, Lockfile, Sh, Git, Log, syntax mixins
+│   ├── installer/             # Install pipeline + integration mixins
+│   ├── spm/                   # SPM package model, buildable, xcframework, macro
+│   ├── storage/               # Git + S3 remote cache backends
+│   ├── xcodeproj/             # Xcodeproj gem extensions
+│   └── assets/templates/      # ERB templates (plist, modulemap, cachemap HTML)
+├── tools/spm-cache-proxy/     # Swift proxy tool
+│   └── Sources/
+│       ├── CLI/               # gen-umbrella, gen-proxy, resolve subcommands
+│       └── Core/              # Cache, Lockfile, Resolver, Generators, Proxy
+└── docs/                      # Documentation
 ```
 
 ## License
