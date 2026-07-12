@@ -1,7 +1,7 @@
 # Project Roadmap
 
 > **Project:** spm-cache
-> **Last Updated:** 2026-07-12 (rev 2)
+> **Last Updated:** 2026-07-12 (rev 3)
 
 ## Current Status
 

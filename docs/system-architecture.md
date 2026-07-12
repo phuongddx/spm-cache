@@ -244,10 +244,19 @@ Merge all slices:
 Store in ~/.spm-cache/{config}/{module}.xcframework
 ```
 
-**Library Evolution:** Swift `-enable-library-evolution -emit-module-interface` flags
+**Library Evolution:** Swift `-enable-library-evolution -emit-module-interface -no-verify-emitted-module-interface` flags
 produce `.swiftinterface` files (text-based module descriptors) that allow the prebuilt
 binary to work across compiler versions. Without these, `.swiftmodule` files are stripped
 by `xcodebuild -create-xcframework` because they are compiler-version-specific.
+
+**Destination Mapping** (`Buildable::DESTINATIONS`):
+
+| Key | xcodebuild destination |
+|-----|----------------------|
+| `iphonesimulator` / `ios_simulator` | `platform=iOS Simulator,name=iPhone 17` |
+| `iphoneos` / `ios_device` | `generic/platform=iOS` |
+
+Each build also sets `CODE_SIGNING_ALLOWED=NO` and uses `-derivedDataPath` to isolate artifacts.
 
 **Package build command:**
 ```bash

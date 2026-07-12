@@ -58,7 +58,7 @@ iOS projects using Swift Package Manager (SPM) dependencies suffer from long cle
 
 - **REQ-006:** Swift macro targets are built and cached as `.macro` binaries
 - **REQ-007:** Resource bundles are properly handled (`Bundle.module` accessor works in cached frameworks)
-- **REQ-008:** Library evolution flags (`-enable-library-evolution`) are applied for binary compatibility
+- **REQ-008:** Library evolution flags (`-enable-library-evolution -emit-module-interface -no-verify-emitted-module-interface`) are applied for binary compatibility
 - **REQ-009:** xcframework checksums are computed for cache validation
 
 ### P3 - Remote Cache

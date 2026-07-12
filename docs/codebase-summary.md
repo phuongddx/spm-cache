@@ -1,6 +1,6 @@
 # Codebase Summary
 
-> **Last Updated:** 2026-07-12 (rev 2)
+> **Last Updated:** 2026-07-12 (rev 3)
 > **Version:** 0.1.0
 
 ## Overview
@@ -11,10 +11,10 @@
 
 | Component | Language | Files | LOC |
 |-----------|----------|-------|-----|
-| Ruby gem (`lib/`) | Ruby | 79 | ~3,500 |
-| Swift proxy (`tools/spm-cache-proxy/Sources/`) | Swift | 19 | ~850 |
+| Ruby gem (`lib/`) | Ruby | 79 | ~3,604 |
+| Swift proxy (`tools/spm-cache-proxy/Sources/`) | Swift | 19 | ~822 |
 | Templates (`lib/spm_cache/assets/templates/`) | ERB/HTML/PLIST | 8 | — |
-| **Total** | — | **106+** | **~4,350** |
+| **Total** | — | **106+** | **~4,426** |
 
 ## Component Breakdown
 
