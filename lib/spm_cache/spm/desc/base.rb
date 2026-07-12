@@ -49,7 +49,7 @@ module SPMCache
         end
 
         def self.describe(pkg_dir)
-          result = Sh.run("swift package describe --type json", cwd: pkg_dir)
+          result = SPMCache::Core::Sh.run("swift package describe --type json", cwd: pkg_dir)
           JSON.parse(result[:output])
         rescue SPMCache::Core::GeneralError
           {}

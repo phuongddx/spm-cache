@@ -1,6 +1,7 @@
 # frozen_string_literal: true
 
 require "fileutils"
+require "tmpdir"
 require "spm_cache/core/sh"
 require "spm_cache/swift/sdk"
 require "spm_cache/swift/swiftc"
@@ -8,60 +9,133 @@ require "spm_cache/swift/swiftc"
 module SPMCache
   module SPM
     class Buildable
-      attr_reader :name, :module_name, :pkg_dir, :sdks, :config
-      attr_accessor :library_evolution
+      attr_reader :name, :module_name, :pkg_dir, :config
+      attr_accessor :library_evolution, :scheme
 
-      def initialize(name:, module_name: nil, pkg_dir:, sdks: [], config: "debug", library_evolution: true)
+      # Destinations supported for multi-slice builds
+      DESTINATIONS = {
+        "iphonesimulator" => "platform=iOS Simulator,name=iPhone 17",
+        "iphoneos" => "generic/platform=iOS",
+        "ios_simulator" => "platform=iOS Simulator,name=iPhone 17",
+        "ios_device" => "generic/platform=iOS",
+      }.freeze
+
+      def initialize(name:, module_name: nil, pkg_dir:, config: "debug", library_evolution: true, scheme: nil)
         @name = name
         @module_name = module_name || name
         @pkg_dir = pkg_dir
-        @sdks = sdks
         @config = config
         @library_evolution = library_evolution
+        @scheme = scheme || name
       end
 
-      def swift_build(sdk, opts = {})
-        build_dir = opts[:build_dir] || File.join(@pkg_dir, ".build")
-        cmd = "swift build"
-        cmd += " -c #{@config}"
-        cmd += " --target #{@name}"
-        cmd += " --sdk #{sdk.name}" if sdk.name
-        cmd += " -Xswiftc -target -Xswiftc #{sdk.triple}" if sdk.triple
+      def xcodebuild(destination, derived_data_path: nil, **opts)
+        dd = derived_data_path || File.join(@pkg_dir, "DerivedData")
+        cmd = "xcodebuild build"
+        cmd += " -scheme #{@scheme}"
+        cmd += " -destination '#{destination}'"
+        cmd += " -derivedDataPath #{dd}"
+        cmd += " CODE_SIGNING_ALLOWED=NO"
         cmd += library_evolution_flags if @library_evolution
-        cmd += " --build-path #{build_dir}"
         cmd += " #{opts[:extra_args]}" if opts[:extra_args]
 
-        Sh.run(cmd, cwd: @pkg_dir, live_log: opts[:live_log])
-        build_dir
+        SPMCache::Core::Sh.run(cmd, cwd: @pkg_dir, live_log: opts[:live_log])
+        dd
       end
 
-      def build_products_dir(sdk)
-        File.join(@pkg_dir, ".build", sdk.triple, @config)
+      def build_for_destination(destination_key, derived_data_path: nil, **opts)
+        dest = DESTINATIONS[destination_key] || destination_key
+        dd = xcodebuild(dest, derived_data_path: derived_data_path, opts: opts)
+
+        # Find .o file in build products
+        obj = find_object_file(dd)
+        {
+          derived_data: dd,
+          object_file: obj,
+          swiftmodule: find_file(dd, "#{@module_name}.swiftmodule"),
+          swiftdoc: find_file(dd, "#{@module_name}.swiftdoc"),
+          swiftsourceinfo: find_file(dd, "#{@module_name}.swiftsourceinfo"),
+          swiftinterface: find_file(dd, "#{@module_name}.swiftinterface"),
+        }
       end
 
-      def object_files(sdk)
-        build_dir = File.join(@pkg_dir, ".build", sdk.triple, @config, "#{@name}.build")
-        return [] unless File.directory?(build_dir)
-
-        Dir.glob(File.join(build_dir, "**", "*.o"))
+      def find_object_file(derived_data)
+        Dir.glob(File.join(derived_data, "**", "Products", "**", "#{@module_name}.o")).first ||
+          Dir.glob(File.join(derived_data, "**", "#{@module_name}.o")).first
       end
 
-      def swiftmodule_path(sdk)
-        build_dir = build_products_dir(sdk)
-        base = File.join(build_dir, "Modules", @module_name)
-        swiftinterface = "#{base}.swiftinterface"
-        swiftmodule = "#{base}.swiftmodule"
-        File.exist?(swiftinterface) ? swiftinterface : swiftmodule
+      def find_file(derived_data, basename)
+        Dir.glob(File.join(derived_data, "**", "Objects-normal", "arm64", basename)).first ||
+          Dir.glob(File.join(derived_data, "**", basename)).first
+      end
+
+      def create_static_library(object_file, output_path = nil)
+        output_path ||= File.join(Dir.mktmpdir, @module_name)
+        SPMCache::Core::Sh.run("libtool -static -o #{output_path} #{object_file}")
+        output_path
+      end
+
+      def create_framework(artifacts, output_dir)
+        fw_dir = File.join(output_dir, "#{@module_name}.framework")
+        FileUtils.mkdir_p(fw_dir)
+
+        # 1. Static library binary
+        if artifacts[:object_file] && File.exist?(artifacts[:object_file])
+          lib = create_static_library(artifacts[:object_file])
+          FileUtils.cp(lib, File.join(fw_dir, @module_name))
+        end
+
+        # 2. Info.plist
+        File.write(File.join(fw_dir, "Info.plist"), framework_info_plist)
+
+        # 3. Modules
+        modules_dir = File.join(fw_dir, "Modules")
+        FileUtils.mkdir_p(modules_dir)
+
+        # Swiftmodule directory with swiftinterface
+        if artifacts[:swiftinterface]
+          arch = destination_arch(artifacts)
+          sm_dir = File.join(modules_dir, "#{@module_name}.swiftmodule")
+          FileUtils.mkdir_p(sm_dir)
+          FileUtils.cp(artifacts[:swiftinterface], File.join(sm_dir, arch))
+        end
+
+        FileUtils.cp(artifacts[:swiftmodule], File.join(modules_dir, File.basename(artifacts[:swiftmodule]))) if artifacts[:swiftmodule] && File.exist?(artifacts[:swiftmodule])
+        FileUtils.cp(artifacts[:swiftdoc], File.join(modules_dir, File.basename(artifacts[:swiftdoc]))) if artifacts[:swiftdoc] && File.exist?(artifacts[:swiftdoc])
+        FileUtils.cp(artifacts[:swiftsourceinfo], File.join(modules_dir, File.basename(artifacts[:swiftsourceinfo]))) if artifacts[:swiftsourceinfo] && File.exist?(artifacts[:swiftsourceinfo])
+
+        fw_dir
       end
 
       private
 
-      def library_evolution_flags
-        return "" unless @library_evolution
+      def destination_arch(artifacts)
+        dd = artifacts[:derived_data] || ""
+        if dd.include?("Simulator") || dd.include?("sim") || dd.include?("Sim")
+          "arm64-apple-ios-simulator.swiftinterface"
+        else
+          "arm64-apple-ios.swiftinterface"
+        end
+      end
 
-        " -Xswiftc -enable-library-evolution" \
-        " -Xswiftc -emit-module-interface" \
-        " -Xswiftc -no-verify-emitted-module-interface"
+      def framework_info_plist
+        %(<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+<key>CFBundleExecutable</key><string>#{@module_name}</string>
+<key>CFBundleIdentifier</key><string>com.spm-cache.#{@module_name.downcase}</string>
+<key>CFBundleInfoDictionaryVersion</key><string>6.0</string>
+<key>CFBundleName</key><string>#{@module_name}</string>
+<key>CFBundlePackageType</key><string>FMWK</string>
+<key>CFBundleShortVersionString</key><string>1.0</string>
+<key>CFBundleVersion</key><string>1</string>
+</dict>
+</plist>)
+      end
+
+      def library_evolution_flags
+        " OTHER_SWIFT_FLAGS='-enable-library-evolution -emit-module-interface -no-verify-emitted-module-interface'"
       end
     end
   end

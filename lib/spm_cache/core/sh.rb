@@ -14,8 +14,11 @@ module SPMCache
 
           output_lines = []
 
+          spawn_opts = {}
+          spawn_opts[:chdir] = cwd if cwd
+
           if live_log
-            Open3.popen3(env, cmd, chdir: cwd) do |stdin, stdout, stderr, wait_thr|
+            Open3.popen3(env, cmd, **spawn_opts) do |stdin, stdout, stderr, wait_thr|
               stdin.close
               threads = [
                 Thread.new { stdout.each_line { |l| live_log.output(l) } },
@@ -29,7 +32,7 @@ module SPMCache
             end
             { output: "", status: 0 }
           else
-            stdout_str, stderr_str, status = Open3.capture3(env, cmd, chdir: cwd)
+            stdout_str, stderr_str, status = Open3.capture3(env, cmd, **spawn_opts)
             unless status.success?
               msg = "Command failed (exit #{status.exitstatus}): #{cmd}\n#{stderr_str}"
               raise GeneralError.new(msg)

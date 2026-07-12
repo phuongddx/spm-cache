@@ -2,50 +2,37 @@
 
 require "fileutils"
 require "spm_cache/core/sh"
-require "spm_cache/spm/xcframework/slice"
 
 module SPMCache
   module SPM
     module XCFramework
       class XCFramework
-        attr_reader :name, :slices, :output_path
+        attr_reader :name, :framework_paths, :output_path
 
-        def initialize(name:, slices: [], output_path: nil)
+        def initialize(name:, framework_paths: [], output_path: nil)
           @name = name
-          @slices = slices
+          @framework_paths = framework_paths
           @output_path = output_path
         end
 
-        def build(merge_slices: true)
-          framework_paths = @slices.map do |slice|
-            slice.create_framework
-          end
+        def build
+          raise "No framework paths provided" if @framework_paths.empty?
 
           @output_path ||= File.join(Dir.pwd, "#{@name}.xcframework")
           FileUtils.rm_rf(@output_path)
 
-          if merge_slices && framework_paths.size > 1
-            create_xcframework(framework_paths)
-          else
-            create_xcframework(framework_paths)
+          cmd = "xcodebuild -create-xcframework"
+          @framework_paths.each do |fw_path|
+            cmd += " -framework #{fw_path}"
           end
+          cmd += " -output #{@output_path}"
+          SPMCache::Core::Sh.run(cmd)
 
           @output_path
         end
 
-        def add_slice(slice)
-          @slices << slice
-        end
-
-        private
-
-        def create_xcframework(framework_paths)
-          cmd = "xcodebuild -create-xcframework"
-          framework_paths.each do |fw_path|
-            cmd += " -framework #{fw_path}"
-          end
-          cmd += " -output #{@output_path}"
-          Sh.run(cmd)
+        def add_framework_path(path)
+          @framework_paths << path
         end
       end
     end
