@@ -35,12 +35,13 @@ iOS projects using Swift Package Manager (SPM) dependencies suffer from long cle
 
 ## Key Metrics
 
-| Metric | Target |
-|--------|--------|
-| Clean build time reduction | >70% for dependency-heavy projects |
-| Cache hit ratio (warm cache) | >90% |
-| Integration time (`spm-cache use`) | <10 seconds for typical projects |
-| Rollback time | <5 seconds |
+| Metric | Target | Achieved |
+|--------|--------|----------|
+| Clean build time reduction | >70% for dependency-heavy projects | **51%** (8 deps, 4 cached) |
+| Cache hit ratio (warm cache) | >90% | 50% (4/8 cached, rest source fallback) |
+| Integration time (`spm-cache use`) | <10 seconds for typical projects | <5s (proxy generation) |
+| Rollback time | <5 seconds | <2s |
+| Multi-slice support | simulator + device | ✅ `--sdk=all` |
 
 ## Product Requirements
 
@@ -51,6 +52,7 @@ iOS projects using Swift Package Manager (SPM) dependencies suffer from long cle
 - **REQ-003:** Cache miss automatically falls back to source compilation (no build failure)
 - **REQ-004:** `spm-cache rollback` restores original project state (removes sandbox, proxy references)
 - **REQ-005:** Per-configuration caching (Debug and Release caches are separate)
+- **REQ-005b:** Multi-slice xcframeworks (`--sdk=all` builds both simulator + device)
 
 ### P2 - Advanced Support
 

@@ -83,20 +83,29 @@ let package = Package(
 )
 ```
 
-A **root proxy** (`Package.swift`) aggregates all per-package proxies so Xcode sees a single local package reference:
+A **root proxy** (`Package.swift`) aggregates all per-package proxies so Xcode sees a single local package reference. Uses tools-version 6.0:
 
 ```swift
+// swift-tools-version: 6.0
 let package = Package(
     name: "spm_cache_proxy",
+    products: [
+        .library(name: "spm_cache_proxy", targets: ["spm_cache_root"])
+    ],
     dependencies: [
         .package(path: ".proxies/{slug1}"),
         .package(path: ".proxies/{slug2}"),
-        // ...
     ],
-    products: [ /* one library per dependency */ ],
-    targets: [ /* one proxy target per dependency */ ]
+    targets: [
+        .target(name: "spm_cache_root", dependencies: [
+            .product(name: "{product1}", package: "{slug1}"),
+            .product(name: "{product2}", package: "{slug2}"),
+        ], path: "src/root")
+    ]
 )
 ```
+
+The Xcode project references this root proxy as an `XCLocalSwiftPackageReference` with `relativePath = "spm-cache/packages/proxy"`. Product dependencies (`SwiftUICharts`, `ExyteChat`, etc.) point to products exposed by the per-package proxy sub-packages.
 
 ### Umbrella Package
 
@@ -146,10 +155,12 @@ Storage (local cache + remote Git/S3)
 
 **SPM Package Model** (`spm/`):
 - `Package::Proxy` orchestrates the Swift tool calls
-- `Buildable` runs `swift build` with library evolution flags
-- `FrameworkSlice` creates `.framework` from `.o` files via `libtool -static`
-- `XCFramework` assembles slices via `xcodebuild -create-xcframework`
+- `Buildable` runs **`xcodebuild build`** (not `swift build`) with library evolution flags, supports multiple destinations (simulator + device)
+- `Buildable.create_static_library` uses `libtool -static` to produce `.a` from `.o`
+- `Buildable.create_framework` assembles `.framework` with Info.plist, Modules/ (swiftmodule + swiftinterface)
+- `XCFramework` merges multiple framework slices via `xcodebuild -create-xcframework`
 - `Macro` builds macro targets as `.macro` executables
+- `Package::DEFAULT_DESTINATIONS = ["iphonesimulator", "iphoneos"]` — builds both by default
 
 **Xcodeproj Extensions** (`xcodeproj/`): Monkey-patch the `xcodeproj` gem to add proxy package references and product dependencies.
 
@@ -211,20 +222,39 @@ Models (Lockfile, BinariesCache)
 
 ## Build Pipeline (xcframework creation)
 
+Multi-slice pipeline (simulator + device in one xcframework):
+
 ```
-swift build -c {config} --target {name} --sdk {sdk}
-    -Xswiftc -enable-library-evolution
-    -Xswiftc -emit-module-interface
+For each destination (iphonesimulator, iphoneos):
+  xcodebuild build -scheme {name} -destination '{dest}'
+    OTHER_SWIFT_FLAGS='-enable-library-evolution -emit-module-interface'
     ↓
-.build/{triple}/{config}/*.o files
+  DerivedData/**/{module}.o + .swiftmodule + .swiftinterface
     ↓
-libtool -static -o {module}.framework/{module} -filelist objs.txt
+  libtool -static -o {module} {module}.o
     ↓
-Add Info.plist, Headers/, Modules/ (modulemap + swiftinterface)
+  Assemble {module}.framework (binary + Info.plist + Modules/)
     ↓
-xcodebuild -create-xcframework -framework {slice}.framework -output {module}.xcframework
+Merge all slices:
+  xcodebuild -create-xcframework
+    -framework {sim_framework}
+    -framework {device_framework}
+    -output {module}.xcframework
     ↓
 Store in ~/.spm-cache/{config}/{module}.xcframework
+```
+
+**Library Evolution:** Swift `-enable-library-evolution -emit-module-interface` flags
+produce `.swiftinterface` files (text-based module descriptors) that allow the prebuilt
+binary to work across compiler versions. Without these, `.swiftmodule` files are stripped
+by `xcodebuild -create-xcframework` because they are compiler-version-specific.
+
+**Package build command:**
+```bash
+spm-cache pkg build {target} --sdk=all --out={path}
+# --sdk=all: both iphonesimulator + iphoneos (default)
+# --sdk=iphonesimulator: simulator only
+# --sdk=iphoneos: device only
 ```
 
 ## Storage Architecture

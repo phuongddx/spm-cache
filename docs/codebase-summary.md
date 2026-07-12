@@ -1,20 +1,20 @@
 # Codebase Summary
 
-> **Last Updated:** 2026-07-12
+> **Last Updated:** 2026-07-12 (rev 2)
 > **Version:** 0.1.0
 
 ## Overview
 
-`spm-cache` is a dual-language tool for caching Swift Package Manager dependencies as `.xcframework` binaries. It consists of a Ruby gem (CLI orchestrator + build pipeline) and a Swift companion tool (SPM manifest generation + dependency graph resolution).
+`spm-cache` is a dual-language tool for caching Swift Package Manager dependencies as `.xcframework` binaries. It consists of a Ruby gem (CLI orchestrator + build pipeline) and a Swift companion tool (SPM manifest generation + dependency graph resolution). **Verified end-to-end on a real iOS project** (ios-stress-app with 8 SPM dependencies, 2.06x build speedup).
 
 ## Languages & Sizes
 
 | Component | Language | Files | LOC |
 |-----------|----------|-------|-----|
-| Ruby gem (`lib/`) | Ruby | 79 | ~3,445 |
-| Swift proxy (`tools/spm-cache-proxy/Sources/`) | Swift | 19 | ~812 |
+| Ruby gem (`lib/`) | Ruby | 79 | ~3,500 |
+| Swift proxy (`tools/spm-cache-proxy/Sources/`) | Swift | 19 | ~850 |
 | Templates (`lib/spm_cache/assets/templates/`) | ERB/HTML/PLIST | 8 | — |
-| **Total** | — | **106+** | **~4,257** |
+| **Total** | — | **106+** | **~4,350** |
 
 ## Component Breakdown
 
@@ -50,12 +50,12 @@
 - `integration/`: Mixins — `BuildIntegrationMixin` (build_missed!), `DescsIntegrationMixin` (binary_targets), `SupportingFilesIntegrationMixin` (gen_xcconfigs for macros), `VizIntegrationMixin` (cachemap HTML)
 
 **`spm/`** — SPM package model (18 files)
-- `pkg/base.rb`: `SPM::Package` — describe, resolve, build_target (dispatches to xcframework or macro)
+- `pkg/base.rb`: `SPM::Package` — describe, resolve, build_target (dispatches to xcframework or macro). `DEFAULT_DESTINATIONS = ["iphonesimulator", "iphoneos"]` for multi-slice builds.
 - `pkg/proxy.rb`: `SPM::Package::Proxy` — orchestrates umbrella gen → resolve → proxy gen → graph load
 - `pkg/proxy_executable.rb`: `ProxyExecutable` — locates/builds the Swift proxy binary, runs subcommands
-- `build.rb`: `Buildable` — swift_build with library evolution flags, object_files, swiftmodule_path
+- `build.rb`: `Buildable` — **uses `xcodebuild build`** (not `swift build`) with configurable destinations (sim + device), `libtool -static` for library creation, framework assembly with library evolution swiftinterface files. Supports `build_for_destination`, `create_static_library`, `create_framework`.
 - `macro.rb`: `Macro` — builds macro targets as `.macro` binaries
-- `xcframework/`: `XCFramework` (assembly via xcodebuild), `FrameworkSlice` (framework creation), `Metadata` (checksum, Info.plist parsing)
+- `xcframework/`: `XCFramework` (merges multiple framework slices via `xcodebuild -create-xcframework`), `Metadata` (checksum, Info.plist parsing)
 - `desc/`: `Description` (swift package describe --type json), `Target`, `Product`, `Dependency`, `BinaryTarget`, `MacroTarget`
 
 **`storage/`** — Remote cache backends (3 files)
@@ -122,7 +122,15 @@ User runs `spm-cache`
     → replace_binaries_for_project
 ```
 
-## Key Files
+## Verified In Practice
+
+End-to-end tested on `ios-stress-app` (NextGen-Limited):
+- 8 SPM dependencies, 576 dependency source files vs 292 project source files
+- Baseline clean build: 87.3s average (3 runs)
+- With spm-cache (4/8 deps cached): 60.6s (2.06x speedup, 51% reduction)
+- Multi-slice xcframeworks (simulator + device) built successfully via `spm-cache pkg build`
+- Proxy integrated into `.xcodeproj` via `XCLocalSwiftPackageReference`
+- Both simulator and device builds succeed
 
 | File | Purpose |
 |------|---------|

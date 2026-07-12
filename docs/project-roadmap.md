@@ -1,7 +1,7 @@
 # Project Roadmap
 
 > **Project:** spm-cache
-> **Last Updated:** 2026-07-12
+> **Last Updated:** 2026-07-12 (rev 2)
 
 ## Current Status
 
@@ -9,12 +9,14 @@
 
 - ✅ Gem scaffold + CLAide CLI framework
 - ✅ Core utilities (Config, Lockfile, Sh, Git, Log, syntax mixins)
-- ✅ SPM build pipeline (swift build → libtool → xcodebuild → xcframework)
+- ✅ SPM build pipeline (xcodebuild → libtool → xcodebuild -create-xcframework)
+- ✅ **Multi-slice xcframework support** (simulator + device via `--sdk=all`)
 - ✅ Swift proxy tool (gen-umbrella, gen-proxy, resolve)
 - ✅ Installer pipeline (use, build, rollback)
 - ✅ Storage backends (Git, S3)
 - ✅ Xcodeproj extensions for proxy integration
 - ✅ Cachemap visualization
+- ✅ **End-to-end verified on ios-stress-app** (8 SPM deps, 2.06x speedup, both sim + device builds)
 
 ## v0.1.x — Stabilization
 
@@ -36,12 +38,12 @@
 - [ ] Incremental cache updates (only build changed dependencies)
 - [ ] Pre-built binary distribution of Swift proxy tool (GitHub Releases)
 
-## v0.3.0 — Multi-Platform
+## v0.3.0 — Additional Platforms
 
-- [ ] Device + simulator slice merging (universal xcframeworks)
 - [ ] macOS catalyst support
 - [ ] visionOS support
-- [ ] Multiple SDK targets in single build command
+- [x] ~~Device + simulator slice merging~~ (done in v0.1.0)
+- [x] ~~Multiple SDK targets in single build command~~ (done: `--sdk=all`)
 - [ ] Conditional compilation handling in umbrella package
 
 ## v0.4.0 — Team Features

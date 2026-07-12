@@ -80,8 +80,12 @@ cd /path/to/your/xcode/project
 # Build all SPM targets (resolves graph first)
 spm-cache build --recursive
 
-# Or build specific targets
-spm-cache build Alamofire SnapKit --sdk=iphonesimulator
+# Or build specific targets with multi-slice xcframeworks (sim + device)
+spm-cache pkg build Alamofire --sdk=all --out=~/.spm-cache/debug
+
+# Single-slice builds also supported
+spm-cache pkg build Alamofire --sdk=iphonesimulator --out=~/.spm-cache/debug
+spm-cache pkg build Alamofire --sdk=iphoneos --out=~/.spm-cache/debug
 ```
 
 ### 3. Use Cache
@@ -235,6 +239,16 @@ Or set `ignore_build_errors: true` in `spm-cache.yml`.
 1. Verify xcframeworks exist: `spm-cache cache list`
 2. Check `graph.json` status: `cat spm-cache/packages/proxy/graph.json`
 3. Ensure module names match between build and use
+
+### "no library for this platform was found"
+
+The xcframework is missing the device (or simulator) slice. Rebuild with `--sdk=all`:
+
+```bash
+spm-cache pkg build {target} --sdk=all --out=~/.spm-cache/debug
+```
+
+This produces a multi-slice xcframework containing both `ios-arm64-simulator` and `ios-arm64`.
 
 ## Directory Layout After Integration
 
