@@ -18,7 +18,7 @@ module SPMCache
         html = Utils::Template.render("cachemap.html", { data: depgraph_data })
         File.write(File.join(viz_dir, "index.html"), html)
 
-        Logger.info "Generated cachemap visualization at #{viz_dir}/index.html"
+        Core::UI.info "Generated cachemap visualization at #{viz_dir}/index.html"
       end
     end
   end

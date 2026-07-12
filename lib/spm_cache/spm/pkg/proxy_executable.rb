@@ -16,10 +16,15 @@ module SPMCache
         end
 
         def lookup_local
-          local_path = SPMCache::ROOT.join("tools", "spm-cache-proxy")
-          return nil unless File.directory?(local_path)
+          # Check env var first
+          env_path = ENV["SPM_CACHE_PROXY_BIN"]
+          return env_path if env_path && File.executable?(env_path)
 
-          binary_path = File.join(local_path, ".build", "release", "spm-cache-proxy")
+          # Check gem root
+          local_path = SPMCache::ROOT.join("tools", "spm-cache-proxy")
+          return nil unless local_path.exist?
+
+          binary_path = local_path.join(".build", "release", "spm-cache-proxy").to_s
           File.executable?(binary_path) ? binary_path : nil
         end
 
@@ -27,7 +32,7 @@ module SPMCache
           tools_dir = SPMCache::ROOT.join("tools", "spm-cache-proxy")
           raise "Swift proxy tool source not found at #{tools_dir}" unless File.directory?(tools_dir)
 
-          Sh.run("swift build -c release", cwd: tools_dir.to_s)
+          SPMCache::Core::Sh.run("swift build -c release", cwd: tools_dir.to_s)
           binary_path = File.join(tools_dir.to_s, ".build", "release", "spm-cache-proxy")
           raise "Build failed: #{binary_path} not found" unless File.executable?(binary_path)
 
@@ -45,15 +50,17 @@ module SPMCache
         def run(subcommand, args = [])
           cmd = "#{path} #{subcommand}"
           cmd += " " + args.join(" ") unless args.empty?
-          Sh.run(cmd)
+          SPMCache::Core::Sh.run(cmd)
         end
 
         def gen_umbrella(lockfile_path:, output_dir:)
           run("gen-umbrella", ["--lockfile #{lockfile_path}", "--output #{output_dir}"])
         end
 
-        def gen_proxy(umbrella_dir:, output_dir:, cache_dir:)
-          run("gen-proxy", ["--umbrella #{umbrella_dir}", "--output #{output_dir}", "--cache #{cache_dir}"])
+        def gen_proxy(umbrella_dir:, output_dir:, cache_dir:, lockfile_path: nil)
+          args = ["--umbrella #{umbrella_dir}", "--output #{output_dir}", "--cache #{cache_dir}"]
+          args << "--lockfile #{lockfile_path}" if lockfile_path
+          run("gen-proxy", args)
         end
 
         def resolve(package_dir:, metadata_dir:)

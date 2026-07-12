@@ -35,7 +35,7 @@ module SPMCache
         git.fetch("origin", @branch, shallow: true)
         git.checkout("FETCH_HEAD")
         git.clean(force: true)
-        Logger.info("Pulled cache from #{@remote_url}/#{@branch}")
+        Core::UI.info("Pulled cache from #{@remote_url}/#{@branch}")
       end
 
       def push
@@ -54,10 +54,10 @@ module SPMCache
         begin
           git.commit("Update cache")
         rescue Core::GeneralError
-          Logger.info("No changes to push")
+          Core::UI.info("No changes to push")
         end
         git.push("origin", @branch)
-        Logger.info("Pushed cache to #{@remote_url}/#{@branch}")
+        Core::UI.info("Pushed cache to #{@remote_url}/#{@branch}")
       end
     end
   end

@@ -12,13 +12,13 @@ module SPMCache
       end
 
       def restore_packages
-        Logger.info "Restoring original package references..."
+        Core::UI.info "Restoring original package references..."
       end
 
       def remove_proxy
         sandbox = @config.sandbox_dir
         FileUtils.rm_rf(sandbox) if File.directory?(sandbox)
-        Logger.info "Removed spm-cache sandbox"
+        Core::UI.info "Removed spm-cache sandbox"
       end
     end
   end

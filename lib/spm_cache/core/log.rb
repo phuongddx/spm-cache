@@ -3,22 +3,18 @@
 module SPMCache
   module Core
     module UI
-      def self.included(base)
-        base.extend(ClassMethods)
-      end
-
       module ClassMethods
         def section(title, &block)
-          puts "\n#{'=' * 60}" unless quiet?
-          puts title.to_s unless quiet?
-          puts "=" * 60 unless quiet?
+          puts "\n#{'=' * 60}"
+          puts title.to_s
+          puts "=" * 60
           yield if block_given?
         end
 
-        def message(msg = "")
-          puts msg unless quiet?
+        def info(msg = "")
+          puts msg
         end
-        alias_method :info, :message
+        alias_method :message, :info
 
         def warn(msg)
           $stderr.puts "[warn] #{msg}"
@@ -32,14 +28,13 @@ module SPMCache
           error(msg)
           raise GeneralError.new(msg)
         end
+      end
 
-        def quiet?
-          @quiet ||= false
-        end
+      # Make methods available as module methods (Core::UI.info, etc.)
+      extend ClassMethods
 
-        def quiet=(value)
-          @quiet = value
-        end
+      def self.included(base)
+        base.extend(ClassMethods)
       end
     end
 

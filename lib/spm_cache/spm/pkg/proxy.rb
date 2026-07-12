@@ -12,8 +12,8 @@ module SPMCache
       class Proxy < Package
         attr_reader :executable, :graph
 
-        def initialize(root_dir:, config: "debug", sdks: [])
-          super
+        def initialize(root_dir:, config: "debug")
+          super(root_dir: root_dir, config: config)
           @executable = ProxyExecutable.new
           @graph = nil
         end
@@ -30,9 +30,8 @@ module SPMCache
           FileUtils.mkdir_p(metadata_dir)
 
           gen_umbrella(lockfile_path, umbrella_dir)
-          resolve(umbrella_dir, metadata_dir)
           invalidate_cache
-          gen_proxy(umbrella_dir, proxy_dir, cache_dir)
+          gen_proxy(umbrella_dir, proxy_dir, cache_dir, lockfile_path: lockfile_path)
           load_graph
         end
 
@@ -44,8 +43,8 @@ module SPMCache
           @executable.resolve(package_dir: package_dir, metadata_dir: metadata_dir)
         end
 
-        def gen_proxy(umbrella_dir, output_dir, cache_dir)
-          @executable.gen_proxy(umbrella_dir: umbrella_dir, output_dir: output_dir, cache_dir: cache_dir)
+        def gen_proxy(umbrella_dir, output_dir, cache_dir, lockfile_path: nil)
+          @executable.gen_proxy(umbrella_dir: umbrella_dir, output_dir: output_dir, cache_dir: cache_dir, lockfile_path: lockfile_path)
         end
 
         def invalidate_cache

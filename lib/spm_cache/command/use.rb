@@ -17,7 +17,7 @@ module SPMCache
         project = Xcodeproj::Project.open(project_path)
         installer = Installer::Use.new(project: project_path)
         installer.perform_install
-        Logger.info "Done! Cache integrated into #{project_path}"
+        Core::UI.info "Done! Cache integrated into #{project_path}"
       end
 
       private
