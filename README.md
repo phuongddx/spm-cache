@@ -92,14 +92,34 @@ spm-cache consists of two components:
 1. **Ruby Gem** (`lib/spm_cache/`) - CLI orchestrator, xcodeproj manipulation, installer pipeline
 2. **Swift Proxy Tool** (`tools/spm-cache-proxy/`) - SPM manifest generation and dependency graph resolution
 
+### System Architecture
+
+![System Architecture](docs/diagrams/system-architecture.png)
+
 ### Build Pipeline
 
-```
-swift build --target Alamofire --sdk iphonesimulator
-  -> .o files
+spm-cache uses `xcodebuild` (not `swift build`) to compile dependencies with library evolution flags, then assembles multi-slice xcframeworks containing both simulator and device binaries.
 
-libtool -static -> .framework
-xcodebuild -create-xcframework -> .xcframework
+![Build Pipeline](docs/diagrams/build-pipeline.png)
+
+```
+Phase 1 - Build (per destination, parallel):
+  xcodebuild build -scheme {module} -destination '{sim|device}'
+    OTHER_SWIFT_FLAGS='-enable-library-evolution -emit-module-interface'
+    -> .o files + .swiftinterface + .swiftmodule
+
+Phase 2 - Static Library + Framework Assembly:
+  libtool -static -> .a binary
+  Assemble .framework (binary + Info.plist + Modules/.swiftmodule/)
+
+Phase 3 - Merge Slices:
+  xcodebuild -create-xcframework
+    -framework {sim_framework}
+    -framework {device_framework}
+    -> {module}.xcframework (ios-arm64-simulator + ios-arm64)
+
+Phase 4 - Store:
+  Copy to ~/.spm-cache/debug/{module}.xcframework
 ```
 
 ### Key Concepts
