@@ -1,0 +1,12 @@
+ignore: []
+ignore_local: false
+ignore_build_errors: false
+keep_pkgs_in_project: false
+default_sdk: iphonesimulator
+# remote:
+#   debug:
+#     git: git@github.com:your-org/cache.git
+#   release:
+#     s3:
+#       uri: "s3://bucket/path"
+#       creds: "~/.spm-cache/s3.creds.json"

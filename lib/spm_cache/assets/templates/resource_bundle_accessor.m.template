@@ -1,0 +1,17 @@
+#import <Foundation/Foundation.h>
+
+NSBundle* <%= module_name %>BundleAccess(void) {
+    NSString *bundleName = @"<%= bundle_name %>";
+    NSArray *candidates = @[
+        [NSBundle mainBundle].bundlePath,
+        [NSBundle mainBundle].resourcePath,
+        [[NSBundle classForClass:[NSObject class]] resourcePath],
+    ];
+    for (NSString *candidate in candidates) {
+        NSString *bundlePath = [candidate stringByAppendingPathComponent:[bundleName stringByAppendingString:@".bundle"]];
+        if ([[NSFileManager defaultManager] fileExistsAtPath:bundlePath]) {
+            return [NSBundle bundleWithPath:bundlePath];
+        }
+    }
+    return [NSBundle mainBundle];
+}

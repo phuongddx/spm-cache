@@ -1,0 +1,33 @@
+import Foundation
+
+extension Bundle {
+    static func module() -> Bundle {
+        let bundleName = "<%= bundle_name %>"
+
+        let candidates = [
+            Bundle.main.resourceURL,
+            Bundle(for: BundleFinder.self).resourceURL,
+            Bundle.main.bundleURL,
+            Bundle(for: BundleFinder.self).bundleURL,
+        ]
+
+        for candidate in candidates {
+            let bundlePath = candidate?.appendingPathComponent(bundleName + ".bundle")
+            if let bundle = bundlePath.flatMap(Bundle.init(url:)) {
+                return bundle
+            }
+        }
+
+        let moduleName = "<%= module_name %>"
+        let frameworkBundle = Bundle(for: BundleFinder.self)
+        if let bundleURL = frameworkBundle.resourceURL?.appendingPathComponent(moduleName + ".framework").appendingPathComponent(bundleName + ".bundle") {
+            if let bundle = Bundle(url: bundleURL) {
+                return bundle
+            }
+        }
+
+        fatalError("Unable to find bundle named \(bundleName)")
+    }
+}
+
+private class BundleFinder {}

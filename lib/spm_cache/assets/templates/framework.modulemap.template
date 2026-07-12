@@ -1,0 +1,5 @@
+framework module <%= module_name %> {
+  umbrella header "<%= umbrella_header %>"
+  export *
+  module * { export * }
+}

@@ -1,0 +1,31 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>spm-cache Dependency Graph</title>
+    <style>
+        body { margin: 0; padding: 0; font-family: -apple-system, BlinkMacSystemFont, sans-serif; }
+        #cy { width: 100vw; height: 100vh; }
+        .legend { position: fixed; top: 10px; right: 10px; background: rgba(255,255,255,0.9); padding: 10px; border-radius: 5px; box-shadow: 0 2px 5px rgba(0,0,0,0.1); }
+        .legend-item { display: flex; align-items: center; margin: 5px 0; }
+        .legend-color { width: 20px; height: 20px; border-radius: 50%; margin-right: 8px; }
+        .hit { background: #4CAF50; }
+        .missed { background: #FF9800; }
+        .ignored { background: #9E9E9E; }
+        .macro { background: #9C27B0; }
+    </style>
+</head>
+<body>
+    <div id="cy"></div>
+    <div class="legend">
+        <div class="legend-item"><div class="legend-color hit"></div> Cache Hit</div>
+        <div class="legend-item"><div class="legend-color missed"></div> Cache Miss</div>
+        <div class="legend-item"><div class="legend-color ignored"></div> Ignored</div>
+        <div class="legend-item"><div class="legend-color macro"></div> Macro</div>
+    </div>
+    <script>
+        const elements = < %= data % > ;
+    </script>
+</body>
+</html>

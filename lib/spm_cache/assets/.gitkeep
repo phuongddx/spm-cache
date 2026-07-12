@@ -1,0 +1,6 @@
+# frozen_string_literal: true
+
+require "fileutils"
+
+# Create assets/templates directory marker
+FileUtils.mkdir_p(File.expand_path("../assets/templates", __dir__)) unless Dir.exist?(File.expand_path("../assets/templates", __dir__))

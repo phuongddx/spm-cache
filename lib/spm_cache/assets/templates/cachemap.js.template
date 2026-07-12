@@ -1,0 +1,46 @@
+// spm-cache cachemap visualization
+const layout = {
+    name: 'cose',
+    animate: true,
+    nodeDimensionsIncludeLabels: true,
+};
+
+const style = [
+    {
+        selector: 'node',
+        style: {
+            'label': 'data(module)',
+            'text-valign': 'center',
+            'color': '#fff',
+            'font-size': '12px',
+            'width': '60px',
+            'height': '60px',
+        }
+    },
+    {
+        selector: 'node[status="hit"]',
+        style: { 'background-color': '#4CAF50' }
+    },
+    {
+        selector: 'node[status="missed"]',
+        style: { 'background-color': '#FF9800' }
+    },
+    {
+        selector: 'node[status="ignored"]',
+        style: { 'background-color': '#9E9E9E' }
+    },
+    {
+        selector: 'node[hasMacro="true"]',
+        style: { 'shape': 'diamond', 'background-color': '#9C27B0' }
+    },
+    {
+        selector: 'edge',
+        style: {
+            'width': 2,
+            'line-color': '#bbb',
+            'target-arrow-color': '#bbb',
+            'target-arrow-shape': 'triangle',
+            'curve-style': 'bezier',
+        }
+    }
+];
