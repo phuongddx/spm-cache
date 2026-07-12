@@ -18,11 +18,19 @@ spm-cache prebuilds your SPM dependencies into `.xcframework` files and swaps th
 
 ## Installation
 
+### Homebrew (recommended)
+
+```bash
+brew install phuongddx/spm-cache/spm-cache
+```
+
+### RubyGems
+
 ```bash
 gem install spm-cache
 ```
 
-Or with Bundler:
+### Bundler
 
 ```ruby
 # Gemfile
