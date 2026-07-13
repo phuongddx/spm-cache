@@ -1,0 +1,4 @@
+interface:
+  display_name: "spm-cache"
+  short_description: "Cache SPM deps as xcframeworks for faster Xcode builds"
+  default_prompt: "Use $skill-spm-cache to speed up my Xcode builds by caching SPM dependencies."

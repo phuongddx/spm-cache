@@ -1,0 +1,4 @@
+interface:
+  display_name: "spm-cache-issue"
+  short_description: "File GitHub issues for spm-cache bugs and problems"
+  default_prompt: "Use $skill-spm-cache-issue to file a bug report for spm-cache."

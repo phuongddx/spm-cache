@@ -23,7 +23,7 @@ tools/spm-cache-proxy/.swiftpm/
 tools/spm-cache-proxy/Package.resolved
 
 # spm-cache sandbox
-spm-cache/
+/spm-cache/
 spm-cache.lock
 spm-cache.yml
 
