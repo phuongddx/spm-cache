@@ -62,6 +62,45 @@ module SPMCache
         Core::Sh.run("swift package resolve", cwd: @config.umbrella_dir)
       rescue => e
         Core::UI.warn "Umbrella resolve failed: #{e.message}"
+        fallback_xcode_checkouts
+
+        checkouts_root = File.join(@config.umbrella_dir, ".build", "checkouts")
+        if Dir.glob(File.join(checkouts_root, "*")).empty?
+          Core::UI.warn "Umbrella resolve failed and no DerivedData checkouts found; all targets will be skipped"
+        end
+      end
+
+      # Falls back to Xcode's own resolved checkouts under DerivedData when
+      # `swift package resolve` fails on the umbrella package. Xcode caches
+      # its own SwiftPM checkouts at
+      # DerivedData/<Project>-<hash>/SourcePackages/checkouts, so reusing the
+      # most recently built one lets targets still be located instead of
+      # leaving {umbrella_dir}/.build/checkouts empty.
+      #
+      # Multiple DerivedData directories can exist for the same project
+      # (stale entries from prior Xcode versions/configs, workspace vs.
+      # project-level builds); `Dir.glob` order is filesystem-dependent, not
+      # mtime-sorted, so the newest one must be picked explicitly via
+      # `max_by { File.mtime }` rather than `.first`.
+      def fallback_xcode_checkouts
+        project_name = File.basename(project_path, File.extname(project_path))
+        derived_data_root = File.expand_path("~/Library/Developer/Xcode/DerivedData")
+        candidates = Dir.glob(File.join(derived_data_root, "#{project_name}-*"))
+        latest = candidates.max_by { |d| File.mtime(d) }
+        return unless latest
+
+        source_checkouts = File.join(latest, "SourcePackages", "checkouts")
+        return unless File.directory?(source_checkouts)
+
+        dest_checkouts = File.join(@config.umbrella_dir, ".build", "checkouts")
+        FileUtils.mkdir_p(dest_checkouts)
+
+        Core::UI.info "Falling back to DerivedData checkouts: #{latest}"
+        Dir.glob(File.join(source_checkouts, "*")).each do |pkg_dir|
+          next unless File.directory?(pkg_dir)
+
+          FileUtils.cp_r(pkg_dir, dest_checkouts, remove_destination: true)
+        end
       end
 
       # Maps module/product name → checkout directory by matching the lockfile

@@ -70,3 +70,75 @@ RSpec.describe SPMCache::Installer::Build do
     expect { inst.perform_install }.to output(/unknown target 'CachedLib'|No targets to build/).to_stdout
   end
 end
+
+# Exercises the umbrella resolve fallback (issue #3) with a fresh top-level
+# describe so it does NOT inherit the outer spec's
+# `resolve_umbrella_checkouts` stub - the whole point here is to drive the
+# real rescue/fallback path.
+RSpec.describe SPMCache::Installer::Build, "umbrella resolve fallback (issue #3)" do
+  let(:project_tmpdir) { Dir.mktmpdir }
+  let(:project_path) { File.join(project_tmpdir, "Fake.xcodeproj") }
+  let(:fake_home) { Dir.mktmpdir }
+  let(:derived_data_dir) { File.join(fake_home, "Library", "Developer", "Xcode", "DerivedData") }
+
+  before do
+    FileUtils.mkdir_p(project_path)
+    FileUtils.mkdir_p(derived_data_dir)
+    @original_home = ENV["HOME"]
+    ENV["HOME"] = fake_home
+    allow(SPMCache::Core::Sh).to receive(:run).and_raise(SPMCache::Core::GeneralError.new("resolve boom"))
+  end
+
+  after do
+    ENV["HOME"] = @original_home
+    FileUtils.rm_rf(project_tmpdir)
+    FileUtils.rm_rf(fake_home)
+  end
+
+  def make_installer
+    described_class.new(project: project_path)
+  end
+
+  def umbrella_checkouts_dir(installer)
+    File.join(installer.config.umbrella_dir, ".build", "checkouts")
+  end
+
+  def write_derived_data_checkout(derived_data_dir_name, marker_content, mtime:)
+    dd_dir = File.join(derived_data_dir, derived_data_dir_name)
+    checkout_dir = File.join(dd_dir, "SourcePackages", "checkouts", "Alamofire")
+    FileUtils.mkdir_p(checkout_dir)
+    File.write(File.join(checkout_dir, "marker.txt"), marker_content)
+    File.utime(mtime, mtime, dd_dir)
+    dd_dir
+  end
+
+  it "copies checkouts from the newest matching DerivedData dir, not the first glob match" do
+    write_derived_data_checkout("Fake-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "stale", mtime: Time.now - 3600)
+    write_derived_data_checkout("Fake-bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", "fresh", mtime: Time.now)
+
+    inst = make_installer
+    expect { inst.send(:resolve_umbrella_checkouts) }.to output(/Umbrella resolve failed/).to_stderr
+
+    copied_marker = File.join(umbrella_checkouts_dir(inst), "Alamofire", "marker.txt")
+    expect(File.read(copied_marker)).to eq("fresh")
+  end
+
+  it "escalates the warning when no DerivedData checkouts match the project" do
+    inst = make_installer
+
+    expect { inst.send(:resolve_umbrella_checkouts) }.to output(
+      /Umbrella resolve failed and no DerivedData checkouts found; all targets will be skipped/,
+    ).to_stderr
+    expect(Dir.glob(File.join(umbrella_checkouts_dir(inst), "*"))).to be_empty
+  end
+
+  it "does not escalate the warning when the fallback finds checkouts" do
+    write_derived_data_checkout("Fake-cccccccccccccccccccccccccccccccc", "ok", mtime: Time.now)
+
+    inst = make_installer
+
+    expect { inst.send(:resolve_umbrella_checkouts) }.not_to output(
+      /no DerivedData checkouts found/,
+    ).to_stderr
+  end
+end
