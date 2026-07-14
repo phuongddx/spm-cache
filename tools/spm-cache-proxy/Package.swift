@@ -19,5 +19,9 @@ let package = Package(
             ],
             path: "Sources"
         ),
+        .testTarget(
+            name: "spm-cache-proxyTests",
+            dependencies: ["spm-cache-proxy"]
+        ),
     ]
 )

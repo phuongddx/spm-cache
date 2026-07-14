@@ -7,6 +7,7 @@ struct Lockfile: Codable {
         let name: String?
         let productName: String?
         let version: String?
+        let revision: String?
 
         var isLocal: Bool {
             pathFromRoot != nil
@@ -28,16 +29,13 @@ struct Lockfile: Codable {
         }
 
         var versionRequirement: String {
-            guard let version = version, !version.isEmpty else {
-                return "from: \"0.1.0\""
-            }
-            let parts = version.split(separator: ".").map(String.init)
-            let major = Int(parts[0]) ?? 1
-            if major >= 1 {
-                return "from: \"\(version)\""
-            } else {
+            if let version = version, !version.isEmpty {
                 return "from: \"\(version)\""
             }
+            if let revision = revision, !revision.isEmpty {
+                return "revision: \"\(revision)\""
+            }
+            return "from: \"0.1.0\""
         }
     }
 
@@ -64,7 +62,8 @@ struct Lockfile: Codable {
                 pathFromRoot: pkgDict["path_from_root"] as? String,
                 name: name,
                 productName: pkgDict["product_name"] as? String,
-                version: pkgDict["version"] as? String
+                version: pkgDict["version"] as? String,
+                revision: pkgDict["revision"] as? String
             )
         }
         self.dependencies = (dict["dependencies"] as? [String: [String]]) ?? [:]
