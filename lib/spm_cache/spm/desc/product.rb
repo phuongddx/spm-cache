@@ -21,7 +21,8 @@ module SPMCache
         end
 
         def type
-          raw["type"]
+          t = raw["type"]
+          t.is_a?(Hash) ? t.keys.first : t
         end
 
         def to_h

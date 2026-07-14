@@ -6,6 +6,7 @@ require "tmpdir"
 require "spm_cache/core/log"
 require "spm_cache/core/sh"
 require "spm_cache/spm/build"
+require "spm_cache/spm/desc/desc"
 require "spm_cache/spm/xcframework/xcframework"
 
 module SPMCache
@@ -30,12 +31,14 @@ module SPMCache
 
           FileUtils.mkdir_p(out_dir)
 
+          scheme = resolve_scheme(name, pkg_dir)
+
           buildable = Buildable.new(
             name: name,
             module_name: name,
             pkg_dir: pkg_dir,
             library_evolution: library_evolution,
-            scheme: name,
+            scheme: scheme,
           )
 
           tmpdir = Dir.mktmpdir
@@ -61,7 +64,7 @@ module SPMCache
           if framework_paths.empty?
             # Scheme-name fallback: try listing schemes and retry once.
             alt = resolve_scheme_fallback(name, pkg_dir)
-            if alt && alt != name
+            if alt && alt != scheme
               Core::UI.info "  Retrying with scheme '#{alt}'..."
               return run_with_scheme(name: name, scheme: alt, pkg_dir: pkg_dir,
                                      destinations: destinations, out_dir: out_dir,
@@ -127,6 +130,28 @@ module SPMCache
           result = xcframework.build
           FileUtils.rm_rf(tmpdir)
           result
+        end
+
+        # Resolve the Xcode scheme to build for `name` (package identity) BEFORE
+        # attempting any build. SPM-native package schemes in Xcode are
+        # auto-generated 1:1 from *product* names (not target names, not the
+        # package identity), so `swift package describe` product metadata is
+        # the authoritative source here — no wasted build attempt needed just
+        # to discover the right scheme.
+        def resolve_scheme(name, pkg_dir)
+          desc = Desc::Description.new(name: name, pkg_dir: pkg_dir)
+          desc.fetch
+          library_products = desc.products.select { |p| p.type == "library" }
+          match = library_products.find { |p| p.name.casecmp(name).zero? } ||
+                  library_products
+                    .select { |p| p.name.downcase.include?(name.downcase) || name.downcase.include?(p.name.downcase) }
+                    .min_by { |p| (p.name.length - name.length).abs } ||
+                  library_products.first
+          return match.name if match
+
+          # Fall back to xcodebuild -list heuristic only if `swift package
+          # describe` yielded nothing usable (e.g. binary-only/malformed packages).
+          resolve_scheme_fallback(name, pkg_dir) || name
         end
 
         def resolve_scheme_fallback(name, pkg_dir)
