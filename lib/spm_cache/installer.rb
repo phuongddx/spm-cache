@@ -56,10 +56,11 @@ module SPMCache
 
     def ensure_config_file
       config_path = File.join(@config.project_dir, "spm-cache.yml")
-      return if File.exist?(config_path)
-
-      template_path = SPMCache::LIBEXEC.join("assets", "templates", "spm-cache.yml.template")
-      FileUtils.cp(template_path.to_s, config_path) if template_path.exist?
+      unless File.exist?(config_path)
+        template_path = SPMCache::LIBEXEC.join("assets", "templates", "spm-cache.yml.template")
+        FileUtils.cp(template_path.to_s, config_path) if template_path.exist?
+      end
+      @config.load(config_path)
     end
 
     def sync_lockfile
