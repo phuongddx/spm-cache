@@ -71,9 +71,13 @@ lib/spm_cache/
 
 ## Testing
 
-- **Framework:** RSpec (`spec/` directory — to be created)
+- **Framework:** RSpec (`spec/` directory with 4 test files covering Core, Config, Lockfile, and Buildable)
 - **Run:** `make test` or `bundle exec rspec`
 - **Swift tests:** To be added in `tools/spm-cache-proxy/Tests/`
+
+### CI Pipeline
+
+- **GitHub Actions** (`.github/workflows/update-tap.yml`) — Automated on `release: published`: computes tarball sha256, updates external Homebrew tap repo, commits/pushes updated formula
 
 ## Linting & Formatting
 

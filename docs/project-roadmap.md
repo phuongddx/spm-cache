@@ -20,13 +20,15 @@
 
 ## v0.1.x — Stabilization
 
-- [ ] Add RSpec test suite for Ruby gem
+- [x] Add RSpec test suite for Ruby gem (4 files, 19 examples — Core, Config, Lockfile, Buildable)
 - [ ] Add Swift tests for proxy tool
 - [ ] End-to-end integration tests with real SPM projects
 - [ ] Error handling hardening (edge cases in framework slice creation)
 - [ ] Resource bundle accessor compilation fix (swiftc fallback)
 - [ ] `Resolver` implementation (currently a stub in Swift tool)
-- [ ] CI pipeline (GitHub Actions: test + lint on push)
+- [x] CI pipeline (GitHub Actions: update-tap.yml on release published)
+- [x] Homebrew distribution via external tap (`phuongddx/spm-cache`)
+- [x] Agent skills for guided usage + issue filing (`skills/spm-cache`, `skills/spm-cache-issue`)
 
 ## v0.2.0 — Polish & DX
 

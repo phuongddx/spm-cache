@@ -1,7 +1,7 @@
 # frozen_string_literal: true
 
 require "spm_cache/command/pkg"
-require "spm_cache/spm/pkg/base"
+require "spm_cache/spm/build_pipeline"
 require "spm_cache/core/log"
 
 module SPMCache
@@ -40,56 +40,15 @@ module SPMCache
 
           library_evo = @no_lib_evo
 
-          # Build directly using Buildable (bypasses swift package describe)
-          buildable = SPM::Buildable.new(
+          result = SPM::BuildPipeline.run(
             name: @target_name,
-            module_name: @target_name,
             pkg_dir: pkg_dir,
+            destinations: destinations,
+            out_dir: @out,
             library_evolution: library_evo,
-            scheme: @target_name,
           )
-
-          require "tmpdir"
-          tmpdir = Dir.mktmpdir
-          framework_paths = []
-
-          destinations.each do |dest_key|
-            puts "  Building for #{dest_key}..."
-            dd = File.join(pkg_dir, "DerivedData_#{dest_key}")
-            begin
-              artifacts = buildable.build_for_destination(dest_key, derived_data_path: dd)
-            rescue => e
-              puts "  WARNING: #{dest_key} build failed: #{e.message}"
-              next
-            end
-            next unless artifacts[:object_file]
-
-            # Create framework with correct module name inside temp dir
-            fw_subdir = File.join(tmpdir, dest_key)
-            FileUtils.mkdir_p(fw_subdir)
-            fw_dir = buildable.create_framework(artifacts, fw_subdir)
-            framework_paths << fw_dir
-            puts "  #{dest_key} framework built"
-          end
-
-          if framework_paths.empty?
-            puts "ERROR: No slices were built successfully"
-            return
-          end
-
-          output_path = File.join(@out, "#{@target_name}.xcframework")
-          require "fileutils"
-          FileUtils.rm_rf(output_path)
-
-          xcframework = SPM::XCFramework::XCFramework.new(
-            name: @target_name,
-            framework_paths: framework_paths,
-            output_path: output_path,
-          )
-          result = xcframework.build
 
           puts "Built: #{result}"
-          FileUtils.rm_rf(tmpdir)
 
           if result && File.exist?(result)
             slices = Dir.entries(result).reject { |e| e.start_with?(".") || e == "Info.plist" }

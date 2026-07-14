@@ -1,6 +1,6 @@
 # Codebase Summary
 
-> **Last Updated:** 2026-07-12 (rev 3)
+> **Last Updated:** 2026-07-13 (rev 4)
 > **Version:** 0.1.0
 
 ## Overview
@@ -14,7 +14,9 @@
 | Ruby gem (`lib/`) | Ruby | 79 | ~3,604 |
 | Swift proxy (`tools/spm-cache-proxy/Sources/`) | Swift | 19 | ~822 |
 | Templates (`lib/spm_cache/assets/templates/`) | ERB/HTML/PLIST | 8 | — |
-| **Total** | — | **106+** | **~4,426** |
+| Test suite (`spec/`) | Ruby | 4 | ~150 |
+| Agent skills (`skills/`) | Markdown + YAML | 8 | — |
+| **Total** | — | **118+** | **~4,576** |
 
 ## Component Breakdown
 
@@ -46,7 +48,7 @@
 
 **`installer/`** — Install pipeline (8 files)
 - `installer.rb`: Base `Installer` class — `perform_install` orchestrates: verify → recreate_dirs → migrate → ensure_config → sync_lockfile → proxy_pkg.prepare → gen_supporting_files → add_refs → inject_xcconfig → gen_cachemap_viz
-- `use.rb`, `build.rb`, `rollback.rb`: Installer subclasses
+- `use.rb`, `build.rb`, `rollback.rb`: Installer subclasses. `Installer::Build` accepts a `targets:` kwarg, filters the cachemap missed set, resolves umbrella checkouts, and invokes `SPM::BuildPipeline` per target to build real xcframeworks into the cache dir.
 - `integration/`: Mixins — `BuildIntegrationMixin` (build_missed!), `DescsIntegrationMixin` (binary_targets), `SupportingFilesIntegrationMixin` (gen_xcconfigs for macros), `VizIntegrationMixin` (cachemap HTML)
 
 **`spm/`** — SPM package model (18 files)
@@ -54,6 +56,7 @@
 - `pkg/proxy.rb`: `SPM::Package::Proxy` — orchestrates umbrella gen → resolve → proxy gen → graph load
 - `pkg/proxy_executable.rb`: `ProxyExecutable` — locates/builds the Swift proxy binary, runs subcommands
 - `build.rb`: `Buildable` — **uses `xcodebuild build`** (not `swift build`) with configurable destinations (sim + device), `libtool -static` for library creation, framework assembly with library evolution swiftinterface files. Supports `build_for_destination`, `create_static_library`, `create_framework`.
+- `build_pipeline.rb`: `SPM::BuildPipeline` — shared xcframework build pipeline (destination loop + framework assembly + xcframework creation). Used by both `pkg build` and `Installer::Build`.
 - `macro.rb`: `Macro` — builds macro targets as `.macro` binaries
 - `xcframework/`: `XCFramework` (merges multiple framework slices via `xcodebuild -create-xcframework`), `Metadata` (checksum, Info.plist parsing)
 - `desc/`: `Description` (swift package describe --type json), `Target`, `Product`, `Dependency`, `BinaryTarget`, `MacroTarget`
@@ -74,6 +77,33 @@
 **`utils/`** — Utilities (1 file)
 - `template.rb`: `Utils::Template` — ERB rendering from `assets/templates/`
 
+### Test Suite (`spec/`)
+
+RSpec tests with 19 examples covering:
+- `spec_helper.rb` — test setup and helpers
+- `config_spec.rb` — `Core::Config` singleton behavior
+- `core_spec.rb` — `Core::Sh` shell execution and `Core::UI` logging
+- `lockfile_spec.rb` — lockfile parsing, package resolution, deep merge
+- `buildable_spec.rb` — SPM package naming conventions and library evolution defaults
+
+**Not yet covered:** Installer integration, Storage backends, Proxy execution (known limitation)
+
+### Agent Skills (`skills/`)
+
+Two Claude agent skills for end-users and developers:
+
+**`skills/spm-cache/`** — User-facing skill for spm-cache workflows
+- `SKILL.md` — skill entry point
+- `references/cli-reference.md` — complete command/option table
+- `references/remote-cache.md` — Git/S3 remote setup guides
+- `references/ci-cd.md` — GitHub Actions patterns (pull→build→use→build→push)
+- `references/troubleshooting.md` — 7 common issues and solutions
+
+**`skills/spm-cache-issue/`** — GitHub issue filing skill
+- `SKILL.md` — skill entry point
+- `scripts/collect_diagnostics.sh` — gathers OS, Ruby, Swift, Xcode, and gem diagnostics
+- Includes `agents/openai.yaml` for non-Claude runtime compatibility
+
 ### Swift Proxy Tool (`tools/spm-cache-proxy/`)
 
 **Package:** `spm-cache-proxy`, Swift 6.0, macOS 14+
@@ -83,7 +113,7 @@
 
 **`CLI/`** (3 files)
 - `GenUmbrella.swift`: Loads lockfile → merges packages/platforms → `UmbrellaGenerator.generate()`
-- `GenProxy.swift`: Loads lockfile → `ProxyGenerator.generate(for:)` → `generateGraphJSON(entries:)`
+- `GenProxy.swift`: Loads lockfile → `ProxyGenerator.generate(for:)` → `generateGraphJSON(entries:)`. Accepts `--ignore` CSV glob patterns to exclude modules from caching.
 - `Resolve.swift`: `Resolver.resolve()` (stub — metadata generation)
 
 **`Core/`** (10 files)
@@ -93,7 +123,7 @@
 - `Env.swift`: `Env.isRunningInsideXcode`, `Env.isCI`
 - `Generator/`:
   - `UmbrellaGenerator.swift`: Generates umbrella `Package.swift` from lockfile (deps + targets + platforms)
-  - `ProxyGenerator.swift`: Generates per-package proxy `Package.swift` (binary or source), root proxy, `graph.json`
+  - `ProxyGenerator.swift`: Generates per-package proxy `Package.swift` (binary on hit, source-fallback via real package dependency on miss/ignored), root proxy, `graph.json`. Honors `ignoredPatterns` (fnmatch against product name OR package identity); ignored packages are always source even when a cached binary exists.
   - `GraphGenerator.swift`: Generates cytoscape-style graph JSON for visualization
   - `MetadataGenerator.swift`: Generates per-package metadata JSON
 - `Proxy/`:

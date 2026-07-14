@@ -38,12 +38,39 @@ RSpec.describe SPMCache::Core::Config do
     end
   end
 
+  # Glob-semantics parity cases (mirrored in spec/proxy_executable_spec.rb
+  # Swift fixture check and spec/fixtures/ignore-lockfile.json). Keep these in
+  # sync so Ruby File.fnmatch and Swift fnmatch agree.
   describe "#should_ignore?" do
-    before { config.raw["ignore"] = ["Test*"] }
+    before { config.raw["ignore"] = ["Test*", "MyCompany?", "ExactName"] }
 
-    it "matches glob patterns" do
+    it "matches prefix glob" do
       expect(config.should_ignore?("TestPackage")).to be true
+    end
+
+    it "matches single-char wildcard" do
+      expect(config.should_ignore?("MyCompanyX")).to be true
+    end
+
+    it "matches exact name" do
+      expect(config.should_ignore?("ExactName")).to be true
+    end
+
+    it "does not match unrelated names" do
       expect(config.should_ignore?("OtherPackage")).to be false
+    end
+
+    it "does not match single-char wildcard with wrong length" do
+      expect(config.should_ignore?("MyCompany")).to be false
+      expect(config.should_ignore?("MyCompanyXX")).to be false
+    end
+
+    context "with empty ignore list" do
+      before { config.raw["ignore"] = [] }
+
+      it "ignores nothing" do
+        expect(config.should_ignore?("Anything")).to be false
+      end
     end
   end
 end

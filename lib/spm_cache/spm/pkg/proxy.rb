@@ -29,9 +29,10 @@ module SPMCache
           FileUtils.mkdir_p(proxy_dir)
           FileUtils.mkdir_p(metadata_dir)
 
+          ignore = Core::Config.instance.ignore_list
           gen_umbrella(lockfile_path, umbrella_dir)
           invalidate_cache
-          gen_proxy(umbrella_dir, proxy_dir, cache_dir, lockfile_path: lockfile_path)
+          gen_proxy(umbrella_dir, proxy_dir, cache_dir, lockfile_path: lockfile_path, ignore: ignore)
           load_graph
         end
 
@@ -43,8 +44,8 @@ module SPMCache
           @executable.resolve(package_dir: package_dir, metadata_dir: metadata_dir)
         end
 
-        def gen_proxy(umbrella_dir, output_dir, cache_dir, lockfile_path: nil)
-          @executable.gen_proxy(umbrella_dir: umbrella_dir, output_dir: output_dir, cache_dir: cache_dir, lockfile_path: lockfile_path)
+        def gen_proxy(umbrella_dir, output_dir, cache_dir, lockfile_path: nil, ignore: [])
+          @executable.gen_proxy(umbrella_dir: umbrella_dir, output_dir: output_dir, cache_dir: cache_dir, lockfile_path: lockfile_path, ignore: ignore)
         end
 
         def invalidate_cache

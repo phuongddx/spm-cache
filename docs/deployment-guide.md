@@ -22,13 +22,33 @@
 
 ## Installation
 
+### Homebrew (Recommended)
+
+```bash
+brew install phuongddx/spm-cache/spm-cache
+```
+
+Installs the latest stable release. The Swift proxy tool is built from source on first run (requires Swift toolchain).
+
 ### From RubyGems
 
 ```bash
 gem install spm-cache
 ```
 
-This installs the `spm-cache` CLI. The Swift proxy tool is built from source on first run (requires Swift toolchain).
+This installs the `spm-cache` CLI. The Swift proxy tool is built from source on first run.
+
+### With Bundler
+
+```ruby
+# Gemfile
+gem "spm-cache", "~> 0.1"
+```
+
+```bash
+bundle install
+bundle exec spm-cache --help
+```
 
 ### From Source (Development)
 
@@ -43,18 +63,6 @@ make install
 make proxy.build
 
 # Verify
-bundle exec spm-cache --help
-```
-
-### With Bundler
-
-```ruby
-# Gemfile
-gem "spm-cache", "~> 0.1"
-```
-
-```bash
-bundle install
 bundle exec spm-cache --help
 ```
 
@@ -226,7 +234,8 @@ Run `spm-cache` from the directory containing your `.xcodeproj` file.
 
 ### Build errors for specific targets
 
-Add them to the ignore list:
+Add them to the ignore list (glob patterns match product name or package
+identity; ignored targets are always compiled from source):
 
 ```bash
 spm-cache off ProblematicTarget
@@ -271,3 +280,12 @@ Add `spm-cache/` to `.gitignore`:
 spm-cache/
 spm-cache.lock
 ```
+
+## Getting Help
+
+### Agent Skills
+
+If using Claude Code or agent-enabled IDEs:
+
+- **`skills/spm-cache`** — Guided walkthrough of installation, configuration, building, and troubleshooting. Use this for step-by-step help with any workflow.
+- **`skills/spm-cache-issue`** — File a GitHub issue directly. Collects diagnostics (Swift/Xcode versions, config state, cache status) and files the issue automatically.

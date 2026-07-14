@@ -2,7 +2,7 @@
 
 > **Project:** spm-cache
 > **Version:** 0.1.0
-> **Status:** Active Development
+> **Status:** Release-Ready (v0.1.0 shipped)
 > **License:** MIT
 
 ## Problem Statement
@@ -80,6 +80,17 @@ iOS projects using Swift Package Manager (SPM) dependencies suffer from long cle
 - Cache hit produces a working binary framework that links correctly
 - Rollback fully restores the original Xcode project state
 - Remote cache sync works with both Git and S3 backends
+
+## v0.1.0 Delivered Features
+
+Beyond core caching, v0.1.0 includes:
+
+- **RSpec Test Suite** — 4 test files, 19 examples covering Core utilities, Config singleton, Lockfile parsing, and Buildable naming
+- **GitHub Actions CI** — Automated release workflow (update-tap.yml) that publishes to Homebrew tap on release
+- **Homebrew Distribution** — Distributed via external tap `phuongddx/spm-cache` (recommended install method)
+- **Agent Skills** — Two Claude/agent skills for end-users:
+  - `skills/spm-cache` — guided workflows, CLI reference, remote cache setup, CI/CD patterns, troubleshooting
+  - `skills/spm-cache-issue` — automated GitHub issue filing with diagnostics collection
 
 ## Constraints
 

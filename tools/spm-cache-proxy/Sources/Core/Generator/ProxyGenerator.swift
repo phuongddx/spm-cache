@@ -3,10 +3,12 @@ import Foundation
 struct ProxyGenerator {
     let cache: BinariesCache
     let outputDir: URL
+    let ignoredPatterns: [String]
 
-    init(cache: BinariesCache, outputDir: URL) {
+    init(cache: BinariesCache, outputDir: URL, ignoredPatterns: [String] = []) {
         self.cache = cache
         self.outputDir = outputDir
+        self.ignoredPatterns = ignoredPatterns
     }
 
     struct GraphEntry: Codable {
@@ -17,6 +19,22 @@ struct ProxyGenerator {
         let status: Status
         let dependencies: [String]
         let hasMacro: Bool
+    }
+
+    /// Returns true when any ignore glob pattern matches the package's
+    /// resolved product name OR its lockfile identity (`name`). Mirrors the
+    /// Ruby `File.fnmatch` default semantics via POSIX `fnmatch`.
+    private func isIgnored(_ pkg: Lockfile.PackageRef) -> Bool {
+        guard !ignoredPatterns.isEmpty else { return false }
+        let candidates = [pkg.resolvedProductName, pkg.name].compactMap { $0 }
+        for pattern in ignoredPatterns {
+            for candidate in candidates {
+                if fnmatch(pattern, candidate, 0) == 0 {
+                    return true
+                }
+            }
+        }
+        return false
     }
 
     func generate(for packages: [Lockfile.PackageRef]) throws -> [GraphEntry] {
@@ -34,10 +52,19 @@ struct ProxyGenerator {
             let proxyDir = proxiesDir.appendingPathComponent(slug)
             try proxyDir.mkdir()
 
-            let cachedBinary = cache.hit(module: productName)
-            let status: GraphEntry.Status = cachedBinary != nil ? .hit : .missed
+            let ignored = isIgnored(pkg)
+            // Ignored packages are always source, even when a cached binary exists.
+            let cachedBinary = ignored ? nil : cache.hit(module: productName)
+            let status: GraphEntry.Status
+            if ignored {
+                status = .ignored
+            } else if cachedBinary != nil {
+                status = .hit
+            } else {
+                status = .missed
+            }
 
-            let packageSwift = generateProxyManifest(pkg: pkg, productName: productName, cacheHit: cachedBinary, artifactsDir: artifactsDir)
+            let packageSwift = generateProxyManifest(pkg: pkg, productName: productName, status: status, cacheHit: cachedBinary, artifactsDir: artifactsDir)
             let packageSwiftPath = proxyDir.appendingPathComponent("Package.swift")
             try packageSwift.write(to: packageSwiftPath, atomically: true, encoding: .utf8)
 
@@ -49,10 +76,12 @@ struct ProxyGenerator {
                     withDestinationURL: binary
                 )
             } else {
-                // Create stub source for cache misses
-                let sourcesDir = proxyDir.appendingPathComponent("Sources").appendingPathComponent("\(slug)_source")
+                // Source fallback (miss or ignored): emit a shim that re-exports
+                // the real package source so `import <module>` resolves.
+                let sourcesDir = proxyDir.appendingPathComponent("Sources").appendingPathComponent("\(slug)_shim")
                 try sourcesDir.mkdir()
-                try "".write(to: sourcesDir.appendingPathComponent("\(slug)_source.swift"), atomically: true, encoding: .utf8)
+                let shim = generateShimSource(pkg: pkg, productName: productName)
+                try shim.write(to: sourcesDir.appendingPathComponent("\(slug)_shim.swift"), atomically: true, encoding: .utf8)
             }
 
             entries.append(GraphEntry(
@@ -84,10 +113,10 @@ struct ProxyGenerator {
         Logger.info("Generated graph.json at \(path.path)")
     }
 
-    private func generateProxyManifest(pkg: Lockfile.PackageRef, productName: String, cacheHit: URL?, artifactsDir: URL) -> String {
+    private func generateProxyManifest(pkg: Lockfile.PackageRef, productName: String, status: GraphEntry.Status, cacheHit: URL?, artifactsDir: URL) -> String {
         let slug = pkg.slug
 
-        if cacheHit != nil {
+        if status == .hit, cacheHit != nil {
             let relativePath = "../../.build/artifacts/\(productName).xcframework"
             return """
             // swift-tools-version: 6.0
@@ -104,6 +133,8 @@ struct ProxyGenerator {
             )
             """
         } else {
+            // Miss or ignored: re-export the real package source via a shim target.
+            let (depLine, targetDep) = sourceDependencyLines(pkg: pkg, productName: productName)
             return """
             // swift-tools-version: 6.0
             import PackageDescription
@@ -111,14 +142,49 @@ struct ProxyGenerator {
             let package = Package(
                 name: "\(slug)_proxy",
                 products: [
-                    .library(name: "\(productName)", targets: ["\(slug)_source"]),
+                    .library(name: "\(productName)", targets: ["\(slug)_shim"]),
+                ],
+                dependencies: [
+                    \(depLine)
                 ],
                 targets: [
-                    .target(name: "\(slug)_source"),
+                    .target(name: "\(slug)_shim", dependencies: [
+                        \(targetDep)
+                    ], path: "Sources/\(slug)_shim")
                 ]
             )
             """
         }
+    }
+
+    /// Emits the `.package(...)` dependency line and the `.product(...)` target
+    /// dependency line for source fallback (miss/ignored). Remote packages use
+    /// `url:from:`; local packages use `path:` resolved relative to the proxy dir.
+    private func sourceDependencyLines(pkg: Lockfile.PackageRef, productName: String) -> (dep: String, targetDep: String) {
+        let packageIdentity = pkg.slug
+        if pkg.isLocal, let path = pkg.pathFromRoot {
+            // Proxy Package.swift lives at .proxies/<slug>/Package.swift; the
+            // project root is two levels up.
+            let depLine = ".package(path: \"../../\(path)\")"
+            let targetDep = ".product(name: \"\(productName)\", package: \"\(packageIdentity)\")"
+            return (depLine, targetDep)
+        } else {
+            let url = pkg.repositoryURL ?? ""
+            let req = pkg.versionRequirement
+            let depLine = ".package(url: \"\(url)\", \(req))"
+            let targetDep = ".product(name: \"\(productName)\", package: \"\(packageIdentity)\")"
+            return (depLine, targetDep)
+        }
+    }
+
+    /// Shim source that re-exports the real module so app-level
+    /// `import <productName>` resolves to source compilation.
+    private func generateShimSource(pkg: Lockfile.PackageRef, productName: String) -> String {
+        let moduleName = pkg.resolvedProductName
+        return """
+        // Auto-generated by spm-cache-proxy: re-exports the source package module.
+        @_exported import \(moduleName)
+        """
     }
 
     private func generateRootProxy(packages: [Lockfile.PackageRef]) -> String {

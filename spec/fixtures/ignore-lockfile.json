@@ -1,0 +1,28 @@
+{
+  "FixtureApp.xcodeproj": {
+    "packages": [
+      {
+        "repositoryURL": "https://github.com/Alamofire/Alamofire.git",
+        "name": "Alamofire",
+        "product_name": "Alamofire",
+        "version": "5.9.1"
+      },
+      {
+        "repositoryURL": "https://github.com/SnapKit/SnapKit.git",
+        "name": "SnapKit",
+        "product_name": "SnapKit",
+        "version": "5.7.1"
+      },
+      {
+        "repositoryURL": "https://github.com/apple/swift-log.git",
+        "name": "swift-log",
+        "product_name": "Logging",
+        "version": "1.6.0"
+      }
+    ],
+    "dependencies": {},
+    "platforms": {
+      "ios": "16.0"
+    }
+  }
+}

@@ -93,17 +93,28 @@ Auto-generated on first run. Key options:
 
 | Option | Default | Description |
 |--------|---------|-------------|
-| `ignore` | `[]` | Package names to exclude from caching |
+| `ignore` | `[]` | Glob patterns to exclude from caching; matches product name or package identity |
 | `ignore_local` | `false` | Skip local packages |
 | `ignore_build_errors` | `false` | Don't fail on build errors |
 | `keep_pkgs_in_project` | `false` | Keep original package refs alongside proxy |
 | `default_sdk` | `iphonesimulator` | Default SDK for builds |
 
-Force source mode for specific targets (adds to ignore list):
+Force source mode for specific targets (adds to ignore list). Patterns
+match the resolved product name OR the package identity (e.g. `MyCompany*`
+ignores all modules whose product or package name starts with `MyCompany`):
 
 ```bash
 spm-cache off ProblematicTarget
 spm-cache          # re-run to apply
+```
+
+Ignored targets are always compiled from source, even when a cached
+xcframework exists. They are never built by `spm-cache build`. Building
+specific targets:
+
+```bash
+spm-cache build Alamofire SnapKit   # build only these targets
+spm-cache build                     # build all missed targets
 ```
 
 ## Quick Command Reference

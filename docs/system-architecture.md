@@ -122,7 +122,7 @@ After proxy generation, a `graph.json` is emitted with per-module status:
 ]
 ```
 
-Statuses: `hit` (cached binary used), `missed` (source fallback), `ignored` (in ignore list).
+Statuses: `hit` (cached binary used), `missed` (source fallback via real package dependency), `ignored` (matches an `ignore` glob pattern; always compiled from source even when a cached binary exists, and never built by `spm-cache build`).
 
 The Ruby `Cache::Cachemap` class reads this and drives the visualization (HTML) and build decisions.
 

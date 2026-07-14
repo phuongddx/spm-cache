@@ -68,12 +68,16 @@ spm-cache pkg build {target} --sdk=all --out=~/.spm-cache/debug
 
 ## Build errors for specific targets
 
-Exclude the problematic target:
+Exclude the problematic target (supports glob patterns matched against
+product name or package identity):
 
 ```bash
 spm-cache off ProblematicTarget
-spm-cache
+spm-cache          # re-run to apply
 ```
+
+Ignored targets are always compiled from source, even when a cached
+xcframework exists. `spm-cache build` skips ignored targets with a warning.
 
 Or set `ignore_build_errors: true` in `spm-cache.yml`.
 

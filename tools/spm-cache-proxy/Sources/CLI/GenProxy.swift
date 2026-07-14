@@ -19,6 +19,9 @@ struct GenProxy: AsyncParsableCommand, CommandRunning {
     @Option(help: "Path to spm-cache.lock file")
     var lockfile: String
 
+    @Option(help: "Comma-separated glob patterns of modules to exclude from caching")
+    var ignore: String?
+
     func run() async throws {
         let umbrellaDir = URL(fileURLWithPath: umbrella)
         let outputDir = URL(fileURLWithPath: output)
@@ -31,8 +34,13 @@ struct GenProxy: AsyncParsableCommand, CommandRunning {
             allPackages.append(contentsOf: lf.packages)
         }
 
+        let ignoredPatterns = ignore?
+            .split(separator: ",")
+            .map { $0.trimmingCharacters(in: .whitespaces) }
+            .filter { !$0.isEmpty } ?? []
+
         let binCache = BinariesCache(dir: cacheDir)
-        let generator = ProxyGenerator(cache: binCache, outputDir: outputDir)
+        let generator = ProxyGenerator(cache: binCache, outputDir: outputDir, ignoredPatterns: ignoredPatterns)
         let entries = try generator.generate(for: allPackages)
         try generator.generateGraphJSON(entries: entries)
 

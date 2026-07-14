@@ -153,6 +153,13 @@ make test
 make format
 ```
 
+### Agent Skills
+
+Two Claude agent skills are included for advanced workflows:
+
+- **`skills/spm-cache`** — End-user skill for using spm-cache: prerequisites, install methods, core workflow (build/integrate/verify/rollback), SDK flags, config options, remote cache setup, CI/CD patterns, and troubleshooting guides.
+- **`skills/spm-cache-issue`** — Automated GitHub issue filing: collects diagnostics, classifies issue type, drafts and confirms details, then files directly to the issue tracker.
+
 ## Project Structure
 
 ```
