@@ -41,39 +41,87 @@ cd /path/to/xcode/project
 ls *.xcodeproj        # verify project exists
 ```
 
-### 1. Build dependencies into cache
+### 1. Analyze project dependencies
+
+Before anything else, discover the SPM packages already resolved in the
+project so the exclusion question (step 2) and the build strategy (step 3)
+are grounded in real data, not guesses:
 
 ```bash
-# Build all targets in the dependency graph
-spm-cache build --recursive
+find . -name Package.resolved -not -path "*/spm-cache/*"
+cat path/to/Package.resolved | grep '"identity"'    # list package identities
+```
 
-# Build specific target with multi-slice xcframework (sim + device)
-spm-cache pkg build Alamofire --sdk=all --out=~/.spm-cache/debug
+Count the packages. If no `Package.resolved` exists yet, tell the user to
+open the project in Xcode once to resolve dependencies first.
+
+### 2. Ask which packages should not be cached
+
+Using the list from step 1, ask the user: "Are there any SPM packages that
+should NOT be cached (always built from source)?" — e.g. packages with
+build-time codegen, local packages, or known-flaky binaries.
+
+If they name any, write glob patterns to the `ignore` key in `spm-cache.yml`
+before the first run — create the file yourself with just this key if it
+doesn't exist yet (patterns match product name or package identity; no need
+to hunt for the gem's internal template, `spm-cache` merges any partial YAML
+with its defaults):
+
+```yaml
+ignore:
+  - MyCodegenPackage
+  - LocalPackage*
+```
+
+Skip this step if the user has no exclusions in mind — `ignore: []` is the
+default and running `spm-cache` will auto-generate the full config file
+anyway.
+
+### 3. Build and integrate
+
+**5 or fewer packages** (from step 1's count): build and integrate once, as
+usual:
+
+```bash
+spm-cache build --recursive     # build all targets in the dependency graph
+spm-cache                       # integrate (same as `spm-cache use`)
 
 # Build config options: debug (default) or release
 spm-cache build --recursive --config=release
 ```
 
-### 2. Integrate cache (default command)
+**More than 5 packages**: build in batches of at most 5 to keep each round
+fast and easy to debug if a target fails. Integrate and verify after every
+batch before starting the next one:
 
 ```bash
-spm-cache              # same as `spm-cache use`
+spm-cache build PkgA PkgB PkgC PkgD PkgE   # batch 1 (name targets from step 1)
+spm-cache                                   # integrate this batch
+spm-cache cache list                        # verify batch 1 hits
+spm-cache build PkgF PkgG PkgH ...          # batch 2, repeat until done
 ```
 
-Creates a `spm-cache/` sandbox with proxy packages. Xcode now uses cached binaries for hits, source for misses. Add to `.gitignore`:
+Multi-slice xcframework for a single target (either path):
+
+```bash
+spm-cache pkg build Alamofire --sdk=all --out=~/.spm-cache/debug
+```
+
+Either way, this creates a `spm-cache/` sandbox with proxy packages — Xcode
+now uses cached binaries for hits, source for misses. Add to `.gitignore`:
 
 ```bash
 echo "spm-cache/" >> .gitignore
 echo "spm-cache.lock" >> .gitignore
 ```
 
-### 3. Verify cache status
+### 4. Verify cache status
 
 ```bash
 spm-cache cache list           # list cached packages
 ```
 
-### 4. Rollback (fully reversible)
+### 5. Rollback (fully reversible)
 
 ```bash
 spm-cache rollback             # restore original project state
@@ -94,6 +142,7 @@ Auto-generated on first run. Key options:
 | Option | Default | Description |
 |--------|---------|-------------|
 | `ignore` | `[]` | Glob patterns to exclude from caching; matches product name or package identity |
+| `cache_only` | `[]` | Allowlist: cache ONLY these glob patterns; overrides `ignore` entirely when non-empty |
 | `ignore_local` | `false` | Skip local packages |
 | `ignore_build_errors` | `false` | Don't fail on build errors |
 | `keep_pkgs_in_project` | `false` | Keep original package refs alongside proxy |
@@ -109,8 +158,16 @@ spm-cache          # re-run to apply
 ```
 
 Ignored targets are always compiled from source, even when a cached
-xcframework exists. They are never built by `spm-cache build`. Building
-specific targets:
+xcframework exists. They are never built by `spm-cache build`.
+
+To cache only a handful of packages instead of maintaining a growing ignore
+list, set `cache_only` in `spm-cache.yml` instead of using `spm-cache off` —
+when non-empty it wins outright and `ignore` is skipped entirely; every
+package not listed compiles from source (status `excluded`, same behavior as
+`ignored`, just a different config key drives it). No CLI command for
+`cache_only` — edit `spm-cache.yml` directly.
+
+Building specific targets:
 
 ```bash
 spm-cache build Alamofire SnapKit   # build only these targets

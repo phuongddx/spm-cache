@@ -81,6 +81,11 @@ xcframework exists. `spm-cache build` skips ignored targets with a warning.
 
 Or set `ignore_build_errors: true` in `spm-cache.yml`.
 
+Prefer an allowlist instead? Set `cache_only` in `spm-cache.yml` — when
+non-empty it wins outright over `ignore` (which is skipped entirely), and
+every package not listed gets status `excluded` (source, skipped by
+`spm-cache build` with a warning, same as `ignored`).
+
 ## Library evolution issues
 
 If cached frameworks fail to link across Xcode versions, ensure library evolution flags are enabled (they are by default). Check that `--no-library-evolution` is NOT set in CLI flags or spm-cache.yml.
