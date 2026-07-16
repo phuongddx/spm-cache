@@ -45,12 +45,15 @@ module SPMCache
       # Filters `missed` down to the intersection with requested targets and
       # emits warnings for unknown or ignored names.
       def filter_requested_targets!(missed)
-        all_known = missed + @cachemap.hit + @cachemap.ignored
+        all_known = missed + @cachemap.hit + @cachemap.ignored + @cachemap.excluded
         (@requested_targets - all_known).each do |t|
           Core::UI.warn "unknown target '#{t}' (not in dependency graph)"
         end
         @requested_targets.select { |t| @cachemap.ignored.include?(t) }.each do |t|
           Core::UI.warn "'#{t}' is in the ignore list; skipping"
+        end
+        @requested_targets.select { |t| @cachemap.excluded.include?(t) }.each do |t|
+          Core::UI.warn "'#{t}' is excluded by cache_only; skipping"
         end
         missed.replace(missed & @requested_targets)
       end

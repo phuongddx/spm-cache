@@ -1,7 +1,7 @@
 # Project Roadmap
 
 > **Project:** spm-cache
-> **Last Updated:** 2026-07-12 (rev 3)
+> **Last Updated:** 2026-07-14 (rev 4)
 
 ## Current Status
 
@@ -20,6 +20,13 @@
 
 ## v0.1.x — Stabilization
 
+**v0.1.1 / v0.1.2 Patch Fixes:**
+- [x] Fixed: `spm-cache.yml` config (ignore_build_errors, default_sdk, ignore) now loads during build/use (was silently ignored)
+- [x] Fixed: revision-only Package.resolved pins now resolve correctly (previously always fell back to a bogus version)
+- [x] Fixed: umbrella resolve falls back to Xcode DerivedData checkouts instead of skipping every target
+- [x] Fixed: Xcode scheme resolved from `swift package describe` product metadata instead of raw package identity (fixes builds using the wrong scheme)
+
+**Ongoing Stabilization:**
 - [x] Add RSpec test suite for Ruby gem (4 files, 19 examples — Core, Config, Lockfile, Buildable)
 - [ ] Add Swift tests for proxy tool
 - [ ] End-to-end integration tests with real SPM projects

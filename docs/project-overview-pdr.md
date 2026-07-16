@@ -1,7 +1,7 @@
 # Project Overview & PDR
 
 > **Project:** spm-cache
-> **Version:** 0.1.0
+> **Version:** 0.1.2
 > **Status:** Release-Ready (v0.1.0 shipped)
 > **License:** MIT
 

@@ -30,9 +30,16 @@ module SPMCache
           FileUtils.mkdir_p(metadata_dir)
 
           ignore = Core::Config.instance.ignore_list
+          cache_only = Core::Config.instance.cache_only_list
           gen_umbrella(lockfile_path, umbrella_dir)
           invalidate_cache
-          gen_proxy(umbrella_dir, proxy_dir, cache_dir, lockfile_path: lockfile_path, ignore: ignore)
+          # cache_only wins outright over ignore when non-empty; ignore is
+          # skipped entirely rather than combined (single filter axis).
+          if cache_only.any?
+            gen_proxy(umbrella_dir, proxy_dir, cache_dir, lockfile_path: lockfile_path, cache_only: cache_only)
+          else
+            gen_proxy(umbrella_dir, proxy_dir, cache_dir, lockfile_path: lockfile_path, ignore: ignore)
+          end
           load_graph
         end
 
@@ -44,8 +51,8 @@ module SPMCache
           @executable.resolve(package_dir: package_dir, metadata_dir: metadata_dir)
         end
 
-        def gen_proxy(umbrella_dir, output_dir, cache_dir, lockfile_path: nil, ignore: [])
-          @executable.gen_proxy(umbrella_dir: umbrella_dir, output_dir: output_dir, cache_dir: cache_dir, lockfile_path: lockfile_path, ignore: ignore)
+        def gen_proxy(umbrella_dir, output_dir, cache_dir, lockfile_path: nil, ignore: [], cache_only: [])
+          @executable.gen_proxy(umbrella_dir: umbrella_dir, output_dir: output_dir, cache_dir: cache_dir, lockfile_path: lockfile_path, ignore: ignore, cache_only: cache_only)
         end
 
         def invalidate_cache

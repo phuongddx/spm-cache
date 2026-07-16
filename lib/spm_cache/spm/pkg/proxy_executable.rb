@@ -57,10 +57,11 @@ module SPMCache
           run("gen-umbrella", ["--lockfile #{lockfile_path}", "--output #{output_dir}"])
         end
 
-        def gen_proxy(umbrella_dir:, output_dir:, cache_dir:, lockfile_path: nil, ignore: [])
+        def gen_proxy(umbrella_dir:, output_dir:, cache_dir:, lockfile_path: nil, ignore: [], cache_only: [])
           args = ["--umbrella #{umbrella_dir}", "--output #{output_dir}", "--cache #{cache_dir}"]
           args << "--lockfile #{lockfile_path}" if lockfile_path
           args << "--ignore '#{ignore.join(",")}'" if ignore.any?
+          args << "--cache-only '#{cache_only.join(",")}'" if cache_only.any?
           run("gen-proxy", args)
         end
 

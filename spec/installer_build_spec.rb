@@ -35,6 +35,7 @@ RSpec.describe SPMCache::Installer::Build do
         { "module" => "SnapKit", "status" => "missed" },
         { "module" => "CachedLib", "status" => "hit" },
         { "module" => "VolatileLib", "status" => "ignored" },
+        { "module" => "ExcludedLib", "status" => "excluded" },
       ],
     )
   end
@@ -63,6 +64,12 @@ RSpec.describe SPMCache::Installer::Build do
   it "warns when requested target is ignored" do
     inst = make_installer(targets: ["VolatileLib"])
     expect { inst.perform_install }.to output(/'VolatileLib' is in the ignore list; skipping/).to_stderr
+  end
+
+  it "warns when requested target is excluded by cache_only, not mislabeled unknown" do
+    inst = make_installer(targets: ["ExcludedLib"])
+    expect { inst.perform_install }.to output(/'ExcludedLib' is excluded by cache_only; skipping/).to_stderr
+    expect { inst.perform_install }.not_to output(/unknown target 'ExcludedLib'/).to_stderr
   end
 
   it "does not build already-hit targets" do

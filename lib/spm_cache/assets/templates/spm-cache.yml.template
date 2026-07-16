@@ -1,4 +1,5 @@
 ignore: []
+# cache_only: []  # allowlist; when non-empty, overrides `ignore` entirely
 ignore_local: false
 ignore_build_errors: false
 keep_pkgs_in_project: false

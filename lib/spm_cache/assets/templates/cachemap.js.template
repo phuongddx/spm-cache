@@ -30,6 +30,10 @@ const style = [
         style: { 'background-color': '#9E9E9E' }
     },
     {
+        selector: 'node[status="excluded"]',
+        style: { 'background-color': '#607D8B' }
+    },
+    {
         selector: 'node[hasMacro="true"]',
         style: { 'shape': 'diamond', 'background-color': '#9C27B0' }
     },

@@ -13,15 +13,19 @@ module SPMCache
       end
 
       def missed
-        @graph_data.select { |e| e["status"] == "missed" }.map { |e| e["module"] }
+        modules_with_status("missed")
       end
 
       def hit
-        @graph_data.select { |e| e["status"] == "hit" }.map { |e| e["module"] }
+        modules_with_status("hit")
       end
 
       def ignored
-        @graph_data.select { |e| e["status"] == "ignored" }.map { |e| e["module"] }
+        modules_with_status("ignored")
+      end
+
+      def excluded
+        modules_with_status("excluded")
       end
 
       def missed?
@@ -34,6 +38,7 @@ module SPMCache
           hit: hit.size,
           missed: missed.size,
           ignored: ignored.size,
+          excluded: excluded.size,
         }
       end
 
@@ -49,6 +54,7 @@ module SPMCache
         puts "  Hit:     #{s[:hit]}"
         puts "  Missed:  #{s[:missed]}"
         puts "  Ignored: #{s[:ignored]}"
+        puts "  Excluded: #{s[:excluded]}"
       end
 
       def depgraph_for_viz
@@ -69,6 +75,12 @@ module SPMCache
 
         data = JSON.parse(File.read(graph_path))
         new(graph_data: data)
+      end
+
+      private
+
+      def modules_with_status(status)
+        @graph_data.select { |e| e["status"] == status }.map { |e| e["module"] }
       end
     end
   end

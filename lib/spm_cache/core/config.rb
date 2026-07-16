@@ -14,6 +14,7 @@ module SPMCache
 
       DEFAULT_CONFIG = {
         "ignore" => [],
+        "cache_only" => [],
         "ignore_local" => false,
         "ignore_build_errors" => false,
         "keep_pkgs_in_project" => false,
@@ -103,6 +104,10 @@ module SPMCache
 
       def ignore_list
         raw["ignore"] || []
+      end
+
+      def cache_only_list
+        raw["cache_only"] || []
       end
 
       def ignore_local?

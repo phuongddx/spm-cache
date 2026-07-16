@@ -1,7 +1,7 @@
 # System Architecture
 
 > **Project:** spm-cache
-> **Version:** 0.1.0
+> **Version:** 0.1.2
 
 ## High-Level Architecture
 
@@ -118,11 +118,14 @@ After proxy generation, a `graph.json` is emitted with per-module status:
 ```json
 [
   { "module": "Alamofire", "status": "hit", "dependencies": [], "hasMacro": false },
-  { "module": "MyMacro", "status": "missed", "dependencies": [], "hasMacro": true }
+  { "module": "MyMacro", "status": "missed", "dependencies": [], "hasMacro": true },
+  { "module": "SnapKit", "status": "excluded", "dependencies": [], "hasMacro": false }
 ]
 ```
 
-Statuses: `hit` (cached binary used), `missed` (source fallback via real package dependency), `ignored` (matches an `ignore` glob pattern; always compiled from source even when a cached binary exists, and never built by `spm-cache build`).
+Statuses: `hit` (cached binary used), `missed` (source fallback via real package dependency), `ignored` (matches an `ignore` glob pattern; always compiled from source even when a cached binary exists, and never built by `spm-cache build`), `excluded` (does not match any `cache_only` glob when `cache_only` is non-empty; always compiled from source, never built by `spm-cache build`).
+
+**Precedence:** when `cache_only` is non-empty it wins outright — `ignore` is not applied and only `hit`/`missed`/`excluded` statuses appear (no `ignored`).
 
 The Ruby `Cache::Cachemap` class reads this and drives the visualization (HTML) and build decisions.
 
@@ -147,7 +150,7 @@ Storage (local cache + remote Git/S3)
 **Installer Pipeline** (`installer/`): Orchestrates the full install:
 1. `verify_projects!` — ensure project exists
 2. `recreate_dirs` — clean sandbox
-3. `ensure_config_file` — copy template if missing
+3. `ensure_config_file` — copy template if missing, then load config (ignore_build_errors, default_sdk, ignore settings)
 4. `sync_lockfile` — load/save lockfile
 5. `proxy_pkg.prepare` — call Swift tool (gen-umbrella → resolve → gen-proxy)
 6. `gen_supporting_files` — xcconfigs for macros
@@ -223,6 +226,10 @@ Models (Lockfile, BinariesCache)
 ## Build Pipeline (xcframework creation)
 
 Multi-slice pipeline (simulator + device in one xcframework):
+
+**Scheme Resolution:** Before any build attempt, the pipeline calls `swift package describe` and filters library-type products by exact name match (case-insensitive), then substring containment, then the first available library product. This replaces the previous behavior of deriving the scheme from raw package/target identity, which often resulted in builds using the wrong scheme. If `swift package describe` yields no usable result (e.g., binary-only packages), a fallback heuristic queries `xcodebuild -list` scheme names.
+
+**Umbrella Resolve Fallback:** If `swift package resolve` fails on the umbrella package, the installer falls back to copying the most-recently-modified `~/Library/Developer/Xcode/DerivedData/<ProjectName>-*/SourcePackages/checkouts` into the umbrella's `.build/checkouts/` directory. This avoids the previous behavior of skipping every target with "checkout not found" errors.
 
 ```
 For each destination (iphonesimulator, iphoneos):

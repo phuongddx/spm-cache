@@ -74,6 +74,7 @@ Create `spm-cache.yml` in your Xcode project root:
 
 ```yaml
 ignore: []                    # Packages to exclude from caching
+cache_only: []                 # Allowlist: cache ONLY these; overrides ignore when non-empty
 ignore_local: false           # Skip local packages
 ignore_build_errors: false    # Don't fail on build errors
 keep_pkgs_in_project: false   # Keep original package refs alongside proxy
@@ -242,6 +243,11 @@ spm-cache off ProblematicTarget
 ```
 
 Or set `ignore_build_errors: true` in `spm-cache.yml`.
+
+To cache only a handful of packages instead of maintaining a growing ignore
+list, set `cache_only` instead — when non-empty it wins outright and `ignore`
+is skipped entirely; every package not listed compiles from source (status
+`excluded`).
 
 ### Cache not hitting
 

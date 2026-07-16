@@ -22,6 +22,9 @@ struct GenProxy: AsyncParsableCommand, CommandRunning {
     @Option(help: "Comma-separated glob patterns of modules to exclude from caching")
     var ignore: String?
 
+    @Option(help: "Comma-separated glob patterns of the ONLY modules to cache; all others excluded")
+    var cacheOnly: String?
+
     func run() async throws {
         let umbrellaDir = URL(fileURLWithPath: umbrella)
         let outputDir = URL(fileURLWithPath: output)
@@ -39,8 +42,13 @@ struct GenProxy: AsyncParsableCommand, CommandRunning {
             .map { $0.trimmingCharacters(in: .whitespaces) }
             .filter { !$0.isEmpty } ?? []
 
+        let cacheOnlyPatterns = cacheOnly?
+            .split(separator: ",")
+            .map { $0.trimmingCharacters(in: .whitespaces) }
+            .filter { !$0.isEmpty } ?? []
+
         let binCache = BinariesCache(dir: cacheDir)
-        let generator = ProxyGenerator(cache: binCache, outputDir: outputDir, ignoredPatterns: ignoredPatterns)
+        let generator = ProxyGenerator(cache: binCache, outputDir: outputDir, ignoredPatterns: ignoredPatterns, cacheOnlyPatterns: cacheOnlyPatterns)
         let entries = try generator.generate(for: allPackages)
         try generator.generateGraphJSON(entries: entries)
 

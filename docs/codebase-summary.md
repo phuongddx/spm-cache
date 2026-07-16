@@ -1,7 +1,7 @@
 # Codebase Summary
 
 > **Last Updated:** 2026-07-13 (rev 4)
-> **Version:** 0.1.0
+> **Version:** 0.1.2
 
 ## Overview
 
@@ -47,8 +47,8 @@
 - `syntax/`: Serialization mixins — `HashRepresentable`, `JSONRepresentable`, `YAMLRepresentable`, `PlistRepresentable`
 
 **`installer/`** — Install pipeline (8 files)
-- `installer.rb`: Base `Installer` class — `perform_install` orchestrates: verify → recreate_dirs → migrate → ensure_config → sync_lockfile → proxy_pkg.prepare → gen_supporting_files → add_refs → inject_xcconfig → gen_cachemap_viz
-- `use.rb`, `build.rb`, `rollback.rb`: Installer subclasses. `Installer::Build` accepts a `targets:` kwarg, filters the cachemap missed set, resolves umbrella checkouts, and invokes `SPM::BuildPipeline` per target to build real xcframeworks into the cache dir.
+- `installer.rb`: Base `Installer` class — `perform_install` orchestrates: verify → recreate_dirs → migrate → ensure_config (copy template if missing, then load config) → sync_lockfile → proxy_pkg.prepare → gen_supporting_files → add_refs → inject_xcconfig → gen_cachemap_viz
+- `use.rb`, `build.rb`, `rollback.rb`: Installer subclasses. `Installer::Build` accepts a `targets:` kwarg, filters the cachemap missed set, resolves umbrella checkouts (with DerivedData fallback if resolve fails), and invokes `SPM::BuildPipeline` per target to build real xcframeworks into the cache dir.
 - `integration/`: Mixins — `BuildIntegrationMixin` (build_missed!), `DescsIntegrationMixin` (binary_targets), `SupportingFilesIntegrationMixin` (gen_xcconfigs for macros), `VizIntegrationMixin` (cachemap HTML)
 
 **`spm/`** — SPM package model (18 files)
@@ -56,10 +56,10 @@
 - `pkg/proxy.rb`: `SPM::Package::Proxy` — orchestrates umbrella gen → resolve → proxy gen → graph load
 - `pkg/proxy_executable.rb`: `ProxyExecutable` — locates/builds the Swift proxy binary, runs subcommands
 - `build.rb`: `Buildable` — **uses `xcodebuild build`** (not `swift build`) with configurable destinations (sim + device), `libtool -static` for library creation, framework assembly with library evolution swiftinterface files. Supports `build_for_destination`, `create_static_library`, `create_framework`.
-- `build_pipeline.rb`: `SPM::BuildPipeline` — shared xcframework build pipeline (destination loop + framework assembly + xcframework creation). Used by both `pkg build` and `Installer::Build`.
+- `build_pipeline.rb`: `SPM::BuildPipeline` — shared xcframework build pipeline (destination loop + framework assembly + xcframework creation). **Resolves Xcode scheme from `swift package describe` product metadata** (filters library-type products by exact name, substring containment, or first available library), with fallback to `xcodebuild -list` heuristic if no match found. Used by both `pkg build` and `Installer::Build`.
 - `macro.rb`: `Macro` — builds macro targets as `.macro` binaries
 - `xcframework/`: `XCFramework` (merges multiple framework slices via `xcodebuild -create-xcframework`), `Metadata` (checksum, Info.plist parsing)
-- `desc/`: `Description` (swift package describe --type json), `Target`, `Product`, `Dependency`, `BinaryTarget`, `MacroTarget`
+- `desc/`: `Description` (swift package describe --type json), `Target`, `Product` (**now correctly handles `type` as Hash, e.g. `{"library"=>["automatic"]}` per actual swift package describe output**), `Dependency`, `BinaryTarget`, `MacroTarget`
 
 **`storage/`** — Remote cache backends (3 files)
 - `base.rb`: `Storage::Base` — no-op fallback
@@ -118,7 +118,7 @@ Two Claude agent skills for end-users and developers:
 
 **`Core/`** (10 files)
 - `Cache.swift`: `BinariesCache` — hit/binaryPath/cachedModules for `.xcframework` and `.macro`
-- `Lockfile.swift`: `Lockfile` struct (Codable) — `PackageRef`, `TargetDeps`, platforms, `load(from:)`
+- `Lockfile.swift`: `Lockfile` struct (Codable) — `PackageRef` (now supports `revision`-only pins: emits `revision: "<sha>"` when only revision present, otherwise `from: "<version>"`, with precedence `version` > `revision` > fallback), `TargetDeps`, platforms, `load(from:)`
 - `Resolver.swift`: `Resolver` — package graph resolution (stub)
 - `Env.swift`: `Env.isRunningInsideXcode`, `Env.isCI`
 - `Generator/`:

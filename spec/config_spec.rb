@@ -38,6 +38,17 @@ RSpec.describe SPMCache::Core::Config do
     end
   end
 
+  describe "#cache_only_list" do
+    it "returns empty array by default" do
+      expect(config.cache_only_list).to eq([])
+    end
+
+    it "reads from config.raw" do
+      config.raw["cache_only"] = ["Alamofire"]
+      expect(config.cache_only_list).to eq(["Alamofire"])
+    end
+  end
+
   # Glob-semantics parity cases (mirrored in spec/proxy_executable_spec.rb
   # Swift fixture check and spec/fixtures/ignore-lockfile.json). Keep these in
   # sync so Ruby File.fnmatch and Swift fnmatch agree.

@@ -4,16 +4,18 @@ struct ProxyGenerator {
     let cache: BinariesCache
     let outputDir: URL
     let ignoredPatterns: [String]
+    let cacheOnlyPatterns: [String]
 
-    init(cache: BinariesCache, outputDir: URL, ignoredPatterns: [String] = []) {
+    init(cache: BinariesCache, outputDir: URL, ignoredPatterns: [String] = [], cacheOnlyPatterns: [String] = []) {
         self.cache = cache
         self.outputDir = outputDir
         self.ignoredPatterns = ignoredPatterns
+        self.cacheOnlyPatterns = cacheOnlyPatterns
     }
 
     struct GraphEntry: Codable {
         enum Status: String, Codable {
-            case hit, missed, ignored
+            case hit, missed, ignored, excluded
         }
         let module: String
         let status: Status
@@ -21,13 +23,12 @@ struct ProxyGenerator {
         let hasMacro: Bool
     }
 
-    /// Returns true when any ignore glob pattern matches the package's
-    /// resolved product name OR its lockfile identity (`name`). Mirrors the
-    /// Ruby `File.fnmatch` default semantics via POSIX `fnmatch`.
-    private func isIgnored(_ pkg: Lockfile.PackageRef) -> Bool {
-        guard !ignoredPatterns.isEmpty else { return false }
+    /// Returns true when any glob pattern matches the package's resolved
+    /// product name OR its lockfile identity (`name`). Mirrors the Ruby
+    /// `File.fnmatch` default semantics via POSIX `fnmatch`.
+    private func matchesAnyPattern(_ pkg: Lockfile.PackageRef, _ patterns: [String]) -> Bool {
         let candidates = [pkg.resolvedProductName, pkg.name].compactMap { $0 }
-        for pattern in ignoredPatterns {
+        for pattern in patterns {
             for candidate in candidates {
                 if fnmatch(pattern, candidate, 0) == 0 {
                     return true
@@ -35,6 +36,19 @@ struct ProxyGenerator {
             }
         }
         return false
+    }
+
+    /// True when `ignoredPatterns` matches the package (denylist).
+    private func isIgnored(_ pkg: Lockfile.PackageRef) -> Bool {
+        guard !ignoredPatterns.isEmpty else { return false }
+        return matchesAnyPattern(pkg, ignoredPatterns)
+    }
+
+    /// True when `cacheOnlyPatterns` is active (non-empty) and the package
+    /// matches NONE of its patterns (allowlist, inverted match).
+    private func isCacheOnlyExcluded(_ pkg: Lockfile.PackageRef) -> Bool {
+        guard !cacheOnlyPatterns.isEmpty else { return false }
+        return !matchesAnyPattern(pkg, cacheOnlyPatterns)
     }
 
     func generate(for packages: [Lockfile.PackageRef]) throws -> [GraphEntry] {
@@ -53,10 +67,13 @@ struct ProxyGenerator {
             try proxyDir.mkdir()
 
             let ignored = isIgnored(pkg)
-            // Ignored packages are always source, even when a cached binary exists.
-            let cachedBinary = ignored ? nil : cache.hit(module: productName)
+            let excluded = isCacheOnlyExcluded(pkg)
+            // Ignored/excluded packages are always source, even when a cached binary exists.
+            let cachedBinary = (ignored || excluded) ? nil : cache.hit(module: productName)
             let status: GraphEntry.Status
-            if ignored {
+            if excluded {
+                status = .excluded
+            } else if ignored {
                 status = .ignored
             } else if cachedBinary != nil {
                 status = .hit
