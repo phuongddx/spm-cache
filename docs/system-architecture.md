@@ -1,7 +1,7 @@
 # System Architecture
 
 > **Project:** spm-cache
-> **Version:** 0.1.2
+> **Version:** 0.2.0
 
 ## High-Level Architecture
 
@@ -61,29 +61,46 @@
 
 ### Proxy Package Architecture
 
-The central innovation. For each SPM dependency, spm-cache generates a **proxy package** that can serve either a cached binary or source code:
+The central innovation. For each SPM dependency with at least one library product, spm-cache generates a **proxy package** at `.proxies/{slug}_proxy` — note the `_proxy` suffix on the folder (and the wrapper's own package identity): naming it bare `{slug}` would give the wrapper the *same* SwiftPM identity as the real package it depends on, which SwiftPM collapses into one node and turns the wrapper's dependency into a self-cycle ("Conflicting identity" + cyclic-dependency error). A package can export more than one library product (Realm → `Realm` + `RealmSwift`); the proxy exports **every** library product by its real name, sourced from `spm-cache.lock`'s `products[]` metadata — never the lockfile identity — with one target per product:
 
 **Cache Hit** (`.xcframework` exists in cache):
 ```swift
-// {slug}_proxy/Package.swift
+// .proxies/{slug}_proxy/Package.swift
 let package = Package(
     name: "{slug}_proxy",
-    products: [.library(name: "{product}", targets: ["{slug}_binary"])],
-    targets: [.binaryTarget(name: "{slug}_binary", path: ".build/artifacts/{product}.xcframework")]
+    products: [
+        .library(name: "{realProductName1}", targets: ["{slug}_{realProductName1}_binary"]),
+        .library(name: "{realProductName2}", targets: ["{slug}_{realProductName2}_binary"]),
+    ],
+    dependencies: [ /* only for products still on the source-fallback path */ ],
+    targets: [
+        .binaryTarget(name: "{slug}_{realProductName1}_binary", path: ".build/artifacts/{realProductName1}.xcframework"),
+        .binaryTarget(name: "{slug}_{realProductName2}_binary", path: ".build/artifacts/{realProductName2}.xcframework"),
+    ]
 )
 ```
 
-**Cache Miss** (no cached binary):
+**Cache Miss** (no cached binary for that product — each product has an independent hit/miss status):
 ```swift
-// {slug}_proxy/Package.swift
+// .proxies/{slug}_proxy/Package.swift
 let package = Package(
     name: "{slug}_proxy",
-    products: [.library(name: "{product}", targets: ["{slug}_source"])],
-    targets: [.target(name: "{slug}_source")]
+    products: [.library(name: "{realProductName}", targets: ["{slug}_{realProductName}_shim"])],
+    dependencies: [.package(url: "{repositoryURL}", from: "{version}")],  // declared once, even if several products fall back to source
+    targets: [
+        .target(name: "{slug}_{realProductName}_shim", dependencies: [
+            .product(name: "{realProductName}", package: "{slug}"),
+        ], path: "Sources/{slug}_{realProductName}_shim")
+    ]
 )
 ```
+The shim source re-exports the real package's module(s) — `@_exported import {moduleName}`, one line per entry in that product's `targets[]` — so app-level `import {realProductName}` still resolves to source compilation. `targets[]` matters because a product's name doesn't always match its underlying module name.
 
-A **root proxy** (`Package.swift`) aggregates all per-package proxies so Xcode sees a single local package reference. Uses tools-version 6.0:
+**Legacy fallback:** a lockfile entry with no `products[]` metadata yet (not re-synced since before v0.2.0) is treated as a single library product named `productName ?? name ?? slug` — the old identity-fallback behavior, kept for backward compatibility until the lockfile is enriched on the next run.
+
+**Plugin-only packages** (build-tool plugins like SwiftGenPlugin — `products[]` present with no `library`-type entry) get **no** proxy folder and **no** root-proxy dependency; their original Xcode package reference is preserved directly instead (see Xcode Integration below). A *mixed* package (library + plugin products) is treated as a library package: its library products are proxied as usual and its plugin products are simply out of scope.
+
+A **root proxy** (`Package.swift`) aggregates all per-package proxies (excluding plugin-only ones) so Xcode sees a single local package reference. Uses tools-version 6.0:
 
 ```swift
 // swift-tools-version: 6.0
@@ -93,13 +110,13 @@ let package = Package(
         .library(name: "spm_cache_proxy", targets: ["spm_cache_root"])
     ],
     dependencies: [
-        .package(path: ".proxies/{slug1}"),
-        .package(path: ".proxies/{slug2}"),
+        .package(path: ".proxies/{slug1}_proxy"),
+        .package(path: ".proxies/{slug2}_proxy"),
     ],
     targets: [
         .target(name: "spm_cache_root", dependencies: [
-            .product(name: "{product1}", package: "{slug1}"),
-            .product(name: "{product2}", package: "{slug2}"),
+            .product(name: "{product1}", package: "{slug1}_proxy"),
+            .product(name: "{product2}", package: "{slug2}_proxy"),
         ], path: "src/root")
     ]
 )
@@ -109,23 +126,43 @@ The Xcode project references this root proxy as an `XCLocalSwiftPackageReference
 
 ### Umbrella Package
 
-A synthetic `Package.swift` that references all project SPM dependencies in one place. This allows the Swift tool to run `swift package describe` and resolve the full dependency graph without modifying the user's project.
+A synthetic `Package.swift` that references every project SPM dependency (as a plain `.package(...)` entry, with no target/product references at all) purely so `swift package resolve` materializes real checkouts under `{umbrella_dir}/.build/checkouts/{slug}` — the umbrella never validates products, so this works even before `spm-cache.lock` has real product metadata. A package already known to be plugin-only (from a prior enrichment) is skipped here too; an unenriched package is always included so its checkout can be described at least once.
+
+### Lockfile Product Metadata (`spm-cache.lock`)
+
+Each package entry carries a `products` array populated from `swift package describe` against its materialized checkout:
+
+```json
+{ "name": "realm-swift", "repositoryURL": "...", "version": "...",
+  "products": [
+    { "name": "RealmSwift", "type": "library", "targets": ["RealmSwift"] },
+    { "name": "Realm", "type": "library", "targets": ["Realm"] }
+  ] }
+```
+
+`enrich_lockfile_products` (`Installer`) runs once per install, between checkout materialization and proxy generation, and only touches entries that don't have `products` yet (idempotent — a package whose checkout can't be found is left unchanged with a warning, and falls back to identity-derived naming downstream). Renaming a cached module from lockfile identity to its real product name means **existing `~/.spm-cache/<config>/<identity>.xcframework` binaries become unreachable** after upgrading — this is intentional (those binaries were built under the wrong module name) and triggers a one-time full rebuild; stale files are not garbage-collected automatically.
 
 ### Cachemap & Graph
 
-After proxy generation, a `graph.json` is emitted with per-module status:
+`graph.json` has one entry **per library product** (not per package — a multi-product package like Realm contributes two independent entries):
 
 ```json
 [
   { "module": "Alamofire", "status": "hit", "dependencies": [], "hasMacro": false },
-  { "module": "MyMacro", "status": "missed", "dependencies": [], "hasMacro": true },
-  { "module": "SnapKit", "status": "excluded", "dependencies": [], "hasMacro": false }
+  { "module": "RealmSwift", "status": "missed", "dependencies": [], "hasMacro": false },
+  { "module": "Realm", "status": "missed", "dependencies": [], "hasMacro": false },
+  { "module": "SnapKit", "status": "excluded", "dependencies": [], "hasMacro": false },
+  { "module": "SwiftGenPlugin", "status": "plugin", "dependencies": [], "hasMacro": false }
 ]
 ```
 
-Statuses: `hit` (cached binary used), `missed` (source fallback via real package dependency), `ignored` (matches an `ignore` glob pattern; always compiled from source even when a cached binary exists, and never built by `spm-cache build`), `excluded` (does not match any `cache_only` glob when `cache_only` is non-empty; always compiled from source, never built by `spm-cache build`).
+Statuses: `hit` (cached binary used), `missed` (source fallback via real package dependency), `ignored` (matches an `ignore` glob pattern; always compiled from source even when a cached binary exists, and never built by `spm-cache build`), `excluded` (does not match any `cache_only` glob when `cache_only` is non-empty; always compiled from source, never built by `spm-cache build`), `plugin` (build-tool plugin package; not cacheable, always skipped by `spm-cache build`).
 
 **Precedence:** when `cache_only` is non-empty it wins outright — `ignore` is not applied and only `hit`/`missed`/`excluded` statuses appear (no `ignored`).
+
+**Matching:** `ignore`/`cache_only` glob patterns match against any of a package's real library product names, or its lockfile identity — matching by identity still applies the resulting status to *every* product of that package (package-level decision).
+
+**CLI target names changed**: `spm-cache build <target>` now takes real product names (`Realm`, `RealmSwift`), not the old lockfile identity (`realm-swift`) — but the identity remains a working **alias** that expands to all of that package's product names, so existing scripts/CI invocations using the old identity keep working.
 
 The Ruby `Cache::Cachemap` class reads this and drives the visualization (HTML) and build decisions.
 
@@ -152,9 +189,24 @@ Storage (local cache + remote Git/S3)
 2. `recreate_dirs` — clean sandbox
 3. `ensure_config_file` — copy template if missing, then load config (ignore_build_errors, default_sdk, ignore settings)
 4. `sync_lockfile` — load/save lockfile
-5. `proxy_pkg.prepare` — call Swift tool (gen-umbrella → resolve → gen-proxy)
+5. `prepare_proxy` — `proxy_pkg.prepare` runs the Swift tool + a caller-supplied step in between:
+   a. `gen_umbrella` — umbrella `Package.swift` from the lockfile
+   b. `resolve_umbrella_checkouts` — `swift package resolve` against the umbrella (falls back to the newest matching DerivedData checkouts on failure), materializing real package sources under `{umbrella_dir}/.build/checkouts/{slug}` *before* anything reads product metadata — this ordering fix closes the wrong-product-name bug (no flow previously resolved checkouts before proxy generation)
+   c. `enrich_lockfile_products` — `swift package describe` per checkout → writes `products[]` into `spm-cache.lock` (idempotent, skips entries already enriched)
+   d. `gen_proxy` — per-package + root proxy packages, `graph.json`, from the now-enriched lockfile
 6. `gen_supporting_files` — xcconfigs for macros
-7. `gen_cachemap_viz` — HTML dependency graph
+7. `integrate_proxy_into_project` — rewrite Xcode package references/product deps to point at the proxy, preserving plugin-only package references untouched (see Xcode Integration below)
+8. `gen_cachemap_viz` — HTML dependency graph
+
+Note: `use` now pays the `resolve_umbrella_checkouts` cost too (network on a cold SwiftPM cache) — previously only `build` resolved checkouts, and only *after* Xcode integration. The DerivedData fallback plus SwiftPM's own global package cache mitigate the offline/cold-cache case; a resolve failure warns and falls back per-package rather than aborting the run.
+
+### Xcode Integration (plugin-aware)
+
+`integrate_proxy_into_project` rebuilds the project's SPM package references and product dependencies every run:
+- **Kept as-is:** any package reference whose (normalized) repository URL matches a plugin-only lockfile entry, plus its product dependency (never deleted, never rewired) — including one already carrying Xcode's `plugin:`-prefixed product-dependency naming, a second belt against ever rewiring a build-tool-plugin dependency onto the proxy.
+- **Stripped and rebuilt:** everything else, including *every* `XCLocalSwiftPackageReference` (so a stale proxy ref from a prior run never survives — this is what keeps a plugin's checkout from being pinned into place and what prevents duplicate/colliding refs across runs), replaced by one fresh local proxy reference with rewired product dependencies.
+- **Unmatched plugin entry:** if a plugin-only lockfile entry has no matching project reference at all, the run warns loudly rather than silently preserving nothing.
+- Local plugin-only packages (`XCLocalSwiftPackageReference`, no URL) are out of scope — `Package.resolved` carries no local pins, so they never get a lockfile entry to key an enrichment or a keep-decision off of. Pre-existing gap, not a regression.
 
 **SPM Package Model** (`spm/`):
 - `Package::Proxy` orchestrates the Swift tool calls
@@ -177,9 +229,9 @@ Generators (Umbrella, Proxy, Graph, Metadata)
 Models (Lockfile, BinariesCache)
 ```
 
-**`GenUmbrella`**: Loads `spm-cache.lock` → merges all project packages/platforms → `UmbrellaGenerator` writes umbrella `Package.swift`.
+**`GenUmbrella`**: Loads `spm-cache.lock` → merges all project packages/platforms → `UmbrellaGenerator` writes umbrella `Package.swift` (dependencies only, no target/product references; skips packages already known to be plugin-only).
 
-**`GenProxy`**: Loads lockfile → `ProxyGenerator` iterates packages, checks `BinariesCache` for hits, generates per-package proxy + root proxy + `graph.json`.
+**`GenProxy`**: Loads lockfile → `ProxyGenerator` iterates packages, skips plugin-only ones (emitting a `plugin`-status `graph.json` entry instead), otherwise expands each package's real library products (`Lockfile.PackageRef.libraryProducts`, with a single-entry legacy fallback when `products[]` metadata is absent) and checks `BinariesCache` per product name, generating one proxy folder per package (all its products in one manifest) + root proxy + `graph.json`.
 
 **`Resolve`**: Package graph resolution and metadata generation (currently a stub).
 
@@ -191,12 +243,13 @@ Models (Lockfile, BinariesCache)
 1. Command::Use.run
 2. Installer::Use.new(project:).perform_install
 3. SPM::Package::Proxy.prepare:
-   a. ProxyExecutable.gen_umbrella  → Swift gen-umbrella → umbrella Package.swift
-   b. ProxyExecutable.resolve       → Swift resolve → metadata
-   c. ProxyExecutable.gen_proxy     → Swift gen-proxy → proxy packages + graph.json
-4. Cache::Cachemap.load(graph.json)
-5. gen_cachemap_viz → HTML at spm-cache/cachemap/index.html
-6. replace_binaries_for_project (integrate proxy into Xcode project)
+   a. ProxyExecutable.gen_umbrella   → Swift gen-umbrella → umbrella Package.swift
+   b. resolve_umbrella_checkouts     → swift package resolve (+ DerivedData fallback)
+   c. enrich_lockfile_products       → swift package describe per checkout → products[] into spm-cache.lock
+   d. ProxyExecutable.gen_proxy      → Swift gen-proxy → proxy packages + graph.json
+4. integrate_proxy_into_project (keep plugin-only refs, rewire everything else onto the proxy)
+5. Cache::Cachemap.load(graph.json)
+6. gen_cachemap_viz → HTML at spm-cache/cachemap/index.html
 ```
 
 ### `spm-cache build [TARGETS]`
@@ -305,16 +358,17 @@ spm-cache pkg build {target} --sdk=all --out={path}
 ├── spm-cache.lock             # Lockfile
 └── spm-cache/                 # Sandbox (regenerated each run)
     ├── packages/
-    │   ├── umbrella/          # Umbrella Package.swift + stub sources
-    │   │   └── Package.swift
+    │   ├── umbrella/          # Umbrella Package.swift (deps only)
+    │   │   ├── Package.swift
+    │   │   └── .build/checkouts/{slug}/   # Real package sources (resolve_umbrella_checkouts)
     │   └── proxy/             # Proxy packages + root Package.swift
-    │       ├── Package.swift  # Root proxy
-    │       ├── .proxies/      # Per-package proxies
-    │       │   └── {slug}/Package.swift
+    │       ├── Package.swift  # Root proxy (skips plugin-only packages)
+    │       ├── .proxies/      # Per-package proxies (plugin-only packages get none)
+    │       │   └── {slug}_proxy/Package.swift
     │       ├── src/           # Stub sources for proxy targets
     │       └── .build/
-    │           └── artifacts/ # Symlinks to cached xcframeworks
-    ├── metadata/              # Package metadata (from resolve)
+    │           └── artifacts/ # Symlinks to cached xcframeworks, named by real product
+    ├── metadata/              # Package metadata (from resolve, currently a stub)
     ├── xcconfigs/             # Macro xcconfigs (OTHER_SWIFT_FLAGS)
     └── cachemap/
         └── index.html         # Dependency graph visualization

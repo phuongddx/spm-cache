@@ -12,7 +12,7 @@ module SPMCache
       include Syntax::JSONRepresentable
 
       class Pkg
-        attr_reader :name, :url, :path, :version, :branch, :revision, :raw
+        attr_reader :name, :url, :path, :version, :branch, :revision, :raw, :products
 
         def initialize(data)
           @raw = data
@@ -26,6 +26,7 @@ module SPMCache
           @version = data["version"]
           @branch = data["branch"]
           @revision = data["revision"]
+          @products = data["products"] || []
         end
 
         def local?
@@ -48,6 +49,7 @@ module SPMCache
           result["version"] = @version if @version
           result["branch"] = @branch if @branch
           result["revision"] = @revision if @revision
+          result["products"] = @products unless @products.empty?
           result
         end
       end

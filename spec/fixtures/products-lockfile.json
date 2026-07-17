@@ -1,0 +1,33 @@
+{
+  "FixtureApp.xcodeproj": {
+    "packages": [
+      {
+        "repositoryURL": "https://github.com/realm/realm-swift.git",
+        "name": "realm-swift",
+        "version": "10.45.2",
+        "products": [
+          { "name": "RealmSwift", "type": "library", "targets": ["RealmSwift"] },
+          { "name": "Realm", "type": "library", "targets": ["Realm"] }
+        ]
+      },
+      {
+        "repositoryURL": "https://github.com/example/wrapped-module.git",
+        "name": "wrapped-module",
+        "version": "1.0.0",
+        "products": [
+          { "name": "WrappedProduct", "type": "library", "targets": ["InternalModuleA", "InternalModuleB"] }
+        ]
+      },
+      {
+        "repositoryURL": "https://github.com/apple/swift-log.git",
+        "name": "swift-log",
+        "product_name": "Logging",
+        "version": "1.6.0"
+      }
+    ],
+    "dependencies": {},
+    "platforms": {
+      "ios": "16.0"
+    }
+  }
+}

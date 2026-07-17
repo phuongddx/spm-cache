@@ -4,6 +4,7 @@ require "fileutils"
 
 require "spm_cache/installer"
 require "spm_cache/spm/build_pipeline"
+require "spm_cache/spm/checkout_resolver"
 
 module SPMCache
   class Installer
@@ -27,7 +28,6 @@ module SPMCache
           return
         end
 
-        resolve_umbrella_checkouts
         checkouts = checkout_map
 
         destinations = resolve_destinations
@@ -43,106 +43,56 @@ module SPMCache
       private
 
       # Filters `missed` down to the intersection with requested targets and
-      # emits warnings for unknown or ignored names.
+      # emits warnings for unknown or ignored names. Requested names are
+      # expanded first so a package identity (e.g. `realm-swift`) still
+      # resolves to all of that package's real product names (`Realm`,
+      # `RealmSwift`) now that the CLI/graph granularity is per-product.
       def filter_requested_targets!(missed)
-        all_known = missed + @cachemap.hit + @cachemap.ignored + @cachemap.excluded
-        (@requested_targets - all_known).each do |t|
+        requested = expand_target_aliases(@requested_targets)
+        all_known = missed + @cachemap.hit + @cachemap.ignored + @cachemap.excluded + @cachemap.plugin
+        (requested - all_known).each do |t|
           Core::UI.warn "unknown target '#{t}' (not in dependency graph)"
         end
-        @requested_targets.select { |t| @cachemap.ignored.include?(t) }.each do |t|
+        requested.select { |t| @cachemap.ignored.include?(t) }.each do |t|
           Core::UI.warn "'#{t}' is in the ignore list; skipping"
         end
-        @requested_targets.select { |t| @cachemap.excluded.include?(t) }.each do |t|
+        requested.select { |t| @cachemap.excluded.include?(t) }.each do |t|
           Core::UI.warn "'#{t}' is excluded by cache_only; skipping"
         end
-        missed.replace(missed & @requested_targets)
-      end
-
-      # Resolves umbrella dependencies so checkouts are materialized under
-      # {umbrella_dir}/.build/checkouts/<slug>.
-      def resolve_umbrella_checkouts
-        Core::UI.info "Resolving umbrella checkouts..."
-        Core::Sh.run("swift package resolve", cwd: @config.umbrella_dir)
-      rescue => e
-        Core::UI.warn "Umbrella resolve failed: #{e.message}"
-        fallback_xcode_checkouts
-
-        checkouts_root = File.join(@config.umbrella_dir, ".build", "checkouts")
-        if Dir.glob(File.join(checkouts_root, "*")).empty?
-          Core::UI.warn "Umbrella resolve failed and no DerivedData checkouts found; all targets will be skipped"
+        requested.select { |t| @cachemap.plugin.include?(t) }.each do |t|
+          Core::UI.warn "'#{t}' is a build-tool plugin (not cacheable); skipping"
         end
+        missed.replace(missed & requested)
       end
 
-      # Falls back to Xcode's own resolved checkouts under DerivedData when
-      # `swift package resolve` fails on the umbrella package. Xcode caches
-      # its own SwiftPM checkouts at
-      # DerivedData/<Project>-<hash>/SourcePackages/checkouts, so reusing the
-      # most recently built one lets targets still be located instead of
-      # leaving {umbrella_dir}/.build/checkouts empty.
-      #
-      # Multiple DerivedData directories can exist for the same project
-      # (stale entries from prior Xcode versions/configs, workspace vs.
-      # project-level builds); `Dir.glob` order is filesystem-dependent, not
-      # mtime-sorted, so the newest one must be picked explicitly via
-      # `max_by { File.mtime }` rather than `.first`.
-      def fallback_xcode_checkouts
-        project_name = File.basename(project_path, File.extname(project_path))
-        derived_data_root = File.expand_path("~/Library/Developer/Xcode/DerivedData")
-        candidates = Dir.glob(File.join(derived_data_root, "#{project_name}-*"))
-        latest = candidates.max_by { |d| File.mtime(d) }
-        return unless latest
-
-        source_checkouts = File.join(latest, "SourcePackages", "checkouts")
-        return unless File.directory?(source_checkouts)
-
-        dest_checkouts = File.join(@config.umbrella_dir, ".build", "checkouts")
-        FileUtils.mkdir_p(dest_checkouts)
-
-        Core::UI.info "Falling back to DerivedData checkouts: #{latest}"
-        Dir.glob(File.join(source_checkouts, "*")).each do |pkg_dir|
-          next unless File.directory?(pkg_dir)
-
-          FileUtils.cp_r(pkg_dir, dest_checkouts, remove_destination: true)
-        end
-      end
-
-      # Maps module/product name → checkout directory by matching the lockfile
-      # package slug against checkout directory names.
-      def checkout_map
-        checkouts_root = File.join(@config.umbrella_dir, ".build", "checkouts")
-        return {} unless File.directory?(checkouts_root)
-
-        map = {}
+      # Expands any requested name that matches a package identity (not a
+      # product name) into all of that package's real LIBRARY product names
+      # (plugin/other product types of a mixed package never reach
+      # graph.json, so including them here would misreport a valid mixed-
+      # package identity as an "unknown target"). Names that are already
+      # product names, or unknown, pass through unchanged.
+      def expand_target_aliases(requested)
+        identity_to_products = {}
         @lockfile&.projects&.each_value do |proj_data|
           (proj_data["packages"] || []).each do |pkg|
-            name = pkg["name"] || File.basename(pkg["repositoryURL"] || pkg["path_from_root"] || "", ".git")
             slug = slug_for(pkg)
-            checkout_dir = File.join(checkouts_root, slug)
-            map[name] = checkout_dir if File.directory?(checkout_dir)
-            # Also index by product_name if present
-            if pkg["product_name"] && pkg["product_name"] != name
-              map[pkg["product_name"]] = checkout_dir if File.directory?(checkout_dir)
-            end
+            products = pkg["products"]
+            names = if products && !products.empty?
+                      products.select { |p| p["type"] == "library" }.map { |p| p["name"] }.compact
+                    else
+                      [pkg["product_name"] || pkg["name"] || slug]
+                    end
+            # A plugin-only package (no library product) has nothing to
+            # expand to -- leave it unmapped so its identity passes through
+            # unchanged, rather than vanishing from `requested` silently.
+            next if names.empty?
+
+            identity_to_products[pkg["name"]] = names if pkg["name"]
+            identity_to_products[slug] = names
           end
         end
-        map
-      end
 
-      def slug_for(pkg)
-        url = pkg["repositoryURL"]
-        path = pkg["path_from_root"] || pkg["path"]
-        name = pkg["name"]
-        if url
-          base = url.dup
-          base.sub!(/\.git$/, "")
-          File.basename(base)
-        elsif name
-          name
-        elsif path
-          File.basename(path)
-        else
-          "unknown"
-        end
+        requested.flat_map { |t| identity_to_products[t] || [t] }.uniq
       end
 
       def build_single_target(target_name, checkouts, destinations, cache_out)

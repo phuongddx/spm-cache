@@ -1,0 +1,35 @@
+{
+  "FixtureApp.xcodeproj": {
+    "packages": [
+      {
+        "repositoryURL": "https://github.com/realm/realm-swift.git",
+        "name": "realm-swift",
+        "version": "10.45.2",
+        "products": [
+          { "name": "RealmSwift", "type": "library", "targets": ["RealmSwift"] },
+          { "name": "Realm", "type": "library", "targets": ["Realm"] }
+        ]
+      },
+      {
+        "repositoryURL": "https://github.com/SwiftGen/SwiftGenPlugin.git",
+        "name": "SwiftGenPlugin",
+        "version": "6.6.3",
+        "products": [
+          { "name": "SwiftGenPlugin", "type": "plugin", "targets": ["SwiftGenPlugin"] }
+        ]
+      },
+      {
+        "repositoryURL": "https://github.com/Alamofire/Alamofire.git",
+        "name": "Alamofire",
+        "version": "5.9.1",
+        "products": [
+          { "name": "Alamofire", "type": "library", "targets": ["Alamofire"] }
+        ]
+      }
+    ],
+    "dependencies": {},
+    "platforms": {
+      "ios": "16.0"
+    }
+  }
+}

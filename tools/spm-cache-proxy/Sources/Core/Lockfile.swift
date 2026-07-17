@@ -1,6 +1,23 @@
 import Foundation
 
 struct Lockfile: Codable {
+    /// A single product entry from `swift package describe`, as enriched into
+    /// `spm-cache.lock` by `Installer#enrich_lockfile_products`.
+    struct ProductRef: Codable {
+        let name: String
+        let type: String
+        let targets: [String]
+    }
+
+    /// A resolved library product ready to be proxied: real product `name`
+    /// plus the module names (`targets`) a shim must `@_exported import`.
+    /// Falls back to a single synthetic entry (name == module == legacy
+    /// resolved name) when no `products` metadata is present.
+    struct ResolvedProduct {
+        let name: String
+        let targets: [String]
+    }
+
     struct PackageRef: Codable {
         let repositoryURL: String?
         let pathFromRoot: String?
@@ -8,6 +25,25 @@ struct Lockfile: Codable {
         let productName: String?
         let version: String?
         let revision: String?
+        let products: [ProductRef]?
+
+        init(
+            repositoryURL: String?,
+            pathFromRoot: String?,
+            name: String?,
+            productName: String?,
+            version: String?,
+            revision: String?,
+            products: [ProductRef]? = nil
+        ) {
+            self.repositoryURL = repositoryURL
+            self.pathFromRoot = pathFromRoot
+            self.name = name
+            self.productName = productName
+            self.version = version
+            self.revision = revision
+            self.products = products
+        }
 
         var isLocal: Bool {
             pathFromRoot != nil
@@ -26,6 +62,28 @@ struct Lockfile: Codable {
 
         var resolvedProductName: String {
             productName ?? name ?? slug
+        }
+
+        /// Library products to proxy, sourced from `products[]` metadata when
+        /// present; legacy lockfiles (no `products`) fall back to a single
+        /// synthetic product derived from `resolvedProductName`.
+        var libraryProducts: [ResolvedProduct] {
+            if let products = products {
+                return products
+                    .filter { $0.type == "library" }
+                    .map { ResolvedProduct(name: $0.name, targets: $0.targets.isEmpty ? [$0.name] : $0.targets) }
+            }
+            return [ResolvedProduct(name: resolvedProductName, targets: [resolvedProductName])]
+        }
+
+        /// True when `products` metadata exists and contains no `library`
+        /// product — e.g. a build-tool plugin package (SwiftGenPlugin-like).
+        /// Legacy entries with no `products` metadata are never plugin-only
+        /// (status quo: treated as library packages so a package is never
+        /// silently dropped on missing data).
+        var isPluginOnly: Bool {
+            guard let products = products, !products.isEmpty else { return false }
+            return !products.contains { $0.type == "library" }
         }
 
         var versionRequirement: String {
@@ -53,9 +111,19 @@ struct Lockfile: Codable {
         self.dependencies = dependencies
         self.platforms = platforms
     }
+    private static func parseProducts(_ pkgDict: [String: Any]) -> [ProductRef]? {
+        guard let productDicts = pkgDict["products"] as? [[String: Any]] else { return nil }
+        var result: [ProductRef] = []
+        for prodDict in productDicts {
+            guard let prodName = prodDict["name"] as? String, let type = prodDict["type"] as? String else { continue }
+            result.append(ProductRef(name: prodName, type: type, targets: (prodDict["targets"] as? [String]) ?? []))
+        }
+        return result
+    }
+
     init(from dict: [String: Any]) {
         let pkgList = (dict["packages"] as? [[String: Any]]) ?? []
-        self.packages = pkgList.compactMap { pkgDict in
+        self.packages = pkgList.compactMap { (pkgDict: [String: Any]) -> PackageRef? in
             guard let name = pkgDict["name"] as? String else { return nil }
             return PackageRef(
                 repositoryURL: pkgDict["repositoryURL"] as? String,
@@ -63,7 +131,8 @@ struct Lockfile: Codable {
                 name: name,
                 productName: pkgDict["product_name"] as? String,
                 version: pkgDict["version"] as? String,
-                revision: pkgDict["revision"] as? String
+                revision: pkgDict["revision"] as? String,
+                products: Lockfile.parseProducts(pkgDict)
             )
         }
         self.dependencies = (dict["dependencies"] as? [String: [String]]) ?? [:]

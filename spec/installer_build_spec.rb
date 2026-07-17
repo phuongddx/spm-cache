@@ -2,6 +2,7 @@
 
 require "spec_helper"
 require "tmpdir"
+require "json"
 
 # Unit-tests Installer::Build target-selection logic with a stubbed Cachemap.
 # No real xcodebuild is invoked; the build pipeline is not exercised here.
@@ -75,6 +76,138 @@ RSpec.describe SPMCache::Installer::Build do
   it "does not build already-hit targets" do
     inst = make_installer(targets: ["CachedLib"])
     expect { inst.perform_install }.to output(/unknown target 'CachedLib'|No targets to build/).to_stdout
+  end
+end
+
+# Regression coverage for the per-product CLI/graph granularity change: a
+# package identity (the pre-Phase-2 target name) must still work as an alias
+# that expands to all of that package's real product names.
+RSpec.describe SPMCache::Installer::Build, "package-identity alias expansion" do
+  let(:tmpdir) { Dir.mktmpdir }
+  let(:project_path) { File.join(tmpdir, "Fake.xcodeproj") }
+
+  let(:cachemap) do
+    SPMCache::Cache::Cachemap.new(
+      graph_data: [
+        { "module" => "Realm", "status" => "missed" },
+        { "module" => "RealmSwift", "status" => "missed" },
+      ],
+    )
+  end
+
+  let(:lockfile_data) do
+    {
+      "Fake.xcodeproj" => {
+        "packages" => [
+          {
+            "repositoryURL" => "https://github.com/realm/realm-swift.git",
+            "name" => "realm-swift",
+            "products" => [
+              { "name" => "Realm", "type" => "library", "targets" => ["Realm"] },
+              { "name" => "RealmSwift", "type" => "library", "targets" => ["RealmSwift"] },
+            ],
+          },
+        ],
+        "dependencies" => {},
+        "platforms" => { "ios" => "16.0" },
+      },
+    }
+  end
+
+  before do
+    FileUtils.mkdir_p(project_path)
+    lockfile_path = File.join(tmpdir, "spm-cache.lock")
+    File.write(lockfile_path, JSON.generate(lockfile_data))
+    lockfile = SPMCache::Core::Lockfile.new(lockfile_path)
+
+    allow_any_instance_of(SPMCache::Installer).to receive(:perform_install).and_wrap_original do |original, *args, &block|
+      me = original.receiver
+      if me.respond_to?(:cachemap)
+        me.instance_variable_set(:@cachemap, cachemap)
+        me.instance_variable_set(:@lockfile, lockfile)
+      end
+      nil
+    end
+    allow_any_instance_of(SPMCache::Installer::Build).to receive(:resolve_umbrella_checkouts).and_return(nil)
+    allow_any_instance_of(SPMCache::Installer::Build).to receive(:checkout_map).and_return({})
+    allow_any_instance_of(SPMCache::Installer::Build).to receive(:build_single_target).and_return(nil)
+    allow(SPMCache::Core::Config.instance).to receive(:ignore_build_errors?).and_return(false)
+    allow(SPMCache::Core::Config.instance).to receive(:default_sdk).and_return("iphonesimulator")
+    allow(SPMCache::Core::Config.instance).to receive(:cache_dir).and_return(tmpdir)
+  end
+
+  after { FileUtils.rm_rf(tmpdir) }
+
+  it "expands a requested package identity to all of its real product names" do
+    inst = described_class.new(project: project_path, targets: ["realm-swift"])
+    expect { inst.perform_install }.to output(%r{Building 2 target.*Realm.*RealmSwift}m).to_stdout
+  end
+
+  it "still accepts a real product name directly" do
+    inst = described_class.new(project: project_path, targets: ["RealmSwift"])
+    expect { inst.perform_install }.to output(/Building 1 target.*: RealmSwift/).to_stdout
+  end
+end
+
+# Regression coverage: a mixed library+plugin package's identity must expand
+# to ONLY its library product (the plugin product never reaches graph.json),
+# not silently produce a spurious "unknown target" warning for the plugin
+# product name.
+RSpec.describe SPMCache::Installer::Build, "package-identity alias expansion (mixed library+plugin package)" do
+  let(:tmpdir) { Dir.mktmpdir }
+  let(:project_path) { File.join(tmpdir, "Fake.xcodeproj") }
+
+  let(:cachemap) do
+    SPMCache::Cache::Cachemap.new(graph_data: [{ "module" => "MixedLib", "status" => "missed" }])
+  end
+
+  let(:lockfile_data) do
+    {
+      "Fake.xcodeproj" => {
+        "packages" => [
+          {
+            "repositoryURL" => "https://github.com/example/mixed-package.git",
+            "name" => "mixed-package",
+            "products" => [
+              { "name" => "MixedLib", "type" => "library", "targets" => ["MixedLib"] },
+              { "name" => "MixedPlugin", "type" => "plugin", "targets" => ["MixedPlugin"] },
+            ],
+          },
+        ],
+        "dependencies" => {},
+        "platforms" => { "ios" => "16.0" },
+      },
+    }
+  end
+
+  before do
+    FileUtils.mkdir_p(project_path)
+    lockfile_path = File.join(tmpdir, "spm-cache.lock")
+    File.write(lockfile_path, JSON.generate(lockfile_data))
+    lockfile = SPMCache::Core::Lockfile.new(lockfile_path)
+
+    allow_any_instance_of(SPMCache::Installer).to receive(:perform_install).and_wrap_original do |original, *args, &block|
+      me = original.receiver
+      if me.respond_to?(:cachemap)
+        me.instance_variable_set(:@cachemap, cachemap)
+        me.instance_variable_set(:@lockfile, lockfile)
+      end
+      nil
+    end
+    allow_any_instance_of(SPMCache::Installer::Build).to receive(:resolve_umbrella_checkouts).and_return(nil)
+    allow_any_instance_of(SPMCache::Installer::Build).to receive(:checkout_map).and_return({})
+    allow_any_instance_of(SPMCache::Installer::Build).to receive(:build_single_target).and_return(nil)
+    allow(SPMCache::Core::Config.instance).to receive(:ignore_build_errors?).and_return(false)
+    allow(SPMCache::Core::Config.instance).to receive(:default_sdk).and_return("iphonesimulator")
+    allow(SPMCache::Core::Config.instance).to receive(:cache_dir).and_return(tmpdir)
+  end
+
+  after { FileUtils.rm_rf(tmpdir) }
+
+  it "expands the package identity to only its library product, not the plugin product" do
+    inst = described_class.new(project: project_path, targets: ["mixed-package"])
+    expect { inst.perform_install }.to output(/Building 1 target.*: MixedLib/).to_stdout
+    expect { inst.perform_install }.not_to output(/unknown target 'MixedPlugin'/).to_stderr
   end
 end
 

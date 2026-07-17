@@ -63,7 +63,7 @@ RSpec.describe "gen-proxy --ignore (Swift fixture smoke)" do
 
   it "emits source-fallback manifest for missed (not empty stub)" do
     run_gen_proxy(ignore: "Alamofire")
-    snap_pkg = File.join(output_dir, ".proxies", "SnapKit", "Package.swift")
+    snap_pkg = File.join(output_dir, ".proxies", "SnapKit_proxy", "Package.swift")
     manifest = File.read(snap_pkg)
     expect(manifest).to include(".package(url:")
     expect(manifest).to include(".product(name:")
@@ -71,9 +71,17 @@ RSpec.describe "gen-proxy --ignore (Swift fixture smoke)" do
 
   it "emits source-fallback manifest for ignored" do
     run_gen_proxy(ignore: "Alamofire")
-    af_pkg = File.join(output_dir, ".proxies", "Alamofire", "Package.swift")
+    af_pkg = File.join(output_dir, ".proxies", "Alamofire_proxy", "Package.swift")
     manifest = File.read(af_pkg)
     expect(manifest).to include(".package(url:")
+  end
+
+  it "generates root proxy referencing the _proxy folder and identity (no collision)" do
+    run_gen_proxy(ignore: "Alamofire")
+    root_pkg = File.read(File.join(output_dir, "Package.swift"))
+    expect(root_pkg).to include(".package(path: \".proxies/Alamofire_proxy\")")
+    expect(root_pkg).to include("package: \"Alamofire_proxy\"")
+    expect(root_pkg).not_to include(".package(path: \".proxies/Alamofire\")")
   end
 
   it "behaves as hit/missed only when --ignore absent" do

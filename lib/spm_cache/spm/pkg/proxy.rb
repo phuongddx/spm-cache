@@ -18,7 +18,12 @@ module SPMCache
           @graph = nil
         end
 
-        def prepare
+        # Generates the umbrella, materializes real checkouts and enriches
+        # `spm-cache.lock` with real product metadata (via the caller-supplied
+        # block, run between `gen_umbrella` and `gen_proxy` so the proxy
+        # generator always sees real product names/types), then generates the
+        # per-package proxies from the enriched lockfile.
+        def prepare(&between_umbrella_and_proxy)
           umbrella_dir = Core::Config.instance.umbrella_dir
           proxy_dir = Core::Config.instance.proxy_dir
           cache_dir = Core::Config.instance.cache_dir(@config)
@@ -32,6 +37,7 @@ module SPMCache
           ignore = Core::Config.instance.ignore_list
           cache_only = Core::Config.instance.cache_only_list
           gen_umbrella(lockfile_path, umbrella_dir)
+          between_umbrella_and_proxy&.call
           invalidate_cache
           # cache_only wins outright over ignore when non-empty; ignore is
           # skipped entirely rather than combined (single filter axis).

@@ -1,9 +1,16 @@
 # Project Roadmap
 
 > **Project:** spm-cache
-> **Last Updated:** 2026-07-14 (rev 4)
+> **Last Updated:** 2026-07-16 (rev 5)
 
 ## Current Status
+
+**v0.2.0** — Field-bugfix release. A 59-package real-project field run surfaced three blocking bugs, all now fixed:
+- ✅ Proxy identity collision (dup GUIDs / cyclic dependency on any cache-miss package) — wrapper folders renamed `<slug>_proxy`
+- ✅ Wrong product names (53/59 packages) — `spm-cache.lock` now carries real `products: [{name, type, targets}]` from `swift package describe`, consumed everywhere instead of falling back to lockfile identity
+- ✅ Plugin-only packages breaking whole-graph resolution (e.g. SwiftGenPlugin) — skipped by both generators, original Xcode reference preserved
+
+See `docs/system-architecture.md` for the corrected pipeline order and schema. Existing `~/.spm-cache` binaries are unreachable after this upgrade (module names changed from identity to real product names) — expect a one-time full rebuild; `spm-cache build <target>` now takes real product names, with the old package identity kept working as an alias.
 
 **v0.1.0** — Core implementation complete. All 8 phases from the original plan are implemented:
 
@@ -27,8 +34,8 @@
 - [x] Fixed: Xcode scheme resolved from `swift package describe` product metadata instead of raw package identity (fixes builds using the wrong scheme)
 
 **Ongoing Stabilization:**
-- [x] Add RSpec test suite for Ruby gem (4 files, 19 examples — Core, Config, Lockfile, Buildable)
-- [ ] Add Swift tests for proxy tool
+- [x] Add RSpec test suite for Ruby gem (grown to 100+ examples across Core, Config, Lockfile, Buildable, checkout/enrichment sequencing, proxy-Xcode integration, and the combined field-regression fixture)
+- [x] Add Swift tests for proxy tool (`swift test` — `PackageRef.versionRequirement`; product-metadata/plugin behavior covered by Ruby-side fixture specs against the real binary)
 - [ ] End-to-end integration tests with real SPM projects
 - [ ] Error handling hardening (edge cases in framework slice creation)
 - [ ] Resource bundle accessor compilation fix (swiftc fallback)
@@ -37,7 +44,7 @@
 - [x] Homebrew distribution via external tap (`phuongddx/spm-cache`)
 - [x] Agent skills for guided usage + issue filing (`skills/spm-cache`, `skills/spm-cache-issue`)
 
-## v0.2.0 — Polish & DX
+## v0.3.0 — Polish & DX
 
 - [ ] Progress indicators during long builds (tty-spinner)
 - [ ] Verbose/quiet log levels
@@ -46,8 +53,9 @@
 - [ ] Checksum validation on cache load
 - [ ] Incremental cache updates (only build changed dependencies)
 - [ ] Pre-built binary distribution of Swift proxy tool (GitHub Releases)
+- [ ] GC for cache binaries orphaned by the v0.2.0 module-name rekeying
 
-## v0.3.0 — Additional Platforms
+## v0.4.0 — Additional Platforms
 
 - [ ] macOS catalyst support
 - [ ] visionOS support
@@ -55,7 +63,7 @@
 - [x] ~~Multiple SDK targets in single build command~~ (done: `--sdk=all`)
 - [ ] Conditional compilation handling in umbrella package
 
-## v0.4.0 — Team Features
+## v0.5.0 — Team Features
 
 - [ ] Cache manifest with content-addressed storage (SHA-based)
 - [ ] Distributed cache with automatic deduplication
@@ -64,10 +72,10 @@
 - [ ] Slack/CI notifications for cache misses
 - [ ] Cache warming in CI (pre-build on dependency change)
 
-## v0.5.0 — Advanced
+## v0.6.0 — Advanced
 
-- [ ] Swift plugins support
 - [ ] Binary caching for local packages
+- [x] ~~Swift plugins support~~ (done in v0.2.0: plugin-only packages skipped + original reference preserved; local plugin-only packages remain out of scope)
 - [ ] Custom build scripts per target
 - [ ] Cache eviction policies (LRU, size-based)
 - [ ] `spm-cache analyze` (build time analysis + recommendations)

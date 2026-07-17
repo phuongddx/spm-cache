@@ -51,7 +51,7 @@ RSpec.describe "gen-proxy --cache-only (Swift fixture smoke)" do
 
   it "emits a valid source-fallback manifest for an excluded package" do
     run_gen_proxy(cache_only: "Alamofire")
-    snap_pkg = File.join(output_dir, ".proxies", "SnapKit", "Package.swift")
+    snap_pkg = File.join(output_dir, ".proxies", "SnapKit_proxy", "Package.swift")
     manifest = File.read(snap_pkg)
     expect(manifest).to include(".package(url:")
     expect(manifest).to include(".product(name:")

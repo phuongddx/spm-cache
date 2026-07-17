@@ -13,13 +13,25 @@ struct UmbrellaGenerator {
         try outputDir.recreate()
 
         var dependencies: [String] = []
-        var targets: [String] = []
 
+        // The umbrella's only job is checkout materialization: `swift package
+        // resolve` fetches every dependency's checkout from the
+        // `dependencies:` array alone and does not validate product/target
+        // references (that only happens at build time). So no per-package
+        // stub target/product reference is emitted here — that also makes
+        // resolve immune to wrong product names, regardless of whether
+        // `spm-cache.lock` has been enriched with real product metadata yet.
+        //
+        // A package already known to be plugin-only (enriched `products[]`
+        // metadata present, none of type `library`) is skipped entirely: it
+        // has nothing to proxy and its original Xcode reference is kept
+        // as-is during integration. A package with no `products` metadata
+        // yet (unenriched) is NOT skipped here even if it will turn out to
+        // be plugin-only — its checkout must still be resolved once so
+        // `enrich_lockfile_products` can run `swift package describe`
+        // against it and learn that in the first place.
         for pkg in lockfile.packages {
-            let slug = pkg.slug
-            let productName = pkg.resolvedProductName
-            let packageIdentity = slug
-            let targetName = "\(slug.c99extidentifier)_spm_cache"
+            if pkg.isPluginOnly { continue }
 
             if pkg.isLocal, let path = pkg.pathFromRoot {
                 dependencies.append(".package(path: \"\(path)\")")
@@ -27,17 +39,6 @@ struct UmbrellaGenerator {
                 let req = pkg.versionRequirement
                 dependencies.append(".package(url: \"\(url)\", \(req))")
             }
-            targets.append("""
-                .target(
-                    name: "\(targetName)",
-                    dependencies: [.product(name: "\(productName)", package: "\(packageIdentity)")]
-                )
-            """)
-
-            // Create stub source directory
-            let sourcesDir = outputDir.appendingPathComponent("Sources").appendingPathComponent(targetName)
-            try sourcesDir.mkdir()
-            try "".write(to: sourcesDir.appendingPathComponent("\(targetName).swift"), atomically: true, encoding: .utf8)
         }
 
         let platformStrings = lockfile.platforms.map { platform, version -> String in
@@ -85,9 +86,7 @@ struct UmbrellaGenerator {
             dependencies: [
                 \(dependencies.joined(separator: ",\n        "))
             ],
-            targets: [
-                \(targets.joined(separator: ",\n        "))
-            ]
+            targets: []
         )
         """
 

@@ -28,6 +28,10 @@ module SPMCache
         modules_with_status("excluded")
       end
 
+      def plugin
+        modules_with_status("plugin")
+      end
+
       def missed?
         !missed.empty?
       end
@@ -39,6 +43,7 @@ module SPMCache
           missed: missed.size,
           ignored: ignored.size,
           excluded: excluded.size,
+          plugin: plugin.size,
         }
       end
 
@@ -55,6 +60,7 @@ module SPMCache
         puts "  Missed:  #{s[:missed]}"
         puts "  Ignored: #{s[:ignored]}"
         puts "  Excluded: #{s[:excluded]}"
+        puts "  Plugin:  #{s[:plugin]}"
       end
 
       def depgraph_for_viz

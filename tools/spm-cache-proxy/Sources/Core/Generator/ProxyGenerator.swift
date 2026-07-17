@@ -15,7 +15,7 @@ struct ProxyGenerator {
 
     struct GraphEntry: Codable {
         enum Status: String, Codable {
-            case hit, missed, ignored, excluded
+            case hit, missed, ignored, excluded, plugin
         }
         let module: String
         let status: Status
@@ -23,11 +23,21 @@ struct ProxyGenerator {
         let hasMacro: Bool
     }
 
-    /// Returns true when any glob pattern matches the package's resolved
-    /// product name OR its lockfile identity (`name`). Mirrors the Ruby
-    /// `File.fnmatch` default semantics via POSIX `fnmatch`.
+    /// One library product of a package, with the cache/build decision already
+    /// made for it (each product has its own independent hit/miss status).
+    private struct ProductBuild {
+        let product: Lockfile.ResolvedProduct
+        let status: GraphEntry.Status
+        let cachedBinary: URL?
+    }
+
+    /// Returns true when any glob pattern matches one of the package's real
+    /// library product names OR its lockfile identity (`name`). Mirrors the
+    /// Ruby `File.fnmatch` default semantics via POSIX `fnmatch`. This is a
+    /// package-level decision: the resulting ignored/excluded status applies
+    /// uniformly to every product of the package.
     private func matchesAnyPattern(_ pkg: Lockfile.PackageRef, _ patterns: [String]) -> Bool {
-        let candidates = [pkg.resolvedProductName, pkg.name].compactMap { $0 }
+        let candidates = pkg.libraryProducts.map { $0.name } + [pkg.name].compactMap { $0 }
         for pattern in patterns {
             for candidate in candidates {
                 if fnmatch(pattern, candidate, 0) == 0 {
@@ -59,57 +69,87 @@ struct ProxyGenerator {
         try artifactsDir.mkdir()
 
         var entries: [GraphEntry] = []
+        // Plugin-only packages (build-tool plugins, e.g. SwiftGenPlugin) get
+        // no wrapper folder and no root-proxy dependency: they have no
+        // library product to proxy, and keeping a stale reference around
+        // would recreate the identity-collision bug at the Xcode layer.
+        // Xcode integration (Ruby side) preserves their original package
+        // reference directly instead.
+        var proxiedPackages: [Lockfile.PackageRef] = []
 
         for pkg in packages {
+            if pkg.isPluginOnly {
+                for product in pkg.products ?? [] {
+                    entries.append(GraphEntry(
+                        module: product.name,
+                        status: .plugin,
+                        dependencies: [],
+                        hasMacro: false
+                    ))
+                }
+                continue
+            }
+            proxiedPackages.append(pkg)
+
             let slug = pkg.slug
-            let productName = pkg.resolvedProductName
-            let proxyDir = proxiesDir.appendingPathComponent(slug)
+            let proxyDir = proxiesDir.appendingPathComponent("\(slug)_proxy")
             try proxyDir.mkdir()
 
             let ignored = isIgnored(pkg)
             let excluded = isCacheOnlyExcluded(pkg)
-            // Ignored/excluded packages are always source, even when a cached binary exists.
-            let cachedBinary = (ignored || excluded) ? nil : cache.hit(module: productName)
-            let status: GraphEntry.Status
-            if excluded {
-                status = .excluded
-            } else if ignored {
-                status = .ignored
-            } else if cachedBinary != nil {
-                status = .hit
-            } else {
-                status = .missed
+
+            // Each library product gets its own independent hit/miss status;
+            // ignored/excluded packages are always source, even when a cached
+            // binary exists for one of their products.
+            let productBuilds: [ProductBuild] = pkg.libraryProducts.map { product in
+                let cachedBinary = (ignored || excluded) ? nil : cache.hit(module: product.name)
+                let status: GraphEntry.Status
+                if excluded {
+                    status = .excluded
+                } else if ignored {
+                    status = .ignored
+                } else if cachedBinary != nil {
+                    status = .hit
+                } else {
+                    status = .missed
+                }
+                return ProductBuild(product: product, status: status, cachedBinary: cachedBinary)
             }
 
-            let packageSwift = generateProxyManifest(pkg: pkg, productName: productName, status: status, cacheHit: cachedBinary, artifactsDir: artifactsDir)
+            let packageSwift = generateProxyManifest(pkg: pkg, products: productBuilds)
             let packageSwiftPath = proxyDir.appendingPathComponent("Package.swift")
             try packageSwift.write(to: packageSwiftPath, atomically: true, encoding: .utf8)
 
-            if let binary = cachedBinary {
-                let dest = artifactsDir.appendingPathComponent(binary.lastPathComponent)
-                try? FileManager.default.removeItem(at: dest)
-                try? FileManager.default.createSymbolicLink(
-                    at: dest,
-                    withDestinationURL: binary
-                )
-            } else {
-                // Source fallback (miss or ignored): emit a shim that re-exports
-                // the real package source so `import <module>` resolves.
-                let sourcesDir = proxyDir.appendingPathComponent("Sources").appendingPathComponent("\(slug)_shim")
-                try sourcesDir.mkdir()
-                let shim = generateShimSource(pkg: pkg, productName: productName)
-                try shim.write(to: sourcesDir.appendingPathComponent("\(slug)_shim.swift"), atomically: true, encoding: .utf8)
-            }
+            for build in productBuilds {
+                let productSlug = "\(slug)_\(build.product.name.c99extidentifier)"
 
-            entries.append(GraphEntry(
-                module: productName,
-                status: status,
-                dependencies: [],
-                hasMacro: false
-            ))
+                if let binary = build.cachedBinary {
+                    let dest = artifactsDir.appendingPathComponent(binary.lastPathComponent)
+                    try? FileManager.default.removeItem(at: dest)
+                    try? FileManager.default.createSymbolicLink(
+                        at: dest,
+                        withDestinationURL: binary
+                    )
+                } else {
+                    // Source fallback (miss or ignored): emit a shim that
+                    // re-exports the real package module(s) so `import
+                    // <module>` resolves.
+                    let sourcesDir = proxyDir.appendingPathComponent("Sources").appendingPathComponent("\(productSlug)_shim")
+                    try sourcesDir.mkdir()
+                    let shim = generateShimSource(targets: build.product.targets)
+                    try shim.write(to: sourcesDir.appendingPathComponent("\(productSlug)_shim.swift"), atomically: true, encoding: .utf8)
+                }
+
+                entries.append(GraphEntry(
+                    module: build.product.name,
+                    status: build.status,
+                    dependencies: [],
+                    hasMacro: false
+                ))
+            }
         }
 
-        let rootProxy = generateRootProxy(packages: packages)
+        let rootProxy = generateRootProxy(packages: proxiedPackages)
         let rootProxyPath = outputDir.appendingPathComponent("Package.swift")
         try rootProxy.write(to: rootProxyPath, atomically: true, encoding: .utf8)
 
@@ -130,48 +170,57 @@ struct ProxyGenerator {
         Logger.info("Generated graph.json at \(path.path)")
     }
 
-    private func generateProxyManifest(pkg: Lockfile.PackageRef, productName: String, status: GraphEntry.Status, cacheHit: URL?, artifactsDir: URL) -> String {
+    /// Emits ONE Package.swift for the package's proxy folder, exporting every
+    /// library product by its real name. Each product gets its own target
+    /// (binary on cache hit, source shim otherwise); the underlying real
+    /// package dependency is declared at most once even when multiple
+    /// products fall back to source.
+    private func generateProxyManifest(pkg: Lockfile.PackageRef, products: [ProductBuild]) -> String {
         let slug = pkg.slug
+        var productLines: [String] = []
+        var targetLines: [String] = []
+        var depLines: [String] = []
+        var sharedDepEmitted = false
 
-        if status == .hit, cacheHit != nil {
-            let relativePath = "../../.build/artifacts/\(productName).xcframework"
-            return """
-            // swift-tools-version: 6.0
-            import PackageDescription
+        for build in products {
+            let productSlug = "\(slug)_\(build.product.name.c99extidentifier)"
 
-            let package = Package(
-                name: "\(slug)_proxy",
-                products: [
-                    .library(name: "\(productName)", targets: ["\(slug)_binary"]),
-                ],
-                targets: [
-                    .binaryTarget(name: "\(slug)_binary", path: "\(relativePath)"),
-                ]
-            )
-            """
-        } else {
-            // Miss or ignored: re-export the real package source via a shim target.
-            let (depLine, targetDep) = sourceDependencyLines(pkg: pkg, productName: productName)
-            return """
-            // swift-tools-version: 6.0
-            import PackageDescription
-
-            let package = Package(
-                name: "\(slug)_proxy",
-                products: [
-                    .library(name: "\(productName)", targets: ["\(slug)_shim"]),
-                ],
-                dependencies: [
-                    \(depLine)
-                ],
-                targets: [
-                    .target(name: "\(slug)_shim", dependencies: [
-                        \(targetDep)
-                    ], path: "Sources/\(slug)_shim")
-                ]
-            )
-            """
+            if build.status == .hit, build.cachedBinary != nil {
+                let relativePath = "../../.build/artifacts/\(build.product.name).xcframework"
+                productLines.append(".library(name: \"\(build.product.name)\", targets: [\"\(productSlug)_binary\"])")
+                targetLines.append(".binaryTarget(name: \"\(productSlug)_binary\", path: \"\(relativePath)\")")
+            } else {
+                let (depLine, targetDep) = sourceDependencyLines(pkg: pkg, productName: build.product.name)
+                if !sharedDepEmitted {
+                    depLines.append(depLine)
+                    sharedDepEmitted = true
+                }
+                productLines.append(".library(name: \"\(build.product.name)\", targets: [\"\(productSlug)_shim\"])")
+                targetLines.append("""
+                .target(name: "\(productSlug)_shim", dependencies: [
+                                \(targetDep)
+                            ], path: "Sources/\(productSlug)_shim")
+                """)
+            }
         }
+
+        return """
+        // swift-tools-version: 6.0
+        import PackageDescription
+
+        let package = Package(
+            name: "\(slug)_proxy",
+            products: [
+                \(productLines.joined(separator: ",\n        "))
+            ],
+            dependencies: [
+                \(depLines.joined(separator: ",\n        "))
+            ],
+            targets: [
+                \(targetLines.joined(separator: ",\n        "))
+            ]
+        )
+        """
     }
 
     /// Emits the `.package(...)` dependency line and the `.product(...)` target
@@ -180,8 +229,8 @@ struct ProxyGenerator {
     private func sourceDependencyLines(pkg: Lockfile.PackageRef, productName: String) -> (dep: String, targetDep: String) {
         let packageIdentity = pkg.slug
         if pkg.isLocal, let path = pkg.pathFromRoot {
-            // Proxy Package.swift lives at .proxies/<slug>/Package.swift; the
-            // project root is two levels up.
+            // Proxy Package.swift lives at .proxies/<slug>_proxy/Package.swift;
+            // the project root is two levels up.
             let depLine = ".package(path: \"../../\(path)\")"
             let targetDep = ".product(name: \"\(productName)\", package: \"\(packageIdentity)\")"
             return (depLine, targetDep)
@@ -194,13 +243,15 @@ struct ProxyGenerator {
         }
     }
 
-    /// Shim source that re-exports the real module so app-level
-    /// `import <productName>` resolves to source compilation.
-    private func generateShimSource(pkg: Lockfile.PackageRef, productName: String) -> String {
-        let moduleName = pkg.resolvedProductName
+    /// Shim source that re-exports the real module(s) so app-level
+    /// `import <productName>` resolves to source compilation. A product can
+    /// bundle more than one target module, so one `@_exported import` line is
+    /// emitted per target.
+    private func generateShimSource(targets: [String]) -> String {
+        let imports = targets.map { "@_exported import \($0)" }.joined(separator: "\n")
         return """
-        // Auto-generated by spm-cache-proxy: re-exports the source package module.
-        @_exported import \(moduleName)
+        // Auto-generated by spm-cache-proxy: re-exports the source package module(s).
+        \(imports)
         """
     }
 
@@ -210,9 +261,15 @@ struct ProxyGenerator {
 
         for pkg in packages {
             let slug = pkg.slug
-            let productName = pkg.resolvedProductName
-            deps.append(".package(path: \".proxies/\(slug)\")")
-            targetDeps.append(".product(name: \"\(productName)\", package: \"\(slug)\")")
+            deps.append(".package(path: \".proxies/\(slug)_proxy\")")
+            // Reference EVERY real library product the sub-proxy actually
+            // declares (Phase 2: a package can export more than one, e.g.
+            // Realm -> Realm + RealmSwift) — referencing just one guessed
+            // name here would make `swift build` fail with "product ... not
+            // found in package" for any multi-product package.
+            for product in pkg.libraryProducts {
+                targetDeps.append(".product(name: \"\(product.name)\", package: \"\(slug)_proxy\")")
+            }
         }
 
         return """

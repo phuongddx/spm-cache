@@ -34,6 +34,10 @@ const style = [
         style: { 'background-color': '#607D8B' }
     },
     {
+        selector: 'node[status="plugin"]',
+        style: { 'background-color': '#3F51B5' }
+    },
+    {
         selector: 'node[hasMacro="true"]',
         style: { 'shape': 'diamond', 'background-color': '#9C27B0' }
     },

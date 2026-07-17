@@ -10,6 +10,7 @@ RSpec.describe SPMCache::Cache::Cachemap do
         { "module" => "SnapKit", "status" => "missed" },
         { "module" => "VolatileLib", "status" => "ignored" },
         { "module" => "ExcludedLib", "status" => "excluded" },
+        { "module" => "SwiftGenPlugin", "status" => "plugin" },
       ],
     )
   end
@@ -20,9 +21,15 @@ RSpec.describe SPMCache::Cache::Cachemap do
     end
   end
 
+  describe "#plugin" do
+    it "returns only plugin-status modules" do
+      expect(cachemap.plugin).to eq(["SwiftGenPlugin"])
+    end
+  end
+
   describe "#stats" do
-    it "includes the excluded count" do
-      expect(cachemap.stats).to include(excluded: 1, total: 4, hit: 1, missed: 1, ignored: 1)
+    it "includes the excluded and plugin counts" do
+      expect(cachemap.stats).to include(excluded: 1, total: 5, hit: 1, missed: 1, ignored: 1, plugin: 1)
     end
   end
 end

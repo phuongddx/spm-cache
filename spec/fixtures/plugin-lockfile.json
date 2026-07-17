@@ -1,0 +1,35 @@
+{
+  "FixtureApp.xcodeproj": {
+    "packages": [
+      {
+        "repositoryURL": "https://github.com/SwiftGen/SwiftGenPlugin.git",
+        "name": "SwiftGenPlugin",
+        "version": "6.6.3",
+        "products": [
+          { "name": "SwiftGenPlugin", "type": "plugin", "targets": ["SwiftGenPlugin"] }
+        ]
+      },
+      {
+        "repositoryURL": "https://github.com/Alamofire/Alamofire.git",
+        "name": "Alamofire",
+        "version": "5.9.1",
+        "products": [
+          { "name": "Alamofire", "type": "library", "targets": ["Alamofire"] }
+        ]
+      },
+      {
+        "repositoryURL": "https://github.com/example/mixed-package.git",
+        "name": "mixed-package",
+        "version": "1.0.0",
+        "products": [
+          { "name": "MixedLib", "type": "library", "targets": ["MixedLib"] },
+          { "name": "MixedPlugin", "type": "plugin", "targets": ["MixedPlugin"] }
+        ]
+      }
+    ],
+    "dependencies": {},
+    "platforms": {
+      "ios": "16.0"
+    }
+  }
+}

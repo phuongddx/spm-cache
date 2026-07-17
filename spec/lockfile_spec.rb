@@ -57,6 +57,24 @@ RSpec.describe SPMCache::Core::Lockfile do
     end
   end
 
+  describe "Pkg#products" do
+    it "defaults to an empty array when no products metadata is present" do
+      pkgs = lockfile.pkgs_for_project("MyApp.xcodeproj")
+      expect(pkgs.first.products).to eq([])
+    end
+
+    it "round-trips products through #to_h instead of silently dropping them" do
+      data = {
+        "repositoryURL" => "https://github.com/realm/realm-swift.git",
+        "name" => "realm-swift",
+        "products" => [{ "name" => "RealmSwift", "type" => "library", "targets" => ["RealmSwift"] }],
+      }
+      pkg = SPMCache::Core::Lockfile::Pkg.new(data)
+      expect(pkg.products).to eq(data["products"])
+      expect(pkg.to_h["products"]).to eq(data["products"])
+    end
+  end
+
   describe "#empty?" do
     it "returns false when data present" do
       expect(lockfile.empty?).to be false
