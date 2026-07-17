@@ -25,15 +25,17 @@ struct GenUmbrella: AsyncParsableCommand, CommandRunning {
         let lockfiles = Lockfile.load(from: lockfilePath.path)
         var allPackages: [Lockfile.PackageRef] = []
         var allPlatforms: [String: String] = [:]
+        var allDependencies: [String: [String]] = [:]
 
         for (_, lf) in lockfiles {
             allPackages.append(contentsOf: lf.packages)
             allPlatforms.merge(lf.platforms) { _, new in new }
+            allDependencies.merge(lf.dependencies) { old, new in old + new }
         }
 
         let combinedLockfile = Lockfile(
             packages: allPackages,
-            dependencies: [:],
+            dependencies: allDependencies,
             platforms: allPlatforms
         )
 

@@ -14,6 +14,14 @@ struct UmbrellaGenerator {
 
         var dependencies: [String] = []
 
+        // Product names the host project's targets directly link, per
+        // `Installer#refresh_consumed_dependencies`. Used below to tell a
+        // directly-consumed package apart from one that's only reachable
+        // transitively through another package already in this list (e.g.
+        // realm-core, pulled in solely via realm-swift's own dependency
+        // declaration, never linked by the app itself).
+        let consumedProducts = Set(lockfile.dependencies.values.flatMap { $0 })
+
         // The umbrella's only job is checkout materialization: `swift package
         // resolve` fetches every dependency's checkout from the
         // `dependencies:` array alone and does not validate product/target
@@ -32,6 +40,26 @@ struct UmbrellaGenerator {
         // against it and learn that in the first place.
         for pkg in lockfile.packages {
             if pkg.isPluginOnly { continue }
+
+            // A package whose products are provably never linked directly by
+            // the host project (transitive-only) is left out of the
+            // umbrella's own dependency list. SwiftPM still resolves and
+            // checks out such packages transitively through whichever
+            // package actually consumes them, picking a version consistent
+            // with the rest of the graph — pinning it again here at its own
+            // last-resolved version can conflict with what its parent's
+            // manifest requires and fail `swift package resolve` outright,
+            // even though the real dependency graph has no conflict.
+            // Skipped entirely when there's no consumption data to check
+            // against (empty `consumedProducts`) or the package hasn't been
+            // enriched with product metadata yet — both cases fall back to
+            // today's pin-everything behavior rather than guessing.
+            if !consumedProducts.isEmpty, let products = pkg.products, !products.isEmpty {
+                let ownProductNames = Set(products.map { $0.name })
+                if ownProductNames.isDisjoint(with: consumedProducts) {
+                    continue
+                }
+            }
 
             if pkg.isLocal, let path = pkg.pathFromRoot {
                 dependencies.append(".package(path: \"\(path)\")")

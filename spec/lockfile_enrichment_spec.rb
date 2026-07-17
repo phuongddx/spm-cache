@@ -94,6 +94,67 @@ RSpec.describe SPMCache::Installer, "#enrich_lockfile_products" do
     expect(pkg["products"]).to be_nil
   end
 
+  # Field regression: eh_xcframework (a private binary-target-only package)
+  # resolved and checked out fine, but `swift package describe` came back
+  # with an empty `products` array for it -- without a fallback, this
+  # silently reintroduces the original wrong-product-name bug for exactly
+  # the packages `describe` can't fully introspect.
+  it "falls back to parsing Package.swift's .library()/.binaryTarget() names when 'describe' returns no products" do
+    checkout_dir = File.join(checkouts_root, "eh_xcframework")
+    FileUtils.mkdir_p(checkout_dir)
+    File.write(File.join(checkout_dir, "Package.swift"), <<~SWIFT)
+      // swift-tools-version: 5.9
+      import PackageDescription
+
+      let package = Package(
+          name: "eh_xcframework",
+          products: [
+              .library(name: "EHXCFramework", targets: ["EHXCFrameworkTarget"]),
+          ],
+          targets: [
+              .binaryTarget(name: "EHXCFrameworkTarget", path: "EHXCFramework.xcframework"),
+          ]
+      )
+    SWIFT
+    stub_desc_products(checkout_dir, [])
+    write_lockfile([{ "repositoryURL" => "git@bitbucket.org:axonivy-prod/eh_xcframework.git", "name" => "eh_xcframework" }])
+
+    installer = make_installer
+    installer.instance_variable_set(:@lockfile, SPMCache::Core::Lockfile.new(lockfile_path))
+
+    expect { installer.send(:enrich_lockfile_products) }.not_to output(/returned no products/).to_stderr
+
+    saved = JSON.parse(File.read(lockfile_path))
+    pkg = saved["Fake.xcodeproj"]["packages"].first
+    expect(pkg["products"]).to eq([
+      { "name" => "EHXCFramework", "type" => "library", "targets" => ["EHXCFramework"] },
+      { "name" => "EHXCFrameworkTarget", "type" => "library", "targets" => ["EHXCFrameworkTarget"] },
+    ])
+  end
+
+  it "still warns when 'describe' returns no products and Package.swift has no parseable library/binaryTarget names" do
+    checkout_dir = File.join(checkouts_root, "TrulyEmpty")
+    FileUtils.mkdir_p(checkout_dir)
+    File.write(File.join(checkout_dir, "Package.swift"), <<~SWIFT)
+      // swift-tools-version: 5.9
+      import PackageDescription
+      let package = Package(name: "TrulyEmpty", products: [], targets: [])
+    SWIFT
+    stub_desc_products(checkout_dir, [])
+    write_lockfile([{ "repositoryURL" => "https://github.com/example/TrulyEmpty.git", "name" => "TrulyEmpty" }])
+
+    installer = make_installer
+    installer.instance_variable_set(:@lockfile, SPMCache::Core::Lockfile.new(lockfile_path))
+
+    expect { installer.send(:enrich_lockfile_products) }.to output(
+      /'swift package describe' returned no products for 'TrulyEmpty'/,
+    ).to_stderr
+
+    saved = JSON.parse(File.read(lockfile_path))
+    pkg = saved["Fake.xcodeproj"]["packages"].first
+    expect(pkg["products"]).to be_nil
+  end
+
   it "is idempotent: does not re-describe an entry that already has products[]" do
     write_lockfile([{
       "repositoryURL" => "https://github.com/Already/Enriched.git",

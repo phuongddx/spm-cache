@@ -76,6 +76,34 @@ module SPMCache
 
       @lockfile = Core::Lockfile.new(lockfile_path)
       @lockfile.load(lockfile_path) if File.exist?(lockfile_path)
+      refresh_consumed_dependencies
+    end
+
+    # Records, per target, the product names the Xcode project directly
+    # links right now (before spm-cache rewires anything) into the
+    # lockfile's `dependencies` field. UmbrellaGenerator uses this to tell a
+    # directly-consumed package (must be pinned at the umbrella root) apart
+    # from one that's only pulled in transitively by another package in the
+    # graph (e.g. realm-core, which the app never links itself -- only
+    # realm-swift's Realm/RealmSwift products are). Pinning a transitive-only
+    # package independently at its own last-resolved version can conflict
+    # with the version its parent's manifest actually requires, breaking
+    # `swift package resolve` for the whole graph even though the real
+    # dependency graph is perfectly consistent.
+    def refresh_consumed_dependencies
+      return unless @lockfile
+
+      proj_data = @lockfile.projects[File.basename(@project_path)]
+      return unless proj_data
+
+      project = Xcodeproj::Project.open(@project_path)
+      deps = {}
+      project.targets.each do |target|
+        products = target.package_product_dependencies.to_a.map(&:product_name).compact
+        deps[target.name] = products unless products.empty?
+      end
+      proj_data["dependencies"] = deps
+      @lockfile.save
     end
 
     def generate_lockfile_from_resolved
@@ -129,9 +157,34 @@ module SPMCache
       Core::UI.info "Preparing proxy packages..."
       @proxy_pkg = SPM::Package::Proxy.new(root_dir: @config.project_dir, config: @config_name)
       @proxy_pkg.prepare do
-        resolve_umbrella_checkouts
+        resolved_cleanly = resolve_umbrella_checkouts
         enrich_lockfile_products
+        retry_umbrella_resolve_after_enrichment unless resolved_cleanly
       end
+    end
+
+    # The umbrella's first resolve can fail with a version conflict when it
+    # independently pins a package that's only a transitive dependency of
+    # another package already in the graph (e.g. realm-core, pulled in
+    # solely via realm-swift) at a stale snapshot version that no longer
+    # matches what the consuming package's own manifest requires -- see
+    # UmbrellaGenerator. At that point in the flow `products[]` metadata
+    # doesn't exist yet for anyone, so the generator has no way to tell a
+    # transitive-only package apart from a directly-consumed one and pins
+    # everything, same as before.
+    #
+    # `enrich_lockfile_products` (which just ran) now knows every package's
+    # real products, so regenerating the umbrella lets the generator
+    # correctly exclude transitive-only packages this time, and resolving
+    # again gives `swift package resolve` a real chance to succeed on its
+    # own rather than leaving the run permanently dependent on Xcode's
+    # DerivedData checkouts (absent on CI or after a "clean derived data").
+    # `gen_umbrella` recreates `umbrella_dir` from scratch, so any checkouts
+    # copied in by the first attempt's DerivedData fallback are wiped before
+    # this retry, avoiding stale/inconsistent leftovers.
+    def retry_umbrella_resolve_after_enrichment
+      @proxy_pkg.gen_umbrella(@config.lockfile_path, @config.umbrella_dir)
+      resolve_umbrella_checkouts
     end
 
     # Enriches `spm-cache.lock` in place with real product metadata
@@ -158,6 +211,7 @@ module SPMCache
           desc = SPM::Desc::Description.new(name: pkg_data["name"] || slug_for(pkg_data), pkg_dir: checkout_dir)
           desc.fetch
           products = desc.products.map { |p| { "name" => p.name, "type" => p.type, "targets" => p.target_names } }
+          products = products_from_manifest_fallback(checkout_dir) if products.empty?
           if products.empty?
             Core::UI.warn "'swift package describe' returned no products for '#{pkg_data['name'] || slug_for(pkg_data)}'; product metadata not enriched (legacy fallback applies)"
             next
@@ -168,6 +222,24 @@ module SPMCache
       end
 
       @lockfile.save
+    end
+
+    # `swift package describe` can come back with an empty `products` array
+    # for a package it otherwise resolves fine -- seen with binary-target-
+    # only private packages (e.g. eh_xcframework). Without this, such a
+    # package silently falls back to its lockfile identity as the assumed
+    # product name downstream, reintroducing the original wrong-product-
+    # name bug for exactly the packages `describe` can't fully introspect.
+    # Parses `.library(name:)` / `.binaryTarget(name:)` declarations
+    # straight out of Package.swift's source text as a last resort.
+    def products_from_manifest_fallback(checkout_dir)
+      manifest_path = File.join(checkout_dir, "Package.swift")
+      return [] unless File.exist?(manifest_path)
+
+      text = File.read(manifest_path)
+      names = text.scan(/\.library\(\s*name:\s*"([^"]+)"/).flatten
+      names += text.scan(/\.binaryTarget\(\s*name:\s*"([^"]+)"/).flatten
+      names.uniq.map { |name| { "name" => name, "type" => "library", "targets" => [name] } }
     end
 
     def gen_supporting_files

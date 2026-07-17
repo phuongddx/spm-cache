@@ -13,10 +13,16 @@ module SPMCache
     # running it, and only after Xcode integration.
     module CheckoutResolver
       # Resolves umbrella dependencies so checkouts are materialized under
-      # {umbrella_dir}/.build/checkouts/<slug>.
+      # {umbrella_dir}/.build/checkouts/<slug>. Returns true when `swift
+      # package resolve` itself succeeded, false when it fell back to
+      # DerivedData checkouts -- callers use this to decide whether a
+      # regenerate-and-retry (once real product metadata is known; see
+      # `Installer#retry_umbrella_resolve_after_enrichment`) is worth
+      # attempting.
       def resolve_umbrella_checkouts
         Core::UI.info "Resolving umbrella checkouts..."
         Core::Sh.run("swift package resolve", cwd: @config.umbrella_dir)
+        true
       rescue => e
         Core::UI.warn "Umbrella resolve failed: #{e.message}"
         fallback_xcode_checkouts
@@ -25,6 +31,7 @@ module SPMCache
         if Dir.glob(File.join(checkouts_root, "*")).empty?
           Core::UI.warn "Umbrella resolve failed and no DerivedData checkouts found; all targets will be skipped"
         end
+        false
       end
 
       # Falls back to Xcode's own resolved checkouts under DerivedData when
