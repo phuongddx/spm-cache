@@ -190,10 +190,13 @@ Storage (local cache + remote Git/S3)
 3. `ensure_config_file` — copy template if missing, then load config (ignore_build_errors, default_sdk, ignore settings)
 4. `sync_lockfile` — load/save lockfile
 5. `prepare_proxy` — `proxy_pkg.prepare` runs the Swift tool + a caller-supplied step in between:
-   a. `gen_umbrella` — umbrella `Package.swift` from the lockfile
+   a. `gen_umbrella` — umbrella `Package.swift` from the lockfile. The umbrella independently pins every package to its own last-resolved version *except* one it can prove is only a transitive dependency of another package already in the list (its products never appear in `dependencies` — see step 4a below); a transitive-only package is left for SwiftPM to resolve on its own through whichever package actually consumes it, rather than double-pinning it at a version that can drift from what that package's own manifest requires
    b. `resolve_umbrella_checkouts` — `swift package resolve` against the umbrella (falls back to the newest matching DerivedData checkouts on failure), materializing real package sources under `{umbrella_dir}/.build/checkouts/{slug}` *before* anything reads product metadata — this ordering fix closes the wrong-product-name bug (no flow previously resolved checkouts before proxy generation)
-   c. `enrich_lockfile_products` — `swift package describe` per checkout → writes `products[]` into `spm-cache.lock` (idempotent, skips entries already enriched)
-   d. `gen_proxy` — per-package + root proxy packages, `graph.json`, from the now-enriched lockfile
+   c. `enrich_lockfile_products` — `swift package describe` per checkout → writes `products[]` into `spm-cache.lock` (idempotent, skips entries already enriched); if `describe` comes back with no products (seen with binary-target-only packages), falls back to regex-parsing `.library(name:)`/`.binaryTarget(name:)` declarations straight out of the checkout's `Package.swift` text
+   d. If (b) failed on its first attempt: regenerate the umbrella and resolve again now that (c) has real product metadata, so the transitive-only-package skip in (a) can actually apply — the first pass runs before anyone has `products[]`, so it still pins everything and can hit the same conflict it's meant to avoid
+   e. `gen_proxy` — per-package + root proxy packages, `graph.json`, from the now-enriched lockfile
+
+4a. `refresh_consumed_dependencies` (runs as part of `sync_lockfile`, before `prepare_proxy`) — opens the Xcode project and records, per target, the product names it directly links (`package_product_dependencies`) into the lockfile's `dependencies` field. This is the data step (a) and (d) above use to tell a directly-consumed package apart from a transitive-only one.
 6. `gen_supporting_files` — xcconfigs for macros
 7. `integrate_proxy_into_project` — rewrite Xcode package references/product deps to point at the proxy, preserving plugin-only package references untouched (see Xcode Integration below)
 8. `gen_cachemap_viz` — HTML dependency graph
@@ -229,7 +232,7 @@ Generators (Umbrella, Proxy, Graph, Metadata)
 Models (Lockfile, BinariesCache)
 ```
 
-**`GenUmbrella`**: Loads `spm-cache.lock` → merges all project packages/platforms → `UmbrellaGenerator` writes umbrella `Package.swift` (dependencies only, no target/product references; skips packages already known to be plugin-only).
+**`GenUmbrella`**: Loads `spm-cache.lock` → merges all project packages/platforms/dependencies → `UmbrellaGenerator` writes umbrella `Package.swift` (dependencies only, no target/product references; skips packages already known to be plugin-only, and skips a package whose products are provably never directly consumed per the merged `dependencies` map — letting SwiftPM resolve it transitively through whichever package does consume it, instead of pinning it again at a version that can conflict with what that package's own manifest requires).
 
 **`GenProxy`**: Loads lockfile → `ProxyGenerator` iterates packages, skips plugin-only ones (emitting a `plugin`-status `graph.json` entry instead), otherwise expands each package's real library products (`Lockfile.PackageRef.libraryProducts`, with a single-entry legacy fallback when `products[]` metadata is absent) and checks `BinariesCache` per product name, generating one proxy folder per package (all its products in one manifest) + root proxy + `graph.json`.
 
@@ -242,14 +245,16 @@ Models (Lockfile, BinariesCache)
 ```
 1. Command::Use.run
 2. Installer::Use.new(project:).perform_install
-3. SPM::Package::Proxy.prepare:
-   a. ProxyExecutable.gen_umbrella   → Swift gen-umbrella → umbrella Package.swift
-   b. resolve_umbrella_checkouts     → swift package resolve (+ DerivedData fallback)
-   c. enrich_lockfile_products       → swift package describe per checkout → products[] into spm-cache.lock
-   d. ProxyExecutable.gen_proxy      → Swift gen-proxy → proxy packages + graph.json
-4. integrate_proxy_into_project (keep plugin-only refs, rewire everything else onto the proxy)
-5. Cache::Cachemap.load(graph.json)
-6. gen_cachemap_viz → HTML at spm-cache/cachemap/index.html
+3. sync_lockfile → refresh_consumed_dependencies (records each target's directly-linked product names into lockfile.dependencies)
+4. SPM::Package::Proxy.prepare:
+   a. ProxyExecutable.gen_umbrella   → Swift gen-umbrella → umbrella Package.swift (skips packages proven transitive-only via dependencies)
+   b. resolve_umbrella_checkouts     → swift package resolve (+ DerivedData fallback); returns whether it succeeded on its own
+   c. enrich_lockfile_products       → swift package describe per checkout (+ Package.swift text fallback) → products[] into spm-cache.lock
+   d. if (b) fell back: retry_umbrella_resolve_after_enrichment → regenerate + resolve again now that products[] is known
+   e. ProxyExecutable.gen_proxy      → Swift gen-proxy → proxy packages + graph.json
+5. integrate_proxy_into_project (keep plugin-only refs, rewire everything else onto the proxy)
+6. Cache::Cachemap.load(graph.json)
+7. gen_cachemap_viz → HTML at spm-cache/cachemap/index.html
 ```
 
 ### `spm-cache build [TARGETS]`
@@ -282,7 +287,7 @@ Multi-slice pipeline (simulator + device in one xcframework):
 
 **Scheme Resolution:** Before any build attempt, the pipeline calls `swift package describe` and filters library-type products by exact name match (case-insensitive), then substring containment, then the first available library product. This replaces the previous behavior of deriving the scheme from raw package/target identity, which often resulted in builds using the wrong scheme. If `swift package describe` yields no usable result (e.g., binary-only packages), a fallback heuristic queries `xcodebuild -list` scheme names.
 
-**Umbrella Resolve Fallback:** If `swift package resolve` fails on the umbrella package, the installer falls back to copying the most-recently-modified `~/Library/Developer/Xcode/DerivedData/<ProjectName>-*/SourcePackages/checkouts` into the umbrella's `.build/checkouts/` directory. This avoids the previous behavior of skipping every target with "checkout not found" errors.
+**Umbrella Resolve Fallback:** If `swift package resolve` fails on the umbrella package, the installer falls back to copying the most-recently-modified `~/Library/Developer/Xcode/DerivedData/<ProjectName>-*/SourcePackages/checkouts` into the umbrella's `.build/checkouts/` directory. This avoids the previous behavior of skipping every target with "checkout not found" errors. On a cold run (no `products[]` metadata for anyone yet) the umbrella can't yet tell a transitive-only package apart from a directly-consumed one and pins everything, which can conflict and trigger this fallback; `retry_umbrella_resolve_after_enrichment` regenerates the umbrella and resolves again once `enrich_lockfile_products` has real product metadata, so the retry can usually succeed on its own rather than the run permanently depending on DerivedData being present (absent on CI or after a "clean derived data").
 
 ```
 For each destination (iphonesimulator, iphoneos):
