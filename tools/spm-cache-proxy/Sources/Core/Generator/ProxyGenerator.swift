@@ -61,7 +61,7 @@ struct ProxyGenerator {
         return !matchesAnyPattern(pkg, cacheOnlyPatterns)
     }
 
-    func generate(for packages: [Lockfile.PackageRef]) throws -> [GraphEntry] {
+    func generate(for packages: [Lockfile.PackageRef], consumedProducts: Set<String> = []) throws -> [GraphEntry] {
         try outputDir.recreate()
         let proxiesDir = outputDir.appendingPathComponent(".proxies")
         try proxiesDir.mkdir()
@@ -89,6 +89,21 @@ struct ProxyGenerator {
                 }
                 continue
             }
+
+            // A package whose products are provably never linked directly by
+            // the host project (transitive-only -- e.g. realm-core, pulled in
+            // solely via realm-swift) gets no wrapper folder and no root-proxy
+            // dependency either: referencing it here would make the ROOT
+            // PROXY's own manifest independently pin it alongside whatever
+            // package actually needs it, at a version that can conflict with
+            // what that package's own manifest requires -- the same failure
+            // mode UmbrellaGenerator avoids, but this time baked into the real
+            // Xcode project's package graph instead of spm-cache's internal
+            // umbrella. Nothing needs to import it directly, so nothing is
+            // lost: whichever package does consume it pulls it in transitively
+            // through its own manifest, resolved consistently by SwiftPM.
+            if pkg.isTransitiveOnly(consumedProducts: consumedProducts) { continue }
+
             proxiedPackages.append(pkg)
 
             let slug = pkg.slug

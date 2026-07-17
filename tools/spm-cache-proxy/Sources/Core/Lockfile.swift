@@ -86,6 +86,20 @@ struct Lockfile: Codable {
             return !products.contains { $0.type == "library" }
         }
 
+        /// True when this package's real products are known (`products[]`
+        /// enriched) and none of them appear in `consumedProducts` -- i.e.
+        /// it's provably only a transitive dependency of another package
+        /// already in the graph (e.g. realm-core, pulled in solely via
+        /// realm-swift), never linked directly by the host project. False
+        /// (safe default: treat as directly consumed) when there's no
+        /// consumption data to check against, or `products[]` isn't
+        /// enriched yet.
+        func isTransitiveOnly(consumedProducts: Set<String>) -> Bool {
+            guard !consumedProducts.isEmpty, let products = products, !products.isEmpty else { return false }
+            let ownProductNames = Set(products.map { $0.name })
+            return ownProductNames.isDisjoint(with: consumedProducts)
+        }
+
         var versionRequirement: String {
             if let version = version, !version.isEmpty {
                 return "from: \"\(version)\""

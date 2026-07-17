@@ -148,3 +148,87 @@ struct UmbrellaGeneratorTransitiveSkipTests {
         #expect(content.contains("some-pkg"))
     }
 }
+
+@Suite("ProxyGenerator transitive-only package skip")
+struct ProxyGeneratorTransitiveSkipTests {
+    private func makePackage(
+        name: String,
+        url: String,
+        version: String,
+        products: [Lockfile.ProductRef]?
+    ) -> Lockfile.PackageRef {
+        Lockfile.PackageRef(
+            repositoryURL: url,
+            pathFromRoot: nil,
+            name: name,
+            productName: nil,
+            version: version,
+            revision: nil,
+            products: products
+        )
+    }
+
+    private func generate(
+        packages: [Lockfile.PackageRef],
+        consumedProducts: Set<String>
+    ) throws -> (entries: [ProxyGenerator.GraphEntry], outputDir: URL) {
+        let outputDir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        let cacheDir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        let generator = ProxyGenerator(cache: BinariesCache(dir: cacheDir), outputDir: outputDir)
+        let entries = try generator.generate(for: packages, consumedProducts: consumedProducts)
+        return (entries, outputDir)
+    }
+
+    // Reproduces the real-world realm-swift/realm-core case at the PROXY
+    // layer (not just the umbrella): the root proxy used to reference every
+    // lockfile package's own sub-proxy unconditionally, so realm-core_proxy
+    // (pinning realm-core independently) got wired into the real Xcode
+    // project's package graph even though the app only ever links
+    // Realm/RealmSwift -- reproducing the exact same version conflict
+    // UmbrellaGenerator was fixed to avoid, just one layer deeper.
+    @Test("does not generate a sub-proxy or root-proxy reference for a transitive-only package")
+    func skipsTransitiveOnlyPackage() throws {
+        let realmCore = makePackage(
+            name: "realm-core",
+            url: "https://github.com/realm/realm-core.git",
+            version: "13.26.0",
+            products: [Lockfile.ProductRef(name: "RealmCore", type: "library", targets: ["RealmCore"])]
+        )
+        let realmSwift = makePackage(
+            name: "realm-swift",
+            url: "https://github.com/realm/realm-swift",
+            version: "10.47.0",
+            products: [Lockfile.ProductRef(name: "RealmSwift", type: "library", targets: ["Realm", "RealmSwift"])]
+        )
+
+        let (entries, outputDir) = try generate(
+            packages: [realmCore, realmSwift],
+            consumedProducts: ["RealmSwift"]
+        )
+        defer { try? FileManager.default.removeItem(at: outputDir) }
+
+        #expect(!FileManager.default.fileExists(atPath: outputDir.appendingPathComponent(".proxies/realm-core_proxy").path))
+        #expect(FileManager.default.fileExists(atPath: outputDir.appendingPathComponent(".proxies/realm-swift_proxy").path))
+        #expect(!entries.contains { $0.module == "RealmCore" })
+
+        let rootProxy = try String(contentsOf: outputDir.appendingPathComponent("Package.swift"), encoding: .utf8)
+        #expect(!rootProxy.contains("realm-core_proxy"))
+        #expect(rootProxy.contains("realm-swift_proxy"))
+    }
+
+    @Test("keeps every package when consumedProducts is empty (legacy lockfile)")
+    func keepsEverythingWhenNoConsumptionDataAvailable() throws {
+        let realmCore = makePackage(
+            name: "realm-core",
+            url: "https://github.com/realm/realm-core.git",
+            version: "13.26.0",
+            products: [Lockfile.ProductRef(name: "RealmCore", type: "library", targets: ["RealmCore"])]
+        )
+
+        let (entries, outputDir) = try generate(packages: [realmCore], consumedProducts: [])
+        defer { try? FileManager.default.removeItem(at: outputDir) }
+
+        #expect(FileManager.default.fileExists(atPath: outputDir.appendingPathComponent(".proxies/realm-core_proxy").path))
+        #expect(entries.contains { $0.module == "RealmCore" })
+    }
+}

@@ -54,12 +54,7 @@ struct UmbrellaGenerator {
             // against (empty `consumedProducts`) or the package hasn't been
             // enriched with product metadata yet — both cases fall back to
             // today's pin-everything behavior rather than guessing.
-            if !consumedProducts.isEmpty, let products = pkg.products, !products.isEmpty {
-                let ownProductNames = Set(products.map { $0.name })
-                if ownProductNames.isDisjoint(with: consumedProducts) {
-                    continue
-                }
-            }
+            if pkg.isTransitiveOnly(consumedProducts: consumedProducts) { continue }
 
             if pkg.isLocal, let path = pkg.pathFromRoot {
                 dependencies.append(".package(path: \"\(path)\")")

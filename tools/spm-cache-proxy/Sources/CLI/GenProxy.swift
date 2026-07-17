@@ -33,9 +33,12 @@ struct GenProxy: AsyncParsableCommand, CommandRunning {
         let lockfiles = Lockfile.load(from: lockfile)
 
         var allPackages: [Lockfile.PackageRef] = []
+        var allDependencies: [String: [String]] = [:]
         for (_, lf) in lockfiles {
             allPackages.append(contentsOf: lf.packages)
+            allDependencies.merge(lf.dependencies) { old, new in old + new }
         }
+        let consumedProducts = Set(allDependencies.values.flatMap { $0 })
 
         let ignoredPatterns = ignore?
             .split(separator: ",")
@@ -49,7 +52,7 @@ struct GenProxy: AsyncParsableCommand, CommandRunning {
 
         let binCache = BinariesCache(dir: cacheDir)
         let generator = ProxyGenerator(cache: binCache, outputDir: outputDir, ignoredPatterns: ignoredPatterns, cacheOnlyPatterns: cacheOnlyPatterns)
-        let entries = try generator.generate(for: allPackages)
+        let entries = try generator.generate(for: allPackages, consumedProducts: consumedProducts)
         try generator.generateGraphJSON(entries: entries)
 
         Logger.info("Proxy generation complete at \(outputDir.path)")
