@@ -128,8 +128,8 @@ Two Claude agent skills for end-users and developers:
 - `SKILL.md` — skill entry point
 - `references/cli-reference.md` — complete command/option table
 - `references/remote-cache.md` — Git/S3 remote setup guides
-- `references/ci-cd.md` — GitHub Actions patterns (pull→build→use→build→push)
-- `references/troubleshooting.md` — 7 common issues and solutions
+- `references/ci-cd.md` — install options (gem/Homebrew), GitHub Actions patterns (pull→build→use→build→push), CI exclusion strategy (cache_only/off), scheduled cache maintenance
+- `references/troubleshooting.md` — common issues and solutions, including transitive-only version conflicts and an escalation pointer to `skills/spm-cache-issue`
 
 **`skills/spm-cache-issue/`** — GitHub issue filing skill
 - `SKILL.md` — skill entry point

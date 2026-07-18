@@ -43,7 +43,12 @@ Or if running from the skill directory:
 bash scripts/collect_diagnostics.sh /path/to/user/project
 ```
 
-This collects: OS, Ruby/Swift/Xcode versions, spm-cache version, config, cache state, and graph.json status.
+This collects: OS, Ruby/Swift/Xcode versions, spm-cache version, config, cache state, and graph.json status (every status — `hit`/`missed`/`ignored`/`excluded`/`plugin` — printed generically, not just misses).
+
+If the `skills/spm-cache` skill already ran its Step 1 categorization
+(plugin-only/binary-only/local/regular-library) for this project earlier in
+the session, include that category summary in the issue body alongside the
+diagnostics output instead of re-deriving it.
 
 ### 3. Classify the Issue
 
@@ -55,6 +60,7 @@ Determine the issue type and apply labels:
 | Cache miss | `bug`, `cache-miss` | Dependencies not hitting cache |
 | Missing slices | `bug`, `xcframework` | "no library for this platform" |
 | Integration issue | `bug`, `integration` | Proxy package or Xcode project issues |
+| Transitive conflict | `bug`, `version-conflict` | `swift package resolve` fails with conflicting version requirements on a package never linked directly by the app (e.g. realm-core via realm-swift) |
 | Remote cache | `bug`, `remote` | Git/S3 push/pull failures |
 | Feature request | `enhancement` | User wants new functionality |
 | Documentation | `documentation` | Docs are wrong or missing |

@@ -18,6 +18,17 @@ xcode-select -p     # Xcode installed
 
 If any prerequisite is missing, tell the user what's needed and stop.
 
+## When NOT to Use spm-cache
+
+Skip this skill and tell the user it's likely not worth it when:
+
+- The project has fewer than ~3 SPM dependencies — the proxy-package setup
+  and sandbox overhead outweigh the clean-build time saved.
+- Clean builds aren't a real pain point (e.g. CI already caches
+  `DerivedData`, or the team rarely runs clean builds).
+- The project only ever does incremental builds — caching only helps clean
+  builds; incremental builds already skip recompiling unchanged dependencies.
+
 ## Install
 
 ```bash
@@ -41,25 +52,83 @@ cd /path/to/xcode/project
 ls *.xcodeproj        # verify project exists
 ```
 
-### 1. Analyze project dependencies
+### 1. Analyze & categorize project dependencies
 
 Before anything else, discover the SPM packages already resolved in the
-project so the exclusion question (step 2) and the build strategy (step 3)
-are grounded in real data, not guesses:
+project AND classify each one, so the exclusion question (step 2) and the
+build strategy (step 3) are grounded in real cache-eligibility data, not
+guesses:
 
 ```bash
 find . -name Package.resolved -not -path "*/spm-cache/*"
 cat path/to/Package.resolved | grep '"identity"'    # list package identities
 ```
 
-Count the packages. If no `Package.resolved` exists yet, tell the user to
-open the project in Xcode once to resolve dependencies first.
+If no `Package.resolved` exists yet, tell the user to open the project in
+Xcode once to resolve dependencies first — this also materializes each
+package's checkout, which the categorization below needs.
+
+**This step must stay read-only** — do NOT run any `spm-cache` command yet.
+`spm-cache build` already rewires the `.xcodeproj` (it runs the same
+`integrate_proxy_into_project` step as `spm-cache use`), so it can't be used
+as a "look before you leap" step; only an external `swift package describe`
+pass keeps this analysis safe to run before anything is touched.
+
+For each package identity found, locate its checkout and describe it:
+
+```bash
+# Prefer the project's own SPM checkout; fall back to the newest Xcode
+# DerivedData checkout (same location spm-cache itself falls back to):
+ls -d ~/Library/Developer/Xcode/DerivedData/<ProjectName>-*/SourcePackages/checkouts/<slug> \
+  2>/dev/null | xargs -I{} stat -f "%m %N" {} | sort -rn | head -1 | cut -d' ' -f2-
+
+cd <checkout-dir> && swift package describe --type json
+```
+
+Classify each package from the JSON output. **Check Local first** — it
+overrides the other three rows regardless of product shape (a local package
+with no library products is still "Local," not "Plugin-only"):
+
+| Category | Signal | Meaning |
+|----------|--------|---------|
+| **Local** (check first) | the dependency entry in `Package.resolved` carries a `path` | Candidate for `ignore_local: true` instead of an `ignore` entry |
+| **Plugin-only** | `products` present, none with `"type": "library"` | Never cacheable — don't ask about these, don't count them toward batching |
+| **Binary-only / metadata-thin** | `describe` returns no `products` at all | Cacheable, but higher risk — verify carefully after caching |
+| **Regular library** | everything else | The real caching candidates — these are what step 2 asks about |
+
+Within "regular library", also note `.dependencies.length` from the same
+`describe` output: `0` means the package has no further SPM deps of its own
+(a leaf) — leaf packages are safest to cache and verify first since they
+can't hit a transitive version conflict. Suggest a leaf-first order for step 3.
+
+Don't try to detect "transitive-only" packages here (e.g. a package pulled in
+solely by another package, like realm-core via realm-swift) — the 4
+categories above don't distinguish it, it lands in "Regular library" like
+any other. That's fine: `spm-cache` v0.2.1+ auto-handles the transitive-only
+version-pinning conflict internally regardless of what the user answers in
+step 2, so asking about it there causes no harm beyond one possibly-redundant
+question — this is a build-graph concern, not a caching-exclusion one.
+
+Present a short summary table to the user: category, count, and the
+leaf-first order for regular-library packages, with one-line pros/cons per
+category (plugin/local need no exclusion question; binary-only is cacheable
+but worth extra verification; regular-library leaf-first is safest to
+validate the pipeline on).
+
+**If the project has more than 20 packages**, tell the user upfront that this
+analysis takes a couple of minutes (`swift package describe` runs once per
+package) before starting the loop — don't run it silently.
+
+If a package's checkout can't be found, mark it "unresolved" and skip
+categorizing it rather than blocking the rest of the analysis.
 
 ### 2. Ask which packages should not be cached
 
-Using the list from step 1, ask the user: "Are there any SPM packages that
-should NOT be cached (always built from source)?" — e.g. packages with
-build-time codegen, local packages, or known-flaky binaries.
+Using the categorized list from step 1, ask the user about **regular-library**
+packages only: "Are there any of these that should NOT be cached (always
+built from source)?" — e.g. packages with build-time codegen or known-flaky
+binaries. Plugin-only packages need no question at all; local packages get
+an `ignore_local` suggestion instead of this question.
 
 If they name any, write glob patterns to the `ignore` key in `spm-cache.yml`
 before the first run — create the file yourself with just this key if it
@@ -79,24 +148,29 @@ anyway.
 
 ### 3. Build and integrate
 
-**5 or fewer packages** (from step 1's count): build and integrate once, as
-usual:
+`spm-cache build` already integrates the proxy into the Xcode project as
+part of its pipeline (same `integrate_proxy_into_project` step `spm-cache
+use` runs) — it's not a separate, non-integrating step. A later bare
+`spm-cache` call re-confirms the integration but isn't strictly required.
+
+**5 or fewer regular-library packages** (from step 1's categorization): build
+once, as usual:
 
 ```bash
-spm-cache build --recursive     # build all targets in the dependency graph
-spm-cache                       # integrate (same as `spm-cache use`)
+spm-cache build --recursive     # build all targets in the dependency graph; already integrates
+spm-cache                       # optional re-confirmation (same as `spm-cache use`)
 
 # Build config options: debug (default) or release
 spm-cache build --recursive --config=release
 ```
 
-**More than 5 packages**: build in batches of at most 5 to keep each round
-fast and easy to debug if a target fails. Integrate and verify after every
-batch before starting the next one:
+**More than 5 regular-library packages**: build in batches of at most 5 (leaf-first, per
+step 1's suggested order) to keep each round fast and easy to debug if a
+target fails. Each `build` call already integrates; verify after every batch
+before starting the next one:
 
 ```bash
-spm-cache build PkgA PkgB PkgC PkgD PkgE   # batch 1 (name targets from step 1)
-spm-cache                                   # integrate this batch
+spm-cache build PkgA PkgB PkgC PkgD PkgE   # batch 1 (leaf-first, from step 1); already integrates
 spm-cache cache list                        # verify batch 1 hits
 spm-cache build PkgF PkgG PkgH ...          # batch 2, repeat until done
 ```
@@ -220,3 +294,7 @@ Build pipeline uses `xcodebuild` (not `swift build`) with library evolution flag
 **Local cache**: `~/.spm-cache/{debug,release}/`
 **Sandbox**: `spm-cache/` (project root, regenerated each run)
 **Lockfile**: `spm-cache.lock` (JSON snapshot of project SPM dependencies)
+**Cachemap visualization**: an interactive dependency graph is generated at
+`spm-cache/cachemap/index.html` every run — open with
+`open spm-cache/cachemap/index.html` to inspect hit/missed/ignored/excluded/plugin
+status per package visually.

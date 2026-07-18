@@ -66,7 +66,13 @@ if [ -d "spm-cache" ]; then
 import json
 try:
     g = json.load(open('spm-cache/packages/proxy/graph.json'))
-    if isinstance(g, dict):
+    if isinstance(g, list):
+        for entry in g:
+            if isinstance(entry, dict) and 'module' in entry and 'status' in entry:
+                print(f\"  {entry['module']}: {entry['status']}\")
+            else:
+                print(f'  {entry}')
+    elif isinstance(g, dict):
         for k, v in g.items():
             if isinstance(v, dict) and 'status' in v:
                 print(f\"  {k}: {v['status']}\")
@@ -74,8 +80,6 @@ try:
                 print(f\"  {k}: {len(v)} items\")
             else:
                 print(f\"  {k}: {v}\")
-    elif isinstance(g, list):
-        print(f'  graph: {len(g)} entries')
 except Exception as e:
     print(f'  (parse error: {e})')
 " 2>/dev/null || echo "  (could not parse graph.json)"
