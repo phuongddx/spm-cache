@@ -195,10 +195,20 @@ module SPMCache
     # and a package whose checkout can't be found is left unchanged (legacy
     # identity-fallback applies downstream) with a warning, rather than
     # aborting the whole run.
+    #
+    # `invalidate_stale_products!` runs first so a bug fix to this method (or
+    # `products_from_manifest_fallback`) actually takes effect for packages
+    # already enriched by an older spm-cache version -- otherwise the
+    # idempotency guard below (`next if pkg_data["products"]`) preserves
+    # pre-fix, possibly-wrong `products[]` data forever across upgrades
+    # (field bug: a fabricated `abcd` product written by a buggy 0.2.2 run
+    # survived the 0.2.3 fix untouched, because nothing had invalidated it).
     def enrich_lockfile_products
       return unless @lockfile
 
       @lockfile.projects.each_value do |proj_data|
+        invalidate_stale_products!(proj_data)
+
         (proj_data["packages"] || []).each do |pkg_data|
           next if pkg_data["products"]
 
@@ -219,9 +229,27 @@ module SPMCache
 
           pkg_data["products"] = products
         end
+
+        proj_data["spm_cache_version"] = SPMCache::VERSION
       end
 
       @lockfile.save
+    end
+
+    # Clears every package's `products[]` once per spm-cache version bump,
+    # so the enrichment loop above re-derives all of them fresh instead of
+    # trusting data a previous (possibly buggy) version wrote. A lockfile
+    # with no stamp at all (written before this field existed) is treated as
+    # stale too -- it's exactly the case that needs re-deriving the most.
+    # `spm_cache_version` is a per-project sibling of `packages`/
+    # `dependencies`/`platforms`, not a new top-level lockfile key, so the
+    # Swift-side proxy tool's `Lockfile.load(from:)` (which treats every
+    # top-level key as its own project) is unaffected -- it already ignores
+    # dict keys it doesn't read.
+    def invalidate_stale_products!(proj_data)
+      return if proj_data["spm_cache_version"] == SPMCache::VERSION
+
+      (proj_data["packages"] || []).each { |pkg_data| pkg_data.delete("products") }
     end
 
     # `swift package describe` can come back empty (or fail outright) for a

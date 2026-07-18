@@ -20,6 +20,8 @@ See `docs/system-architecture.md` for the corrected pipeline order and schema. E
 
 **v0.2.4** — Fixed `.swiftmodule` bundle directory misclassification. Field bug (real downstream `eh_xcframework` project): `Buildable#create_framework`'s `find_file` glob could match a directory-shaped `.swiftmodule` bundle (Xcode's multi-arch/library-evolution output form) instead of the expected flat file. `FileUtils.cp` crashed with `Errno::EISDIR` trying to copy it. Fixed by extracting `copy_module_artifact` helper that uses `FileUtils.cp_r` for directories, `FileUtils.cp` for flat files, merging correctly with any existing `sm_dir` created by the `swiftinterface` handling.
 
+**v0.2.5** — Fixed stale product metadata on version upgrade. Field bug (real downstream `eh_xcframework` project): `enrich_lockfile_products`'s idempotency guard (`next if pkg_data["products"]`) meant a fabricated product (written by a buggy pre-0.2.3 run) survived the 0.2.3 fix untouched, since nothing ever invalidated stale pre-fix data on version upgrade. Fixed by adding `invalidate_stale_products!` that compares a new per-project `spm_cache_version` field (nested inside the existing project hash, not a new top-level lockfile key) against `SPMCache::VERSION`; clears all `products[]` if mismatched or absent, ensuring they get freshly re-derived once per version bump.
+
 **v0.1.0** — Core implementation complete. All 8 phases from the original plan are implemented:
 
 - ✅ Gem scaffold + CLAide CLI framework

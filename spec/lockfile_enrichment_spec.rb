@@ -33,14 +33,14 @@ RSpec.describe SPMCache::Installer, "#enrich_lockfile_products" do
     )
   end
 
-  def write_lockfile(packages)
-    File.write(lockfile_path, JSON.generate(
-      "Fake.xcodeproj" => {
-        "packages" => packages,
-        "dependencies" => {},
-        "platforms" => { "ios" => "16.0" },
-      },
-    ))
+  def write_lockfile(packages, spm_cache_version: nil)
+    proj_data = {
+      "packages" => packages,
+      "dependencies" => {},
+      "platforms" => { "ios" => "16.0" },
+    }
+    proj_data["spm_cache_version"] = spm_cache_version if spm_cache_version
+    File.write(lockfile_path, JSON.generate("Fake.xcodeproj" => proj_data))
   end
 
   def make_installer
@@ -193,17 +193,80 @@ RSpec.describe SPMCache::Installer, "#enrich_lockfile_products" do
     expect(pkg["products"]).to be_nil
   end
 
-  it "is idempotent: does not re-describe an entry that already has products[]" do
+  it "is idempotent: does not re-describe an entry already enriched by the current spm-cache version" do
     write_lockfile([{
       "repositoryURL" => "https://github.com/Already/Enriched.git",
       "name" => "Enriched",
       "products" => [{ "name" => "Enriched", "type" => "library", "targets" => ["Enriched"] }],
-    }])
+    }], spm_cache_version: SPMCache::VERSION)
 
     installer = make_installer
     installer.instance_variable_set(:@lockfile, SPMCache::Core::Lockfile.new(lockfile_path))
 
     expect(SPMCache::SPM::Desc::Description).not_to receive(:new)
     installer.send(:enrich_lockfile_products)
+  end
+
+  # Field regression: a fabricated `abcd` product (written by a buggy 0.2.2
+  # run) survived the 0.2.3 fix that corrected products_from_manifest_fallback,
+  # because the idempotency guard above skips any package that already has
+  # `products`, correct or not, and nothing invalidated the stale data on
+  # upgrade. `invalidate_stale_products!` closes this: any lockfile whose
+  # per-project `spm_cache_version` doesn't match the running version gets
+  # every package's `products` cleared before the enrichment loop runs, so
+  # they're all freshly re-derived once per version bump.
+  it "invalidates and re-derives products[] written by an older spm-cache version" do
+    checkout_dir = File.join(checkouts_root, "eh_xcframework")
+    FileUtils.mkdir_p(checkout_dir)
+    stub_desc_products(checkout_dir, [{ "name" => "eHealth", "type" => "library", "targets" => ["eHealth"] }])
+    write_lockfile([{
+      "repositoryURL" => "git@bitbucket.org:axonivy-prod/eh_xcframework.git",
+      "name" => "eh_xcframework",
+      "products" => [
+        { "name" => "eHealth", "type" => "library", "targets" => ["eHealth"] },
+        { "name" => "abcd", "type" => "library", "targets" => ["abcd"] },
+      ],
+    }], spm_cache_version: "0.2.2")
+
+    installer = make_installer
+    installer.instance_variable_set(:@lockfile, SPMCache::Core::Lockfile.new(lockfile_path))
+    installer.send(:enrich_lockfile_products)
+
+    saved = JSON.parse(File.read(lockfile_path))
+    pkg = saved["Fake.xcodeproj"]["packages"].first
+    expect(pkg["products"]).to eq([{ "name" => "eHealth", "type" => "library", "targets" => ["eHealth"] }])
+  end
+
+  it "invalidates and re-derives products[] when no version stamp exists at all (pre-upgrade lockfile)" do
+    checkout_dir = File.join(checkouts_root, "Legacy")
+    FileUtils.mkdir_p(checkout_dir)
+    stub_desc_products(checkout_dir, [{ "name" => "Legacy", "type" => "library", "targets" => ["Legacy"] }])
+    write_lockfile([{
+      "repositoryURL" => "https://github.com/example/Legacy.git",
+      "name" => "Legacy",
+      "products" => [{ "name" => "StaleWrongProduct", "type" => "library", "targets" => ["StaleWrongProduct"] }],
+    }])
+
+    installer = make_installer
+    installer.instance_variable_set(:@lockfile, SPMCache::Core::Lockfile.new(lockfile_path))
+    installer.send(:enrich_lockfile_products)
+
+    saved = JSON.parse(File.read(lockfile_path))
+    pkg = saved["Fake.xcodeproj"]["packages"].first
+    expect(pkg["products"]).to eq([{ "name" => "Legacy", "type" => "library", "targets" => ["Legacy"] }])
+  end
+
+  it "stamps the project with the current spm_cache_version after enriching" do
+    checkout_dir = File.join(checkouts_root, "Fresh")
+    FileUtils.mkdir_p(checkout_dir)
+    stub_desc_products(checkout_dir, [{ "name" => "Fresh", "type" => "library", "targets" => ["Fresh"] }])
+    write_lockfile([{ "repositoryURL" => "https://github.com/example/Fresh.git", "name" => "Fresh" }])
+
+    installer = make_installer
+    installer.instance_variable_set(:@lockfile, SPMCache::Core::Lockfile.new(lockfile_path))
+    installer.send(:enrich_lockfile_products)
+
+    saved = JSON.parse(File.read(lockfile_path))
+    expect(saved["Fake.xcodeproj"]["spm_cache_version"]).to eq(SPMCache::VERSION)
   end
 end
