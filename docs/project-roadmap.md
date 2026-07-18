@@ -1,7 +1,7 @@
 # Project Roadmap
 
 > **Project:** spm-cache
-> **Last Updated:** 2026-07-16 (rev 5)
+> **Last Updated:** 2026-07-18 (rev 6)
 
 ## Current Status
 
@@ -11,6 +11,10 @@
 - ✅ Plugin-only packages breaking whole-graph resolution (e.g. SwiftGenPlugin) — skipped by both generators, original Xcode reference preserved
 
 See `docs/system-architecture.md` for the corrected pipeline order and schema. Existing `~/.spm-cache` binaries are unreachable after this upgrade (module names changed from identity to real product names) — expect a one-time full rebuild; `spm-cache build <target>` now takes real product names, with the old package identity kept working as an alias.
+
+**v0.2.1** — Umbrella-layer transitive-only skip. `UmbrellaGenerator` now skips packages proven to be transitive-only (products never appear in any target's directly-linked dependencies, tracked via `refresh_consumed_dependencies` + `lockfile.dependencies`), preventing version conflicts on dual-pinned dependencies (e.g., realm-core/realm-swift at conflicting versions). Added binary-target product-metadata fallback (regex-parses `Package.swift` when `swift package describe` returns no products). See `docs/system-architecture.md` for pipeline updates.
+
+**v0.2.2** — Real proxy graph transitive-only skip. Extends the v0.2.1 umbrella fix to `ProxyGenerator` (the actual root proxy wired into Xcode), preventing the same version conflict from re-appearing one layer deeper in the real project's package graph. Both UmbrellaGenerator and ProxyGenerator now use the shared `PackageRef.isTransitiveOnly(consumedProducts:)` helper. Verified on a real 59-package field project: root proxy now resolves cleanly without version conflicts.
 
 **v0.1.0** — Core implementation complete. All 8 phases from the original plan are implemented:
 

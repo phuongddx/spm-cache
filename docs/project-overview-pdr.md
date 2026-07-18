@@ -1,8 +1,8 @@
 # Project Overview & PDR
 
 > **Project:** spm-cache
-> **Version:** 0.1.2
-> **Status:** Release-Ready (v0.1.0 shipped)
+> **Version:** 0.2.2
+> **Status:** Shipped (v0.2.2 released)
 > **License:** MIT
 
 ## Problem Statement
@@ -24,7 +24,7 @@ iOS projects using Swift Package Manager (SPM) dependencies suffer from long cle
 ## Non-Goals
 
 - CocoaPods support (out of scope)
-- Swift plugins (out of scope for v0.1.0)
+- Swift plugins (plugin-only packages automatically skipped in v0.2.0; local plugin-only packages remain out of scope)
 - Caching of the main app target (only SPM dependencies are cached)
 
 ## Target Users
@@ -85,12 +85,18 @@ iOS projects using Swift Package Manager (SPM) dependencies suffer from long cle
 
 Beyond core caching, v0.1.0 includes:
 
-- **RSpec Test Suite** — 4 test files, 19 examples covering Core utilities, Config singleton, Lockfile parsing, and Buildable naming
+- **RSpec Test Suite** — Grown to 21 spec files covering Core utilities, Config singleton, Lockfile parsing, Buildable naming, Installer integration, Consumed dependencies tracking, Proxy generation (cache-only, ignore patterns, plugins, products, field regression), Build pipeline, Cachemap, and Proxy executable
 - **GitHub Actions CI** — Automated release workflow (update-tap.yml) that publishes to Homebrew tap on release
 - **Homebrew Distribution** — Distributed via external tap `phuongddx/spm-cache` (recommended install method)
 - **Agent Skills** — Two Claude/agent skills for end-users:
   - `skills/spm-cache` — guided workflows, CLI reference, remote cache setup, CI/CD patterns, troubleshooting
   - `skills/spm-cache-issue` — automated GitHub issue filing with diagnostics collection
+
+## v0.2.x Releases
+
+**v0.2.0** — Field-bugfix release fixing version conflicts, product names, and plugin-only package handling. See `docs/project-roadmap.md` for details.
+
+**v0.2.1 / v0.2.2** — Follow-up patches extending transitive-only package skipping to the real proxy graph, preventing version conflicts from re-appearing in the Xcode project layer.
 
 ## Constraints
 
