@@ -100,14 +100,37 @@ module SPMCache
           FileUtils.cp(artifacts[:swiftinterface], File.join(sm_dir, arch))
         end
 
-        FileUtils.cp(artifacts[:swiftmodule], File.join(modules_dir, File.basename(artifacts[:swiftmodule]))) if artifacts[:swiftmodule] && File.exist?(artifacts[:swiftmodule])
-        FileUtils.cp(artifacts[:swiftdoc], File.join(modules_dir, File.basename(artifacts[:swiftdoc]))) if artifacts[:swiftdoc] && File.exist?(artifacts[:swiftdoc])
-        FileUtils.cp(artifacts[:swiftsourceinfo], File.join(modules_dir, File.basename(artifacts[:swiftsourceinfo]))) if artifacts[:swiftsourceinfo] && File.exist?(artifacts[:swiftsourceinfo])
+        copy_module_artifact(artifacts[:swiftmodule], modules_dir)
+        copy_module_artifact(artifacts[:swiftdoc], modules_dir)
+        copy_module_artifact(artifacts[:swiftsourceinfo], modules_dir)
 
         fw_dir
       end
 
       private
+
+      # Some build configurations (multi-arch / library-evolution builds,
+      # seen with binaryTarget-wrapping packages like eh_xcframework) emit
+      # `ModuleName.swiftmodule` as a DIRECTORY bundle -- containing one set
+      # of per-arch .swiftmodule/.swiftdoc/.swiftsourceinfo files -- instead
+      # of `find_file`'s expected flat single-file form under
+      # Objects-normal/<arch>/. `find_file`'s glob doesn't distinguish the
+      # two shapes (`Dir.glob` matches directories too), so `FileUtils.cp`
+      # crashed with Errno::EISDIR when it landed on the directory form.
+      # `cp_r`'s contents merge into `destination` rather than replacing it,
+      # so this is safe even when `sm_dir` was already created above from
+      # `artifacts[:swiftinterface]` for the same module name.
+      def copy_module_artifact(source, modules_dir)
+        return unless source && File.exist?(source)
+
+        destination = File.join(modules_dir, File.basename(source))
+        if File.directory?(source)
+          FileUtils.mkdir_p(destination)
+          FileUtils.cp_r(Dir.glob(File.join(source, "*")), destination)
+        else
+          FileUtils.cp(source, destination)
+        end
+      end
 
       def destination_arch(artifacts)
         dd = artifacts[:derived_data] || ""

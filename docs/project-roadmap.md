@@ -18,6 +18,8 @@ See `docs/system-architecture.md` for the corrected pipeline order and schema. E
 
 **v0.2.3** — Fixed fabricated products from binary-target-only packages. Field bug (70-package real project, `eh_xcframework`): when `swift package describe` fails outright for a package (e.g. a local-path `.binaryTarget` whose artifact isn't present in the checkout copy), the text-scraping fallback in `products_from_manifest_fallback` used to scan both `.library(name:)` *and* `.binaryTarget(name:)` declarations as if both declared products — fabricating a nonexistent product (`abcd`, an internal binaryTarget dependency of the package's real single product `eHealth`) that broke `swift package resolve`/`xcodebuild` project-wide with `product 'abcd' ... not found`. Fixed: only `.library(name:)` counts as a product now (a `.binaryTarget` is a target, never a product on its own). Also improved the same fallback to capture each library's actual `targets:` array instead of assuming it always equals `[name]`.
 
+**v0.2.4** — Fixed `.swiftmodule` bundle directory misclassification. Field bug (real downstream `eh_xcframework` project): `Buildable#create_framework`'s `find_file` glob could match a directory-shaped `.swiftmodule` bundle (Xcode's multi-arch/library-evolution output form) instead of the expected flat file. `FileUtils.cp` crashed with `Errno::EISDIR` trying to copy it. Fixed by extracting `copy_module_artifact` helper that uses `FileUtils.cp_r` for directories, `FileUtils.cp` for flat files, merging correctly with any existing `sm_dir` created by the `swiftinterface` handling.
+
 **v0.1.0** — Core implementation complete. All 8 phases from the original plan are implemented:
 
 - ✅ Gem scaffold + CLAide CLI framework
