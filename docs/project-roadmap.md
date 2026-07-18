@@ -1,7 +1,7 @@
 # Project Roadmap
 
 > **Project:** spm-cache
-> **Last Updated:** 2026-07-18 (rev 6)
+> **Last Updated:** 2026-07-18 (rev 7)
 
 ## Current Status
 
@@ -15,6 +15,8 @@ See `docs/system-architecture.md` for the corrected pipeline order and schema. E
 **v0.2.1** — Umbrella-layer transitive-only skip. `UmbrellaGenerator` now skips packages proven to be transitive-only (products never appear in any target's directly-linked dependencies, tracked via `refresh_consumed_dependencies` + `lockfile.dependencies`), preventing version conflicts on dual-pinned dependencies (e.g., realm-core/realm-swift at conflicting versions). Added binary-target product-metadata fallback (regex-parses `Package.swift` when `swift package describe` returns no products). See `docs/system-architecture.md` for pipeline updates.
 
 **v0.2.2** — Real proxy graph transitive-only skip. Extends the v0.2.1 umbrella fix to `ProxyGenerator` (the actual root proxy wired into Xcode), preventing the same version conflict from re-appearing one layer deeper in the real project's package graph. Both UmbrellaGenerator and ProxyGenerator now use the shared `PackageRef.isTransitiveOnly(consumedProducts:)` helper. Verified on a real 59-package field project: root proxy now resolves cleanly without version conflicts.
+
+**v0.2.3** — Fixed fabricated products from binary-target-only packages. Field bug (70-package real project, `eh_xcframework`): when `swift package describe` fails outright for a package (e.g. a local-path `.binaryTarget` whose artifact isn't present in the checkout copy), the text-scraping fallback in `products_from_manifest_fallback` used to scan both `.library(name:)` *and* `.binaryTarget(name:)` declarations as if both declared products — fabricating a nonexistent product (`abcd`, an internal binaryTarget dependency of the package's real single product `eHealth`) that broke `swift package resolve`/`xcodebuild` project-wide with `product 'abcd' ... not found`. Fixed: only `.library(name:)` counts as a product now (a `.binaryTarget` is a target, never a product on its own). Also improved the same fallback to capture each library's actual `targets:` array instead of assuming it always equals `[name]`.
 
 **v0.1.0** — Core implementation complete. All 8 phases from the original plan are implemented:
 

@@ -94,25 +94,32 @@ RSpec.describe SPMCache::Installer, "#enrich_lockfile_products" do
     expect(pkg["products"]).to be_nil
   end
 
-  # Field regression: eh_xcframework (a private binary-target-only package)
-  # resolved and checked out fine, but `swift package describe` came back
-  # with an empty `products` array for it -- without a fallback, this
-  # silently reintroduces the original wrong-product-name bug for exactly
-  # the packages `describe` can't fully introspect.
-  it "falls back to parsing Package.swift's .library()/.binaryTarget() names when 'describe' returns no products" do
+  # Field regression: eh_xcframework's real Package.swift wraps an internal
+  # binaryTarget ("abcd") inside a plain target ("eHealth"), which is itself
+  # the sole declared product. `swift package describe` fails outright for
+  # this package (the DerivedData-fallback checkout copy doesn't include the
+  # binaryTarget's local artifact, so `describe` errors trying to open it),
+  # triggering this text-parsing fallback. The fallback previously also
+  # scanned `.binaryTarget(name:)` declarations as if they were independent
+  # products, fabricating a bogus "abcd" product that doesn't exist in the
+  # real manifest -- this broke proxy resolution project-wide with
+  # `product 'abcd' ... not found`. Only `.library(name:)` should ever be
+  # treated as a product.
+  it "falls back to parsing Package.swift's .library() names when 'describe' fails, without fabricating a product from an internal binaryTarget" do
     checkout_dir = File.join(checkouts_root, "eh_xcframework")
     FileUtils.mkdir_p(checkout_dir)
     File.write(File.join(checkout_dir, "Package.swift"), <<~SWIFT)
-      // swift-tools-version: 5.9
+      // swift-tools-version: 6.2
       import PackageDescription
 
       let package = Package(
-          name: "eh_xcframework",
+          name: "eHealth",
           products: [
-              .library(name: "EHXCFramework", targets: ["EHXCFrameworkTarget"]),
+              .library(name: "eHealth", targets: ["eHealth"]),
           ],
           targets: [
-              .binaryTarget(name: "EHXCFrameworkTarget", path: "EHXCFramework.xcframework"),
+              .target(name: "eHealth", dependencies: ["abcd"], path: "eHealth-Wrapper"),
+              .binaryTarget(name: "abcd", path: "eHealth-Wrapper/Resources/eHealth.xcframework.zip"),
           ]
       )
     SWIFT
@@ -127,12 +134,43 @@ RSpec.describe SPMCache::Installer, "#enrich_lockfile_products" do
     saved = JSON.parse(File.read(lockfile_path))
     pkg = saved["Fake.xcodeproj"]["packages"].first
     expect(pkg["products"]).to eq([
-      { "name" => "EHXCFramework", "type" => "library", "targets" => ["EHXCFramework"] },
-      { "name" => "EHXCFrameworkTarget", "type" => "library", "targets" => ["EHXCFrameworkTarget"] },
+      { "name" => "eHealth", "type" => "library", "targets" => ["eHealth"] },
     ])
   end
 
-  it "still warns when 'describe' returns no products and Package.swift has no parseable library/binaryTarget names" do
+  it "captures a .library()'s own targets: array instead of assuming it equals [name]" do
+    checkout_dir = File.join(checkouts_root, "MultiTargetLib")
+    FileUtils.mkdir_p(checkout_dir)
+    File.write(File.join(checkout_dir, "Package.swift"), <<~SWIFT)
+      // swift-tools-version: 5.9
+      import PackageDescription
+
+      let package = Package(
+          name: "MultiTargetLib",
+          products: [
+              .library(name: "Foo", targets: ["Bar", "Baz"]),
+              .library(name: "NoTargetsListed"),
+          ],
+          targets: []
+      )
+    SWIFT
+    stub_desc_products(checkout_dir, [])
+    write_lockfile([{ "repositoryURL" => "https://github.com/example/MultiTargetLib.git", "name" => "MultiTargetLib" }])
+
+    installer = make_installer
+    installer.instance_variable_set(:@lockfile, SPMCache::Core::Lockfile.new(lockfile_path))
+
+    installer.send(:enrich_lockfile_products)
+
+    saved = JSON.parse(File.read(lockfile_path))
+    pkg = saved["Fake.xcodeproj"]["packages"].first
+    expect(pkg["products"]).to eq([
+      { "name" => "Foo", "type" => "library", "targets" => ["Bar", "Baz"] },
+      { "name" => "NoTargetsListed", "type" => "library", "targets" => ["NoTargetsListed"] },
+    ])
+  end
+
+  it "still warns when 'describe' returns no products and Package.swift has no parseable library names" do
     checkout_dir = File.join(checkouts_root, "TrulyEmpty")
     FileUtils.mkdir_p(checkout_dir)
     File.write(File.join(checkout_dir, "Package.swift"), <<~SWIFT)

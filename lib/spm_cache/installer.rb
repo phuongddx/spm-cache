@@ -224,22 +224,54 @@ module SPMCache
       @lockfile.save
     end
 
-    # `swift package describe` can come back with an empty `products` array
-    # for a package it otherwise resolves fine -- seen with binary-target-
-    # only private packages (e.g. eh_xcframework). Without this, such a
-    # package silently falls back to its lockfile identity as the assumed
-    # product name downstream, reintroducing the original wrong-product-
-    # name bug for exactly the packages `describe` can't fully introspect.
-    # Parses `.library(name:)` / `.binaryTarget(name:)` declarations
-    # straight out of Package.swift's source text as a last resort.
+    # `swift package describe` can come back empty (or fail outright) for a
+    # package that otherwise resolves fine -- e.g. a private package whose
+    # local-path binaryTarget artifact isn't present in this checkout copy
+    # (field case: eh_xcframework, `describe` errors with "couldn't be
+    # opened" because the DerivedData-fallback checkout copy only mirrors
+    # SourcePackages/checkouts, not SourcePackages/artifacts). Without a
+    # fallback, such a package silently falls back to its lockfile identity
+    # as the assumed product name downstream, reintroducing the original
+    # wrong-product-name bug for exactly the packages `describe` can't fully
+    # introspect. Parses `.library(name:)` declarations straight out of
+    # Package.swift's source text as a last resort.
+    #
+    # Only `.library(name:)` counts -- a `.binaryTarget` is a TARGET, never a
+    # product on its own; SwiftPM requires an explicit product to make
+    # anything importable cross-package, and that product is always caught
+    # by the `.library(name:)` match above regardless of whether its backing
+    # target is a plain Swift target or a binaryTarget. Treating scanned
+    # binaryTarget names as their own products fabricates products that were
+    # never declared (field bug: eh_xcframework's `abcd` binaryTarget is an
+    # internal dependency of the `eHealth` target, wrapped by the single real
+    # product `eHealth` -- inventing an `abcd` product broke the whole
+    # project's proxy resolution with "product 'abcd' ... not found").
+    #
+    # Captures each `.library(...)`'s own `targets:` array rather than
+    # assuming it always equals `[name]` -- SwiftPM allows a product name to
+    # differ from the target(s) backing it (`.library(name: "Foo", targets:
+    # ["Bar", "Baz"])`); falls back to `[name]` only when no `targets:` is
+    # present in that `.library(...)` call (the common `.library(name: "Foo")`
+    # shorthand where the target shares the product's name). Known limitation:
+    # the `[^)]*` scan stops at the first `)`, so a `)` inside a comment or
+    # nested expression between `name:` and `targets:` in the same call
+    # truncates the match and falls back to `targets: [name]` for that one
+    # entry -- fails safe (no crash, no cross-entry corruption), acceptable
+    # for a last-resort text-scraping path only hit when `describe` fails.
     def products_from_manifest_fallback(checkout_dir)
       manifest_path = File.join(checkout_dir, "Package.swift")
       return [] unless File.exist?(manifest_path)
 
       text = File.read(manifest_path)
-      names = text.scan(/\.library\(\s*name:\s*"([^"]+)"/).flatten
-      names += text.scan(/\.binaryTarget\(\s*name:\s*"([^"]+)"/).flatten
-      names.uniq.map { |name| { "name" => name, "type" => "library", "targets" => [name] } }
+      text.scan(/\.library\(([^)]*)\)/m).filter_map do |(args)|
+        name = args[/name:\s*"([^"]+)"/, 1]
+        next unless name
+
+        targets_str = args[/targets:\s*\[([^\]]*)\]/, 1]
+        targets = targets_str ? targets_str.scan(/"([^"]+)"/).flatten : []
+        targets = [name] if targets.empty?
+        { "name" => name, "type" => "library", "targets" => targets }
+      end.uniq { |p| p["name"] }
     end
 
     def gen_supporting_files
