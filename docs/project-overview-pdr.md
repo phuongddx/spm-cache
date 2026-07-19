@@ -1,8 +1,8 @@
 # Project Overview & PDR
 
 > **Project:** spm-cache
-> **Version:** 0.2.5
-> **Status:** Shipped (v0.2.5 released)
+> **Version:** 0.2.6
+> **Status:** Shipped (v0.2.6 released)
 > **License:** MIT
 
 ## Problem Statement

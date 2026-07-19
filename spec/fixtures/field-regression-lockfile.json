@@ -22,6 +22,7 @@
         "repositoryURL": "https://github.com/Alamofire/Alamofire.git",
         "name": "Alamofire",
         "version": "5.9.1",
+        "revision": "f455c2975872ccd2d9c81594c658af65716e9b9a",
         "products": [
           { "name": "Alamofire", "type": "library", "targets": ["Alamofire"] }
         ]

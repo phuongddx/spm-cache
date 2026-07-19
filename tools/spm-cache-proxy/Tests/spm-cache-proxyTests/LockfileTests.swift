@@ -43,17 +43,26 @@ struct PackageRefVersionRequirementTests {
         #expect(ref.versionRequirement == "from: \"0.1.0\"")
     }
 
-    @Test("version takes precedence over revision when both are set")
-    func versionWinsOverRevision() {
+    // Field regression: `from: version` is an open-ended lower bound, so
+    // the umbrella's isolated resolve floated swift-collections from the
+    // host project's pinned 1.1.2 up to 1.6.0; product enrichment then
+    // recorded 1.6.0-only products (TrailingElementsModule) against a
+    // lockfile entry still labeled 1.1.2, and the real Xcode graph --
+    // unified back at 1.1.2 by its other constraints -- failed whole-graph
+    // resolution with "product 'TrailingElementsModule' ... not found".
+    // The exact commit must win whenever it's known: a revision pin has no
+    // range to drift within.
+    @Test("revision takes precedence over version when both are set")
+    func revisionWinsOverVersion() {
         let ref = Lockfile.PackageRef(
-            repositoryURL: "https://github.com/example/pkg.git",
+            repositoryURL: "https://github.com/apple/swift-collections.git",
             pathFromRoot: nil,
-            name: "pkg",
+            name: "swift-collections",
             productName: nil,
-            version: "2.0.0",
-            revision: "abc123def456"
+            version: "1.1.2",
+            revision: "3d2dc41a01f9e49d84f0a3925fb858bed64f702d"
         )
-        #expect(ref.versionRequirement == "from: \"2.0.0\"")
+        #expect(ref.versionRequirement == "revision: \"3d2dc41a01f9e49d84f0a3925fb858bed64f702d\"")
     }
 }
 

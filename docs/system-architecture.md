@@ -86,7 +86,7 @@ let package = Package(
 let package = Package(
     name: "{slug}_proxy",
     products: [.library(name: "{realProductName}", targets: ["{slug}_{realProductName}_shim"])],
-    dependencies: [.package(url: "{repositoryURL}", from: "{version}")],  // declared once, even if several products fall back to source
+    dependencies: [.package(url: "{repositoryURL}", revision: "{revision}")],  // exact commit from Package.resolved; falls back to `from: "{version}"` only when no revision is recorded. Declared once, even if several products fall back to source
     targets: [
         .target(name: "{slug}_{realProductName}_shim", dependencies: [
             .product(name: "{realProductName}", package: "{slug}"),

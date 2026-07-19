@@ -100,12 +100,27 @@ struct Lockfile: Codable {
             return ownProductNames.isDisjoint(with: consumedProducts)
         }
 
+        /// The exact commit (`revision:`) wins over `from: version` whenever
+        /// both are recorded. `from:` is an open-ended lower bound ("this or
+        /// anything newer below the next major"), so the umbrella's isolated
+        /// `swift package resolve` was free to float to the newest compatible
+        /// release instead of the commit the host project actually resolved
+        /// -- and product enrichment then read the DRIFTED checkout's
+        /// manifest as ground truth. Field bug: swift-collections pinned at
+        /// 1.1.2 in Package.resolved floated to 1.6.0 in the umbrella,
+        /// enrichment wrote 1.6.0-only products (TrailingElementsModule)
+        /// into the lockfile, and the real Xcode graph -- whose other
+        /// constraints unify back to 1.1.2 -- failed whole-graph resolution
+        /// with "product 'TrailingElementsModule' ... not found". A
+        /// `revision:` pin has no range to float within, so every resolve
+        /// reproduces exactly what the host project's Package.resolved
+        /// settled on.
         var versionRequirement: String {
-            if let version = version, !version.isEmpty {
-                return "from: \"\(version)\""
-            }
             if let revision = revision, !revision.isEmpty {
                 return "revision: \"\(revision)\""
+            }
+            if let version = version, !version.isEmpty {
+                return "from: \"\(version)\""
             }
             return "from: \"0.1.0\""
         }
