@@ -2,9 +2,11 @@
 
 require "fileutils"
 require "tmpdir"
+require "digest"
 
 require "spm_cache/core/log"
 require "spm_cache/core/sh"
+require "spm_cache/core/config"
 require "spm_cache/spm/build"
 require "spm_cache/spm/desc/desc"
 require "spm_cache/spm/xcframework/xcframework"
@@ -32,10 +34,11 @@ module SPMCache
           FileUtils.mkdir_p(out_dir)
 
           scheme = resolve_scheme(name, pkg_dir)
+          module_name = resolve_module_name(name, pkg_dir)
 
           buildable = Buildable.new(
             name: name,
-            module_name: name,
+            module_name: module_name,
             pkg_dir: pkg_dir,
             library_evolution: library_evolution,
             scheme: scheme,
@@ -46,7 +49,7 @@ module SPMCache
 
           destinations.each do |dest_key|
             Core::UI.info "  Building #{name} for #{dest_key}..."
-            dd = File.join(pkg_dir, "DerivedData_#{dest_key}")
+            dd = derived_data_dir_for(pkg_dir, dest_key)
             begin
               artifacts = buildable.build_for_destination(dest_key, derived_data_path: dd)
             rescue => e
@@ -102,7 +105,7 @@ module SPMCache
 
           destinations.each do |dest_key|
             Core::UI.info "  Building #{name} (scheme #{scheme}) for #{dest_key}..."
-            dd = File.join(pkg_dir, "DerivedData_#{dest_key}")
+            dd = derived_data_dir_for(pkg_dir, dest_key)
             begin
               artifacts = buildable.build_for_destination(dest_key, derived_data_path: dd)
             rescue => e
@@ -154,6 +157,32 @@ module SPMCache
           resolve_scheme_fallback(name, pkg_dir) || name
         end
 
+        # Resolve the *build-product's own target name* to search for when
+        # locating the linked `.o` file after a successful build. For most
+        # packages this equals the product name (`resolve_scheme`'s `name`),
+        # but some multi-target product wrappers declare a product whose sole
+        # target is suffixed differently -- e.g. firebase-ios-sdk's Analytics
+        # variant family declares product `FirebaseAnalyticsWithoutAdIdSupport`
+        # backed by a single target named
+        # `FirebaseAnalyticsWithoutAdIdSupportTarget` (confirmed via `swift
+        # package describe`; same shape for `FirebaseAnalytics` and
+        # `FirebaseAnalyticsOnDeviceConversion` -- `<Product>Target`). Xcode
+        # links the object file under the TARGET's name, not the product's, so
+        # `find_object_file`'s exact-name glob silently finds nothing and the
+        # build is reported as failed even though it actually succeeded.
+        # Falls back to `name` itself when there's exactly one target sharing
+        # the product's own name (the common case, e.g. FirebaseCore) or when
+        # product metadata isn't available at all.
+        def resolve_module_name(name, pkg_dir)
+          desc = Desc::Description.new(name: name, pkg_dir: pkg_dir)
+          desc.fetch
+          product = desc.products.find { |p| p.name == name }
+          target_names = product&.target_names || []
+          return name if target_names.empty? || target_names.include?(name)
+
+          target_names.first
+        end
+
         def resolve_scheme_fallback(name, pkg_dir)
           list_output = Core::Sh.capture_output("xcodebuild -list", cwd: pkg_dir) rescue ""
           schemes = list_output.split("\n").drop_while { |l| !l.match?(/Schemes:/) }
@@ -161,6 +190,30 @@ module SPMCache
                                  .map(&:strip)
                                  .reject(&:empty?)
           schemes.find { |s| s.casecmp(name).zero? } || schemes.first
+        end
+
+        # DerivedData MUST live outside `pkg_dir` (a SwiftPM checkout under
+        # umbrella/.build/checkouts/<pkg>) -- nesting it inside conflicts with
+        # SwiftPM's own managed state for some package/target topologies.
+        # Field bug: reproduced on firebase-ios-sdk's FirebaseAnalytics variant
+        # targets (FirebaseAnalyticsWithoutAdIdSupport, OnDeviceConversion, and
+        # base FirebaseAnalytics) with a bare `xcodebuild` invocation -- no Ruby
+        # involved. Identical command succeeds with `-derivedDataPath` outside
+        # the checkout (e.g. /tmp); fails with `-derivedDataPath
+        # ./DerivedData_iphonesimulator` (relative to the checkout) every time:
+        # dozens of `could not delete old scheme: ... process disallows saving`
+        # warnings followed by `does not contain a scheme named "<name>"`. Other
+        # Firebase products (FirebaseCore, FirebaseAuth, FirebaseInstallations,
+        # etc.) tolerated the nested path fine, so this only reproduces for
+        # certain topologies -- moving DerivedData out entirely sidesteps it
+        # rather than special-casing the affected products.
+        # Keyed by pkg_dir's absolute path (not a fresh Dir.mktmpdir) so it
+        # stays stable and is reused across different targets built from the
+        # same checkout, preserving incremental-build speed.
+        def derived_data_dir_for(pkg_dir, dest_key)
+          key = Digest::SHA256.hexdigest(File.expand_path(pkg_dir))[0, 16]
+          File.join(Core::Config::CACHE_DIR, "derived_data", "#{File.basename(pkg_dir)}-#{key}",
+                    "DerivedData_#{dest_key}")
         end
       end
     end

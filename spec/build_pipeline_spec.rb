@@ -146,4 +146,67 @@ RSpec.describe SPMCache::SPM::BuildPipeline do
       out_dir: out_dir,
     )
   end
+
+  # Field bug: firebase-ios-sdk declares product `FirebaseAnalyticsWithoutAdIdSupport`
+  # backed by a single target named `FirebaseAnalyticsWithoutAdIdSupportTarget`
+  # (confirmed via `swift package describe`; same `<Product>Target` shape for
+  # `FirebaseAnalytics` and `FirebaseAnalyticsOnDeviceConversion`). Xcode links
+  # the object file under the TARGET's name, so passing the product name as
+  # `module_name` makes `find_object_file`'s exact-name glob find nothing --
+  # the build silently "fails" (0 slices) even though xcodebuild succeeded.
+  it "resolves module_name to the product's own target name when it differs from the product name" do
+    stub_desc_products(
+      [
+        { "name" => "FirebaseAnalyticsWithoutAdIdSupport", "type" => { "library" => ["automatic"] },
+          "targets" => ["FirebaseAnalyticsWithoutAdIdSupportTarget"] },
+      ],
+    )
+
+    expect(SPMCache::SPM::Buildable).to receive(:new)
+      .with(hash_including(scheme: "FirebaseAnalyticsWithoutAdIdSupport",
+                            module_name: "FirebaseAnalyticsWithoutAdIdSupportTarget"))
+      .and_return(instance_double(SPMCache::SPM::Buildable).tap do |fb|
+        allow(fb).to receive(:build_for_destination).and_return(
+          object_file: "/dd/FirebaseAnalyticsWithoutAdIdSupportTarget.o",
+        )
+        allow(fb).to receive(:create_framework) do |_arts, subdir|
+          fw = File.join(subdir, "FirebaseAnalyticsWithoutAdIdSupport.framework")
+          FileUtils.mkdir_p(fw)
+          File.write(File.join(fw, "FirebaseAnalyticsWithoutAdIdSupport"), "stub")
+          fw
+        end
+      end)
+
+    described_class.run(
+      name: "FirebaseAnalyticsWithoutAdIdSupport",
+      pkg_dir: pkg_dir,
+      destinations: ["iphonesimulator"],
+      out_dir: out_dir,
+    )
+  end
+
+  it "keeps module_name equal to the product name when the target list matches or is absent (common case)" do
+    stub_desc_products(
+      [{ "name" => "FirebaseCore", "type" => { "library" => ["automatic"] }, "targets" => ["FirebaseCore"] }],
+    )
+
+    expect(SPMCache::SPM::Buildable).to receive(:new)
+      .with(hash_including(scheme: "FirebaseCore", module_name: "FirebaseCore"))
+      .and_return(instance_double(SPMCache::SPM::Buildable).tap do |fb|
+        allow(fb).to receive(:build_for_destination).and_return(object_file: "/dd/FirebaseCore.o")
+        allow(fb).to receive(:create_framework) do |_arts, subdir|
+          fw = File.join(subdir, "FirebaseCore.framework")
+          FileUtils.mkdir_p(fw)
+          File.write(File.join(fw, "FirebaseCore"), "stub")
+          fw
+        end
+      end)
+
+    described_class.run(
+      name: "FirebaseCore",
+      pkg_dir: pkg_dir,
+      destinations: ["iphonesimulator"],
+      out_dir: out_dir,
+    )
+  end
 end
