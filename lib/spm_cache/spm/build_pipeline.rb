@@ -56,11 +56,12 @@ module SPMCache
               Core::UI.warn "#{dest_key} build failed: #{e.message}"
               next
             end
-            next unless artifacts[:object_file]
+            next unless artifacts[:object_file] || artifacts[:framework]
 
             fw_subdir = File.join(tmpdir, dest_key)
             FileUtils.mkdir_p(fw_subdir)
-            fw_dir = buildable.create_framework(artifacts, fw_subdir)
+            fw_dir = artifacts[:framework] ? buildable.use_existing_framework(artifacts, fw_subdir) :
+                     buildable.create_framework(artifacts, fw_subdir)
             framework_paths << fw_dir
           end
 
@@ -112,11 +113,12 @@ module SPMCache
               Core::UI.warn "#{dest_key} build failed: #{e.message}"
               next
             end
-            next unless artifacts[:object_file]
+            next unless artifacts[:object_file] || artifacts[:framework]
 
             fw_subdir = File.join(tmpdir, dest_key)
             FileUtils.mkdir_p(fw_subdir)
-            fw_dir = buildable.create_framework(artifacts, fw_subdir)
+            fw_dir = artifacts[:framework] ? buildable.use_existing_framework(artifacts, fw_subdir) :
+                     buildable.create_framework(artifacts, fw_subdir)
             framework_paths << fw_dir
           end
 

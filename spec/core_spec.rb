@@ -20,6 +20,22 @@ RSpec.describe SPMCache::Core::Sh do
     it "raises on command failure" do
       expect { described_class.run("false") }.to raise_error(SPMCache::Core::GeneralError)
     end
+
+    # Field bug: xcodebuild (and most compilers/build tools) write their
+    # actual failure reason to STDOUT, not STDERR -- a bare stderr-only
+    # error message hid the real cause behind an uninformative "Command
+    # failed (exit N): <cmd>" for every such failure, including a specific
+    # deployment-target/libarclite error a caller needed to pattern-match
+    # against to decide whether to retry.
+    it "includes stdout content in the raised error message, not just stderr" do
+      expect { described_class.run("echo 'the real error is here' && false") }
+        .to raise_error(SPMCache::Core::GeneralError, /the real error is here/)
+    end
+
+    it "still includes stderr content in the raised error message" do
+      expect { described_class.run("echo 'stderr detail' 1>&2 && false") }
+        .to raise_error(SPMCache::Core::GeneralError, /stderr detail/)
+    end
   end
 end
 

@@ -34,7 +34,7 @@ module SPMCache
           else
             stdout_str, stderr_str, status = Open3.capture3(env, cmd, **spawn_opts)
             unless status.success?
-              msg = "Command failed (exit #{status.exitstatus}): #{cmd}\n#{stderr_str}"
+              msg = "Command failed (exit #{status.exitstatus}): #{cmd}\n#{failure_detail(stdout_str, stderr_str)}"
               raise GeneralError.new(msg)
             end
             { output: stdout_str, error: stderr_str, status: status.exitstatus }
@@ -48,6 +48,26 @@ module SPMCache
 
         def run!(cmd, opts = {})
           run(cmd, opts)
+        end
+
+        private
+
+        # Tools like xcodebuild write their actual failure reason (compiler
+        # errors, linker errors) to STDOUT, not STDERR -- a plain `stderr_str`
+        # in the raised error hid the real cause behind an uninformative
+        # "Command failed (exit N): <cmd>" for every such failure. Bounded to
+        # the last FAILURE_DETAIL_LINES of each stream (not the full log,
+        # which can be thousands of lines for a full Xcode build) since the
+        # actual error line is almost always near the end, right before the
+        # tool's own final failure summary.
+        FAILURE_DETAIL_LINES = 60
+
+        def failure_detail(stdout_str, stderr_str)
+          [tail_lines(stdout_str), tail_lines(stderr_str)].reject(&:empty?).join("\n")
+        end
+
+        def tail_lines(str)
+          str.to_s.lines.last(FAILURE_DETAIL_LINES).join.strip
         end
       end
     end

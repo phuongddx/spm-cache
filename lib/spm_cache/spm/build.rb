@@ -20,6 +20,21 @@ module SPMCache
         "ios_device" => "generic/platform=iOS",
       }.freeze
 
+      # Field bug: AppAuth-iOS's checkout carries its own committed
+      # .xcodeproj (same shape as CryptoSwift) with IPHONEOS_DEPLOYMENT_TARGET
+      # hardcoded to 8.0. Modern Xcode toolchains dropped the `libarclite`
+      # static libraries needed to link for deployment targets below ~11,
+      # so building fails with "SDK does not contain 'libarclite' ... try
+      # increasing the minimum deployment target" -- a genuine toolchain
+      # incompatibility in the vendored project, not a scheme/lookup bug.
+      # Well past the libarclite cutoff and low enough to not restrict any
+      # realistic consumer, so safe as a narrow, error-triggered retry
+      # rather than a blanket floor applied to every build (which could
+      # silently lower an already-correct higher deployment target for
+      # packages that build fine as-is).
+      LIBARCLITE_MIN_DEPLOYMENT_TARGET = "13.0"
+      LIBARCLITE_ERROR_PATTERN = /SDK does not contain 'libarclite'/.freeze
+
       def initialize(name:, module_name: nil, pkg_dir:, config: "debug", library_evolution: true, scheme: nil)
         @name = name
         @module_name = module_name || name
@@ -31,6 +46,20 @@ module SPMCache
 
       def xcodebuild(destination, derived_data_path: nil, **opts)
         dd = derived_data_path || File.join(@pkg_dir, "DerivedData")
+        cmd = build_command(destination, dd, opts)
+
+        begin
+          SPMCache::Core::Sh.run(cmd, cwd: @pkg_dir, live_log: opts[:live_log])
+        rescue SPMCache::Core::GeneralError => e
+          raise unless e.message.match?(LIBARCLITE_ERROR_PATTERN)
+
+          retry_cmd = "#{cmd} IPHONEOS_DEPLOYMENT_TARGET=#{LIBARCLITE_MIN_DEPLOYMENT_TARGET}"
+          SPMCache::Core::Sh.run(retry_cmd, cwd: @pkg_dir, live_log: opts[:live_log])
+        end
+        dd
+      end
+
+      def build_command(destination, dd, opts = {})
         cmd = "xcodebuild build"
         cmd += " -scheme #{@scheme}"
         cmd += " -destination '#{destination}'"
@@ -38,9 +67,7 @@ module SPMCache
         cmd += " CODE_SIGNING_ALLOWED=NO"
         cmd += library_evolution_flags if @library_evolution
         cmd += " #{opts[:extra_args]}" if opts[:extra_args]
-
-        SPMCache::Core::Sh.run(cmd, cwd: @pkg_dir, live_log: opts[:live_log])
-        dd
+        cmd
       end
 
       def build_for_destination(destination_key, derived_data_path: nil, **opts)
@@ -52,6 +79,10 @@ module SPMCache
         {
           derived_data: dd,
           object_file: obj,
+          # Only look for a pre-built .framework when no raw .o was produced
+          # -- see #find_framework for why, and avoid the wasted glob in the
+          # common case where the .o lookup already succeeded.
+          framework: obj ? nil : find_framework(dd),
           swiftmodule: find_file(dd, "#{@module_name}.swiftmodule"),
           swiftdoc: find_file(dd, "#{@module_name}.swiftdoc"),
           swiftsourceinfo: find_file(dd, "#{@module_name}.swiftsourceinfo"),
@@ -62,6 +93,21 @@ module SPMCache
       def find_object_file(derived_data)
         Dir.glob(File.join(derived_data, "**", "Products", "**", "#{@module_name}.o")).first ||
           Dir.glob(File.join(derived_data, "**", "#{@module_name}.o")).first
+      end
+
+      # Field bug: CryptoSwift's checkout carries its own committed
+      # .xcodeproj (Xcode "Framework" target type) alongside its
+      # Package.swift, so `swift package describe`/resolve_scheme correctly
+      # resolves scheme "CryptoSwift" -- but xcodebuild links a genuine
+      # `CryptoSwift.framework` bundle directly (verified: no `.o` exists
+      # anywhere under DerivedData for this target), unlike a plain SPM
+      # library product where spm-cache's own `create_framework` assembles
+      # one from a raw `.o`. #find_object_file's glob then finds nothing and
+      # the build was silently reported as failed even though it succeeded.
+      # Only reached when no `.o` was found, so packages that DO build via
+      # the normal SPM/object-file path are unaffected.
+      def find_framework(derived_data)
+        Dir.glob(File.join(derived_data, "**", "Products", "**", "#{@module_name}.framework")).first
       end
 
       def find_file(derived_data, basename)
@@ -104,6 +150,16 @@ module SPMCache
         copy_module_artifact(artifacts[:swiftdoc], modules_dir)
         copy_module_artifact(artifacts[:swiftsourceinfo], modules_dir)
 
+        fw_dir
+      end
+
+      # Counterpart to #create_framework for the case where xcodebuild
+      # already produced a real `.framework` bundle directly (see
+      # #find_framework) -- copies it as-is instead of assembling one from a
+      # raw `.o`, since there isn't one to assemble from.
+      def use_existing_framework(artifacts, output_dir)
+        fw_dir = File.join(output_dir, "#{@module_name}.framework")
+        FileUtils.cp_r(artifacts[:framework], fw_dir)
         fw_dir
       end
 

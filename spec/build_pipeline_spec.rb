@@ -209,4 +209,38 @@ RSpec.describe SPMCache::SPM::BuildPipeline do
       out_dir: out_dir,
     )
   end
+
+  # Field bug: CryptoSwift's checkout carries its own committed .xcodeproj
+  # (Xcode "Framework" target type) -- xcodebuild links a genuine
+  # CryptoSwift.framework directly, no raw .o exists anywhere. When
+  # build_for_destination returns a `framework:` artifact instead of
+  # `object_file:`, the pipeline must dispatch to
+  # Buildable#use_existing_framework instead of #create_framework (which
+  # would find nothing to assemble from).
+  it "uses use_existing_framework instead of create_framework when the artifacts carry a pre-built framework" do
+    stub_desc_products([{ "name" => "CryptoSwift", "type" => { "library" => ["automatic"] } }])
+
+    expect(SPMCache::SPM::Buildable).to receive(:new)
+      .with(hash_including(scheme: "CryptoSwift", module_name: "CryptoSwift"))
+      .and_return(instance_double(SPMCache::SPM::Buildable).tap do |fb|
+        allow(fb).to receive(:build_for_destination).and_return(
+          object_file: nil,
+          framework: "/dd/Build/Products/Debug-iphonesimulator/CryptoSwift.framework",
+        )
+        expect(fb).not_to receive(:create_framework)
+        expect(fb).to receive(:use_existing_framework) do |_arts, subdir|
+          fw = File.join(subdir, "CryptoSwift.framework")
+          FileUtils.mkdir_p(fw)
+          File.write(File.join(fw, "CryptoSwift"), "stub")
+          fw
+        end
+      end)
+
+    described_class.run(
+      name: "CryptoSwift",
+      pkg_dir: pkg_dir,
+      destinations: ["iphonesimulator"],
+      out_dir: out_dir,
+    )
+  end
 end
