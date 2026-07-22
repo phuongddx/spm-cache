@@ -107,6 +107,28 @@ RSpec.describe SPMCache::SPM::Buildable do
     end
   end
 
+  # Field bug: SkeletonView's real schemes are named "SkeletonView iOS" /
+  # "SkeletonView tvOS" -- containing a literal space. The unquoted
+  # `-scheme #{@scheme}` interpolation let the shell split it into separate
+  # arguments, so xcodebuild saw "-scheme SkeletonView iOS" as 3 tokens and
+  # misread the trailing "iOS" as an unknown build action ("Unknown build
+  # action 'iOS'"). Every other dynamic value (-destination, -project) was
+  # already quoted; the scheme was the one place that wasn't.
+  describe "#build_command scheme quoting" do
+    it "quotes a scheme name containing a space" do
+      buildable = described_class.new(name: "SkeletonView", scheme: "SkeletonView iOS", pkg_dir: "/tmp")
+      cmd = buildable.build_command("platform=iOS Simulator,name=iPhone 17", "/dd")
+      expect(cmd).to include("-scheme 'SkeletonView iOS'")
+      expect(cmd).not_to include("-scheme SkeletonView iOS ")
+    end
+
+    it "still works for a plain scheme name with no special characters (common case)" do
+      buildable = described_class.new(name: "Alamofire", pkg_dir: "/tmp")
+      cmd = buildable.build_command("platform=iOS Simulator,name=iPhone 17", "/dd")
+      expect(cmd).to include("-scheme 'Alamofire'")
+    end
+  end
+
   describe "#build_for_destination" do
     let(:pkg_dir) { Dir.mktmpdir }
     let(:buildable) { described_class.new(name: "CryptoSwift", pkg_dir: pkg_dir) }
@@ -136,14 +158,17 @@ RSpec.describe SPMCache::SPM::Buildable do
     end
   end
 
-  # Field bug: AppAuth-iOS's checkout carries its own committed .xcodeproj
-  # with IPHONEOS_DEPLOYMENT_TARGET hardcoded to 8.0. Modern Xcode dropped
-  # `libarclite` support for pre-~iOS 11 targets, so the first build attempt
-  # fails with "SDK does not contain 'libarclite' ... try increasing the
-  # minimum deployment target" -- a genuine toolchain incompatibility in the
-  # vendored project. Verified fix empirically: retrying with
-  # IPHONEOS_DEPLOYMENT_TARGET=13.0 appended succeeds.
-  describe "#xcodebuild libarclite retry" do
+  # Field bug: some vendored checkouts (AppAuth-iOS, FSPagerView) carry
+  # their own committed .xcodeproj with IPHONEOS_DEPLOYMENT_TARGET
+  # hardcoded to 8.0. Same root cause, two different symptoms: modern Xcode
+  # dropped `libarclite` support for pre-~iOS 11 targets (AppAuth-iOS's
+  # linker error), and FSPagerView hits a Swift availability-check error on
+  # unguarded real API usage the compiler treats as unavailable given the
+  # project's own too-low target ("'layoutSublayers(of:)' is only available
+  # in iOS 10.0 or newer"). Both are genuine toolchain/source
+  # incompatibilities in the vendored project. Verified fix empirically for
+  # both: retrying with IPHONEOS_DEPLOYMENT_TARGET=13.0 appended succeeds.
+  describe "#xcodebuild low deployment target retry" do
     let(:pkg_dir) { Dir.mktmpdir }
     let(:buildable) { described_class.new(name: "AppAuthCore", pkg_dir: pkg_dir) }
 
@@ -159,6 +184,22 @@ RSpec.describe SPMCache::SPM::Buildable do
       allow(SPMCache::Core::Sh).to receive(:run) do |cmd, _opts|
         call_count += 1
         raise libarclite_error if call_count == 1
+        expect(cmd).to include("IPHONEOS_DEPLOYMENT_TARGET=13.0")
+      end
+
+      buildable.xcodebuild("platform=iOS Simulator,name=iPhone 17", derived_data_path: "/dd")
+      expect(call_count).to eq(2)
+    end
+
+    it "retries once with a bumped IPHONEOS_DEPLOYMENT_TARGET when a Swift availability-check error occurs" do
+      availability_error = SPMCache::Core::GeneralError.new(
+        "Command failed (exit 65): xcodebuild build ...\n" \
+        "FSPageControl.swift:105:15: error: 'layoutSublayers(of:)' is only available in iOS 10.0 or newer",
+      )
+      call_count = 0
+      allow(SPMCache::Core::Sh).to receive(:run) do |cmd, _opts|
+        call_count += 1
+        raise availability_error if call_count == 1
         expect(cmd).to include("IPHONEOS_DEPLOYMENT_TARGET=13.0")
       end
 

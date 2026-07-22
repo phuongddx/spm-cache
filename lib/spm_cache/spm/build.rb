@@ -20,20 +20,29 @@ module SPMCache
         "ios_device" => "generic/platform=iOS",
       }.freeze
 
-      # Field bug: AppAuth-iOS's checkout carries its own committed
-      # .xcodeproj (same shape as CryptoSwift) with IPHONEOS_DEPLOYMENT_TARGET
-      # hardcoded to 8.0. Modern Xcode toolchains dropped the `libarclite`
-      # static libraries needed to link for deployment targets below ~11,
-      # so building fails with "SDK does not contain 'libarclite' ... try
-      # increasing the minimum deployment target" -- a genuine toolchain
-      # incompatibility in the vendored project, not a scheme/lookup bug.
-      # Well past the libarclite cutoff and low enough to not restrict any
-      # realistic consumer, so safe as a narrow, error-triggered retry
-      # rather than a blanket floor applied to every build (which could
-      # silently lower an already-correct higher deployment target for
-      # packages that build fine as-is).
-      LIBARCLITE_MIN_DEPLOYMENT_TARGET = "13.0"
-      LIBARCLITE_ERROR_PATTERN = /SDK does not contain 'libarclite'/.freeze
+      # Field bug: some vendored checkouts (AppAuth-iOS, FSPagerView -- both
+      # carrying their own committed .xcodeproj, same shape as CryptoSwift)
+      # hardcode an ancient IPHONEOS_DEPLOYMENT_TARGET (8.0 in both cases).
+      # This surfaces as two DIFFERENT symptoms depending on the toolchain
+      # path taken, but the same single root cause:
+      #   1. AppAuth-iOS: linker error -- modern Xcode dropped the
+      #      `libarclite` static libraries needed below ~iOS 11 ("SDK does
+      #      not contain 'libarclite' ... try increasing the minimum
+      #      deployment target").
+      #   2. FSPagerView: Swift availability-check error on real API usage
+      #      the source never guarded with @available/#available, because
+      #      the project's own too-low target makes the compiler treat it
+      #      as genuinely unavailable (e.g. "'layoutSublayers(of:)' is only
+      #      available in iOS 10.0 or newer").
+      # Verified empirically for both that appending
+      # IPHONEOS_DEPLOYMENT_TARGET=13.0 on retry (overriding the project's
+      # own setting) fixes it standalone. Well past both symptoms' cutoffs
+      # and low enough to not restrict any realistic consumer, so safe as a
+      # narrow, error-triggered retry rather than a blanket floor applied to
+      # every build (which could silently lower an already-correct higher
+      # deployment target for packages that build fine as-is).
+      LOW_DEPLOYMENT_TARGET_RETRY_VALUE = "13.0"
+      LOW_DEPLOYMENT_TARGET_ERROR_PATTERN = /SDK does not contain 'libarclite'|is only available in iOS \d+\.\d+ or newer/.freeze
 
       def initialize(name:, module_name: nil, pkg_dir:, config: "debug", library_evolution: true, scheme: nil)
         @name = name
@@ -51,18 +60,26 @@ module SPMCache
         begin
           SPMCache::Core::Sh.run(cmd, cwd: @pkg_dir, live_log: opts[:live_log])
         rescue SPMCache::Core::GeneralError => e
-          raise unless e.message.match?(LIBARCLITE_ERROR_PATTERN)
+          raise unless e.message.match?(LOW_DEPLOYMENT_TARGET_ERROR_PATTERN)
 
-          retry_cmd = "#{cmd} IPHONEOS_DEPLOYMENT_TARGET=#{LIBARCLITE_MIN_DEPLOYMENT_TARGET}"
+          retry_cmd = "#{cmd} IPHONEOS_DEPLOYMENT_TARGET=#{LOW_DEPLOYMENT_TARGET_RETRY_VALUE}"
           SPMCache::Core::Sh.run(retry_cmd, cwd: @pkg_dir, live_log: opts[:live_log])
         end
         dd
       end
 
+      # Field bug: SkeletonView's checkout has real schemes named "SkeletonView
+      # iOS"/"SkeletonView tvOS" -- containing a literal space. The unquoted
+      # `-scheme #{@scheme}` interpolation split on the shell's word
+      # boundary, so xcodebuild saw `-scheme SkeletonView iOS` as 3 separate
+      # arguments and misread the trailing "iOS" as an unknown build action
+      # ("xcodebuild: error: Unknown build action 'iOS'"). Every other
+      # dynamic value in this command was already quoted (-destination,
+      # -project); the scheme was the one place that wasn't.
       def build_command(destination, dd, opts = {})
         cmd = "xcodebuild build"
         cmd += project_disambiguation_flag
-        cmd += " -scheme #{@scheme}"
+        cmd += " -scheme '#{@scheme}'"
         cmd += " -destination '#{destination}'"
         cmd += " -derivedDataPath #{dd}"
         cmd += " CODE_SIGNING_ALLOWED=NO"
