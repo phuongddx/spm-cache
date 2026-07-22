@@ -184,6 +184,59 @@ RSpec.describe SPMCache::SPM::Buildable do
     end
   end
 
+  # Field bug: SVGKit's checkout carries THREE committed .xcodeproj files
+  # at its root (the library plus two demo apps) alongside Package.swift.
+  # xcodebuild refuses to guess which to use ("contains 3 projects ...
+  # Specify the project to use with the -project option") and fails before
+  # even resolving a scheme. CryptoSwift/AppAuth-iOS only ever had exactly
+  # one .xcodeproj each, which Xcode's own implicit detection already
+  # resolves fine on its own -- verified empirically, so the 0-or-1 cases
+  # must stay untouched (returns "" immediately, same command as before).
+  describe "#build_command project disambiguation" do
+    let(:pkg_dir) { Dir.mktmpdir }
+    let(:buildable) { described_class.new(name: "SVGKit", pkg_dir: pkg_dir) }
+
+    after { FileUtils.rm_rf(pkg_dir) }
+
+    it "adds no -project flag when the checkout has zero .xcodeproj files (pure SPM package, common case)" do
+      cmd = buildable.build_command("platform=iOS Simulator,name=iPhone 17", "/dd")
+      expect(cmd).not_to include("-project")
+    end
+
+    it "adds no -project flag when the checkout has exactly one .xcodeproj (Xcode's own detection already works)" do
+      FileUtils.mkdir_p(File.join(pkg_dir, "SVGKit-iOS.xcodeproj"))
+      cmd = buildable.build_command("platform=iOS Simulator,name=iPhone 17", "/dd")
+      expect(cmd).not_to include("-project")
+    end
+
+    it "picks the matching .xcodeproj by scheme when multiple exist" do
+      lib_proj = File.join(pkg_dir, "SVGKit-iOS.xcodeproj")
+      demo_proj = File.join(pkg_dir, "Demo-iOS.xcodeproj")
+      FileUtils.mkdir_p(lib_proj)
+      FileUtils.mkdir_p(demo_proj)
+
+      allow(SPMCache::Core::Sh).to receive(:capture_output) do |cmd|
+        if cmd.include?(lib_proj)
+          "Schemes:\nSVGKit\nSVGKitSwift"
+        else
+          "Schemes:\nDemo-iOS"
+        end
+      end
+
+      cmd = buildable.build_command("platform=iOS Simulator,name=iPhone 17", "/dd")
+      expect(cmd).to include("-project '#{lib_proj}'")
+    end
+
+    it "adds no -project flag when multiple .xcodeproj exist but none match the scheme (no worse than before)" do
+      FileUtils.mkdir_p(File.join(pkg_dir, "Demo-OSX.xcodeproj"))
+      FileUtils.mkdir_p(File.join(pkg_dir, "Demo-iOS.xcodeproj"))
+      allow(SPMCache::Core::Sh).to receive(:capture_output).and_return("Schemes:\nDemo-iOS")
+
+      cmd = buildable.build_command("platform=iOS Simulator,name=iPhone 17", "/dd")
+      expect(cmd).not_to include("-project")
+    end
+  end
+
   describe "#initialize" do
     it "sets name and module_name" do
       b = described_class.new(name: "Alamofire", pkg_dir: "/tmp")

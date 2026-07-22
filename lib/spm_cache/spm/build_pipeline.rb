@@ -152,11 +152,60 @@ module SPMCache
                     .select { |p| p.name.downcase.include?(name.downcase) || name.downcase.include?(p.name.downcase) }
                     .min_by { |p| (p.name.length - name.length).abs } ||
                   library_products.first
-          return match.name if match
+          candidate = match&.name
+
+          # Field bug: SVGKit's Package.swift declares an SPM product named
+          # exactly "SVGKit", but its checkout carries THREE committed
+          # .xcodeproj files (the library + two demo apps) whose real
+          # schemes are all prefixed differently (SVGKitFramework-iOS/OSX/
+          # tvOS) -- no scheme named "SVGKit" exists ANYWHERE. Plain
+          # `xcodebuild -list` (used by resolve_scheme_fallback) fails
+          # outright in an ambiguous multi-project checkout ("contains N
+          # projects ... Specify the project"), so it was never reached to
+          # catch this: the `return match.name if match` above always fired
+          # first on the exact product-name match, however wrong. Verify the
+          # candidate against schemes scraped directly from EACH candidate
+          # project (bypassing plain `-list`'s ambiguity failure) only when
+          # 2+ .xcodeproj exist; unambiguous checkouts (0 or 1) are
+          # completely unaffected -- verified empirically for CryptoSwift/
+          # AppAuth-iOS, whose product-name match already resolves to a
+          # real scheme on its own.
+          if candidate && ambiguous_project_checkout?(pkg_dir)
+            real_schemes = schemes_across_projects(pkg_dir)
+            return candidate if real_schemes.any? { |s| s.casecmp(candidate).zero? }
+
+            real_match = best_name_match(candidate, real_schemes)
+            return real_match if real_match
+          end
+          return candidate if candidate
 
           # Fall back to xcodebuild -list heuristic only if `swift package
           # describe` yielded nothing usable (e.g. binary-only/malformed packages).
           resolve_scheme_fallback(name, pkg_dir) || name
+        end
+
+        def ambiguous_project_checkout?(pkg_dir)
+          Dir.glob(File.join(pkg_dir, "*.xcodeproj")).length >= 2
+        end
+
+        def schemes_across_projects(pkg_dir)
+          Dir.glob(File.join(pkg_dir, "*.xcodeproj")).flat_map do |proj|
+            list_output = Core::Sh.capture_output("xcodebuild -list -project '#{proj}'") rescue ""
+            list_output.split("\n").drop_while { |l| !l.match?(/Schemes:/) }
+                       .drop(1)
+                       .map(&:strip)
+                       .reject(&:empty?)
+          end.uniq
+        end
+
+        # Same fuzzy-match strategy as the product-name lookup above
+        # (exact match, then closest substring match), applied against a
+        # plain list of real scheme name strings instead of Product objects.
+        def best_name_match(name, candidates)
+          candidates.find { |s| s.casecmp(name).zero? } ||
+            candidates
+              .select { |s| s.downcase.include?(name.downcase) || name.downcase.include?(s.downcase) }
+              .min_by { |s| (s.length - name.length).abs }
         end
 
         # Resolve the *build-product's own target name* to search for when

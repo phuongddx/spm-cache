@@ -243,4 +243,65 @@ RSpec.describe SPMCache::SPM::BuildPipeline do
       out_dir: out_dir,
     )
   end
+
+  # Field bug: SVGKit's Package.swift declares an SPM product named exactly
+  # "SVGKit", but its checkout carries multiple committed .xcodeproj files
+  # (the library plus demo apps) whose real schemes are all prefixed
+  # differently (e.g. SVGKit-iOS) -- no scheme named "SVGKit" exists at
+  # all. resolve_scheme's exact-match-on-product-name always won before,
+  # producing a scheme xcodebuild would reject. Verify it now checks real
+  # schemes scraped from every candidate .xcodeproj (bypassing plain
+  # `xcodebuild -list`'s ambiguity failure) and substitutes the closest
+  # real match instead, only when the checkout is ambiguous (2+ .xcodeproj).
+  it "resolves scheme against real .xcodeproj schemes when the product name doesn't match any of them" do
+    stub_desc_products([{ "name" => "SVGKit", "type" => { "library" => ["automatic"] } }])
+    FileUtils.mkdir_p(File.join(pkg_dir, "SVGKit-iOS.xcodeproj"))
+    FileUtils.mkdir_p(File.join(pkg_dir, "Demo-iOS.xcodeproj"))
+    allow(SPMCache::Core::Sh).to receive(:capture_output).and_return(
+      "Schemes:\nSVGKit-iOS\nSVGKitFramework-iOS",
+    )
+
+    expect(SPMCache::SPM::Buildable).to receive(:new)
+      .with(hash_including(scheme: "SVGKit-iOS"))
+      .and_return(instance_double(SPMCache::SPM::Buildable).tap do |fb|
+        allow(fb).to receive(:build_for_destination).and_return(object_file: "/dd/SVGKit-iOS.o")
+        allow(fb).to receive(:create_framework) do |_arts, subdir|
+          fw = File.join(subdir, "SVGKit.framework")
+          FileUtils.mkdir_p(fw)
+          File.write(File.join(fw, "SVGKit"), "stub")
+          fw
+        end
+      end)
+
+    described_class.run(
+      name: "SVGKit",
+      pkg_dir: pkg_dir,
+      destinations: ["iphonesimulator"],
+      out_dir: out_dir,
+    )
+  end
+
+  it "leaves the product-name scheme untouched when the checkout has 0 or 1 .xcodeproj (common case)" do
+    stub_desc_products([{ "name" => "Alamofire", "type" => { "library" => ["automatic"] } }])
+    # no .xcodeproj created under pkg_dir at all
+
+    expect(SPMCache::SPM::Buildable).to receive(:new)
+      .with(hash_including(scheme: "Alamofire"))
+      .and_return(instance_double(SPMCache::SPM::Buildable).tap do |fb|
+        allow(fb).to receive(:build_for_destination).and_return(object_file: "/dd/Alamofire.o")
+        allow(fb).to receive(:create_framework) do |_arts, subdir|
+          fw = File.join(subdir, "Alamofire.framework")
+          FileUtils.mkdir_p(fw)
+          File.write(File.join(fw, "Alamofire"), "stub")
+          fw
+        end
+      end)
+
+    described_class.run(
+      name: "Alamofire",
+      pkg_dir: pkg_dir,
+      destinations: ["iphonesimulator"],
+      out_dir: out_dir,
+    )
+  end
 end

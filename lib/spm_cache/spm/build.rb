@@ -61,6 +61,7 @@ module SPMCache
 
       def build_command(destination, dd, opts = {})
         cmd = "xcodebuild build"
+        cmd += project_disambiguation_flag
         cmd += " -scheme #{@scheme}"
         cmd += " -destination '#{destination}'"
         cmd += " -derivedDataPath #{dd}"
@@ -68,6 +69,37 @@ module SPMCache
         cmd += library_evolution_flags if @library_evolution
         cmd += " #{opts[:extra_args]}" if opts[:extra_args]
         cmd
+      end
+
+      # Field bug: SVGKit's checkout carries THREE committed .xcodeproj
+      # files at its root (the library itself plus two demo apps) alongside
+      # Package.swift -- xcodebuild refuses to guess which one to use
+      # ("contains 3 projects, including multiple projects with the current
+      # extension (.xcodeproj). Specify the project to use with the
+      # -project option") and fails before even attempting to resolve a
+      # scheme. Same root shape as CryptoSwift/AppAuth-iOS (a vendored
+      # .xcodeproj alongside Package.swift), but those checkouts only ever
+      # had exactly one, which Xcode's own implicit single-project
+      # detection already resolves correctly on its own -- verified
+      # empirically, unaffected by this method (0 or 1 candidates: returns
+      # "" immediately, matching prior behavior exactly).
+      def project_disambiguation_flag
+        candidates = Dir.glob(File.join(@pkg_dir, "*.xcodeproj"))
+        return "" if candidates.length < 2
+
+        match = candidates.find { |proj| project_has_scheme?(proj, @scheme) }
+        match ? " -project '#{match}'" : ""
+      end
+
+      def project_has_scheme?(project_path, scheme_name)
+        list_output = Core::Sh.capture_output("xcodebuild -list -project '#{project_path}'")
+        schemes = list_output.split("\n").drop_while { |l| !l.match?(/Schemes:/) }
+                              .drop(1)
+                              .map(&:strip)
+                              .reject(&:empty?)
+        schemes.any? { |s| s.casecmp(scheme_name).zero? }
+      rescue SPMCache::Core::GeneralError
+        false
       end
 
       def build_for_destination(destination_key, derived_data_path: nil, **opts)
