@@ -74,8 +74,12 @@ struct ProxyGenerator {
         // library product to proxy, and keeping a stale reference around
         // would recreate the identity-collision bug at the Xcode layer.
         // Xcode integration (Ruby side) preserves their original package
-        // reference directly instead.
-        var proxiedPackages: [Lockfile.PackageRef] = []
+        // reference directly instead. Same treatment applies below to any
+        // ignored/excluded product of an otherwise-proxied package: only
+        // the SURVIVING (hit/missed) products are recorded here, so
+        // generateRootProxy references exactly what each sub-proxy actually
+        // declares.
+        var proxiedPackages: [(pkg: Lockfile.PackageRef, products: [Lockfile.ResolvedProduct])] = []
 
         for pkg in packages {
             if pkg.isPluginOnly {
@@ -104,12 +108,7 @@ struct ProxyGenerator {
             // through its own manifest, resolved consistently by SwiftPM.
             if pkg.isTransitiveOnly(consumedProducts: consumedProducts) { continue }
 
-            proxiedPackages.append(pkg)
-
             let slug = pkg.slug
-            let proxyDir = proxiesDir.appendingPathComponent("\(slug)_proxy")
-            try proxyDir.mkdir()
-
             let ignored = isIgnored(pkg)
             let excluded = isCacheOnlyExcluded(pkg)
 
@@ -131,11 +130,49 @@ struct ProxyGenerator {
                 return ProductBuild(product: product, status: status, cachedBinary: cachedBinary)
             }
 
-            let packageSwift = generateProxyManifest(pkg: pkg, products: productBuilds)
+            // Record every product's status in graph.json regardless -- the
+            // Ruby-side cachemap needs ignored/excluded statuses to exempt
+            // their original Xcode product dependency from proxy rewiring
+            // (see below).
+            for build in productBuilds {
+                entries.append(GraphEntry(
+                    module: build.product.name,
+                    status: build.status,
+                    dependencies: [],
+                    hasMacro: false
+                ))
+            }
+
+            // Field bug: an ignored/excluded product used to still get a
+            // source-fallback shim wrapped in this package's own local proxy
+            // sub-package, which re-declares its OWN dependency on the real
+            // upstream package. When two INDEPENDENTLY ignored/excluded
+            // packages happen to share a transitive dependency (e.g.
+            // eh_oauth_sdk_ios and AppAuth-iOS's own excluded `AppAuth`
+            // product both transitively depend on the real AppAuth-iOS
+            // package), Xcode's PIF loader can register a duplicate GUID for
+            // the shared product ("has already been registered") because it
+            // now sees TWO independent local-package paths to the identical
+            // real dependency, instead of the one direct path a project
+            // without spm-cache would have. Fix: give ignored/excluded
+            // products NO shim and NO proxy-wrapper participation at all --
+            // the same treatment plugin-only packages already get above.
+            // Ruby-side integration (Installer#dep_exempted?) leaves their
+            // original Xcode product dependency untouched, pointing at the
+            // real package reference exactly as it always did.
+            let proxiedBuilds = productBuilds.filter { $0.status == .hit || $0.status == .missed }
+            guard !proxiedBuilds.isEmpty else { continue }
+
+            proxiedPackages.append((pkg, proxiedBuilds.map(\.product)))
+
+            let proxyDir = proxiesDir.appendingPathComponent("\(slug)_proxy")
+            try proxyDir.mkdir()
+
+            let packageSwift = generateProxyManifest(pkg: pkg, products: proxiedBuilds)
             let packageSwiftPath = proxyDir.appendingPathComponent("Package.swift")
             try packageSwift.write(to: packageSwiftPath, atomically: true, encoding: .utf8)
 
-            for build in productBuilds {
+            for build in proxiedBuilds {
                 let productSlug = "\(slug)_\(build.product.name.c99extidentifier)"
 
                 if let binary = build.cachedBinary {
@@ -146,21 +183,14 @@ struct ProxyGenerator {
                         withDestinationURL: binary
                     )
                 } else {
-                    // Source fallback (miss or ignored): emit a shim that
-                    // re-exports the real package module(s) so `import
+                    // Source fallback (missed, not yet built): emit a shim
+                    // that re-exports the real package module(s) so `import
                     // <module>` resolves.
                     let sourcesDir = proxyDir.appendingPathComponent("Sources").appendingPathComponent("\(productSlug)_shim")
                     try sourcesDir.mkdir()
                     let shim = generateShimSource(targets: build.product.targets)
                     try shim.write(to: sourcesDir.appendingPathComponent("\(productSlug)_shim.swift"), atomically: true, encoding: .utf8)
                 }
-
-                entries.append(GraphEntry(
-                    module: build.product.name,
-                    status: build.status,
-                    dependencies: [],
-                    hasMacro: false
-                ))
             }
         }
 
@@ -270,19 +300,19 @@ struct ProxyGenerator {
         """
     }
 
-    private func generateRootProxy(packages: [Lockfile.PackageRef]) -> String {
+    private func generateRootProxy(packages: [(pkg: Lockfile.PackageRef, products: [Lockfile.ResolvedProduct])]) -> String {
         var deps: [String] = []
         var targetDeps: [String] = []
 
-        for pkg in packages {
+        for (pkg, products) in packages {
             let slug = pkg.slug
             deps.append(".package(path: \".proxies/\(slug)_proxy\")")
-            // Reference EVERY real library product the sub-proxy actually
-            // declares (Phase 2: a package can export more than one, e.g.
-            // Realm -> Realm + RealmSwift) — referencing just one guessed
-            // name here would make `swift build` fail with "product ... not
-            // found in package" for any multi-product package.
-            for product in pkg.libraryProducts {
+            // Reference every SURVIVING (hit/missed) library product the
+            // sub-proxy actually declares (Phase 2: a package can export
+            // more than one, e.g. Realm -> Realm + RealmSwift) — an
+            // ignored/excluded product isn't declared there at all (see
+            // the call site above), so it must be skipped here too.
+            for product in products {
                 targetDeps.append(".product(name: \"\(product.name)\", package: \"\(slug)_proxy\")")
             }
         }

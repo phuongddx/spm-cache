@@ -350,6 +350,7 @@ module SPMCache
       purge_orphaned_spm_objects(project)
 
       plugin_urls = plugin_only_lockfile_urls
+      never_cached_products = never_cached_product_names
 
       # Collect current product dependencies, including their package
       # association -- needed below to tell whether a dep is exempted
@@ -368,8 +369,30 @@ module SPMCache
       # i.e. a stale proxy ref from a prior run -- is stripped. Preserving an
       # unmatched library ref here would recreate the identity-collision bug
       # at the Xcode layer and accumulate proxy refs across runs.
-      kept_refs = project.root_object.package_references.select { |ref| plugin_ref?(ref, plugin_urls) }
-      warn_unmatched_plugin_entries(kept_refs, plugin_urls)
+      plugin_kept_refs = project.root_object.package_references.select { |ref| plugin_ref?(ref, plugin_urls) }
+      warn_unmatched_plugin_entries(plugin_kept_refs, plugin_urls)
+
+      # Field bug: a product with status `.excluded`/`.ignored` (permanently
+      # falling back to source, never cached -- e.g. eh_oauth_sdk_ios, which
+      # doesn't match cache_only at all) used to still get its dependency
+      # rewired onto the proxy, pointing at a shim the Swift-side generator
+      # no longer creates for such products (see ProxyGenerator.swift). That
+      # shim previously re-declared its OWN dependency on the real upstream
+      # package -- and when TWO independently excluded/ignored packages
+      # happened to share a transitive dependency (eh_oauth_sdk_ios and
+      # AppAuth-iOS's own `AppAuth` product both transitively need the real
+      # AppAuth-iOS package), Xcode's PIF loader registered a duplicate GUID
+      # for the shared product. Fix: exempt these by PRODUCT NAME (see
+      # `dep_exempted?`), not by package ref -- a package ref can be shared
+      # by multiple products with different statuses (e.g. AppAuth-iOS:
+      # AppAuthCore cached, AppAuth merely missed), so ref-based exemption
+      # would wrongly exempt a sibling product that should still be rewired
+      # onto the proxy. `never_cached_refs` below exists ONLY to keep the
+      # ref itself alive in the removal pass further down (an exempted dep
+      # still points at it), not to drive the exemption decision.
+      never_cached_refs = old_deps.select { |info| never_cached_products.include?(info[:product]) }
+                                   .filter_map { |info| info[:package] }
+      kept_refs = (plugin_kept_refs + never_cached_refs).uniq
 
       # Field bug: discarded product deps and package refs were only ever
       # unlinked from their containing array (ObjectList#delete just calls
@@ -391,7 +414,7 @@ module SPMCache
       # purges the object from the project, not just ObjectList#delete.
       project.targets.each do |target|
         target.package_product_dependencies.to_a.each do |dep|
-          next if dep_exempted?(dep.product_name, dep.package, kept_refs)
+          next if dep_exempted?(dep.product_name, dep.package, plugin_kept_refs, never_cached_products)
 
           dep.remove_from_project
         end
@@ -414,7 +437,7 @@ module SPMCache
       # its kept package reference).
       rewired = 0
       old_deps.each do |info|
-        next if dep_exempted?(info[:product], info[:package], kept_refs)
+        next if dep_exempted?(info[:product], info[:package], plugin_kept_refs, never_cached_products)
 
         prod_dep = project.new(Xcodeproj::Project::Object::XCSwiftPackageProductDependency)
         prod_dep.product_name = info[:product]
@@ -427,14 +450,31 @@ module SPMCache
       Core::UI.info "Proxy integrated. #{rewired} product dependencies updated (#{old_deps.size - rewired} plugin dependencies preserved)."
     end
 
-    # True when `dep`'s package is a kept plugin-only reference, or its
-    # product name carries Xcode's build-tool-plugin-dependency prefix.
-    # Exempted deps are left exactly as they are: never deleted, never
-    # rewired onto the proxy.
-    def dep_exempted?(product_name, package_ref, kept_refs)
-      return true if package_ref && kept_refs.include?(package_ref)
+    # True when `dep`'s package is a kept plugin-only reference, its product
+    # name carries Xcode's build-tool-plugin-dependency prefix, or its
+    # product name is permanently excluded/ignored (never cached, per
+    # graph.json) -- checked by PRODUCT NAME rather than package ref, since a
+    # ref can be shared by sibling products with different statuses. Exempted
+    # deps are left exactly as they are: never deleted, never rewired onto
+    # the proxy.
+    def dep_exempted?(product_name, package_ref, plugin_kept_refs, never_cached_products)
+      return true if package_ref && plugin_kept_refs.include?(package_ref)
+      return true if never_cached_products.include?(product_name)
 
       product_name.to_s.start_with?("plugin:")
+    end
+
+    # Product names permanently excluded/ignored per graph.json -- i.e. that
+    # will never be replaced by a cached binary given the current config.
+    # Read directly from disk rather than `@cachemap` (populated later by
+    # `gen_cachemap_viz`, which runs after this method in `perform_install`);
+    # the file itself already exists by now, written during `prepare_proxy`.
+    def never_cached_product_names
+      graph_path = File.join(@config.proxy_dir, "graph.json")
+      cachemap = Cache::Cachemap.load(graph_path)
+      return [] unless cachemap
+
+      cachemap.excluded + cachemap.ignored
     end
 
     # True when `ref` is a remote package reference whose (normalized)

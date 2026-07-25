@@ -62,6 +62,16 @@ RSpec.describe SPMCache::Installer, "#integrate_proxy_into_project" do
     installer
   end
 
+  # graph.json is read directly from disk by `never_cached_product_names`
+  # (it exists by the time `integrate_proxy_into_project` runs, written
+  # earlier in `perform_install` by `prepare_proxy`); write it at the same
+  # path `Core::Config.instance.proxy_dir` will resolve to for this project.
+  def write_graph_json(entries)
+    proxy_dir = File.join(tmpdir, "spm-cache", "packages", "proxy")
+    FileUtils.mkdir_p(proxy_dir)
+    File.write(File.join(proxy_dir, "graph.json"), JSON.generate(entries))
+  end
+
   def reloaded_project
     Xcodeproj::Project.open(project_path)
   end
@@ -163,6 +173,58 @@ RSpec.describe SPMCache::Installer, "#integrate_proxy_into_project" do
     expect(dep.product_name).to eq("plugin:UnknownPlugin")
     proxy_ref = saved.root_object.package_references.grep(Xcodeproj::Project::Object::XCLocalSwiftPackageReference).first
     expect(dep.package).not_to eq(proxy_ref)
+  end
+
+  # Field bug: a product with graph.json status excluded/ignored (permanently
+  # falling back to source, never cached -- e.g. eh_oauth_sdk_ios, which
+  # doesn't match cache_only at all) used to still get its dependency
+  # rewired onto the proxy, pointing at a shim the Swift-side generator no
+  # longer creates for such products. That shim re-declared its OWN
+  # dependency on the real upstream package -- when a SEPARATE, independently
+  # excluded package happened to share a transitive dependency with another
+  # partially-cached package (AppAuth-iOS's own excluded/missed AppAuth
+  # product), Xcode's PIF loader registered a duplicate GUID for the shared
+  # product. Fix: exempt by product name (not package ref -- a ref can be
+  # shared by sibling products with different statuses), leaving the
+  # excluded product's dependency untouched, pointing at its real package
+  # reference exactly as it always did.
+  it "leaves an excluded product's dependency untouched (pointing at its real package ref), while still rewiring a sibling cached product sharing the same ref" do
+    project, target = build_project
+    # Both products share ONE package ref -- the exact AppAuth-iOS shape
+    # (AppAuthCore cached, AppAuth excluded/never-cached) that a purely
+    # ref-based exemption would get wrong.
+    shared_ref = remote_ref(project, "https://github.com/example/SharedPkg.git")
+    cached_dep = product_dep(project, target, "CachedProduct", shared_ref)
+    excluded_dep = product_dep(project, target, "ExcludedProduct", shared_ref)
+    project.save
+
+    write_lockfile([
+      { "repositoryURL" => "https://github.com/example/SharedPkg.git", "name" => "SharedPkg",
+        "products" => [
+          { "name" => "CachedProduct", "type" => "library", "targets" => ["CachedProduct"] },
+          { "name" => "ExcludedProduct", "type" => "library", "targets" => ["ExcludedProduct"] },
+        ] },
+    ])
+    write_graph_json([
+      { "module" => "CachedProduct", "status" => "hit", "dependencies" => [], "hasMacro" => false },
+      { "module" => "ExcludedProduct", "status" => "excluded", "dependencies" => [], "hasMacro" => false },
+    ])
+
+    make_installer.send(:integrate_proxy_into_project)
+
+    saved = reloaded_project
+    saved_target = saved.targets.first
+    deps_by_product = saved_target.package_product_dependencies.each_with_object({}) { |d, h| h[d.product_name] = d }
+
+    proxy_ref = saved.root_object.package_references.grep(Xcodeproj::Project::Object::XCLocalSwiftPackageReference).first
+    real_ref = saved.root_object.package_references.grep(Xcodeproj::Project::Object::XCRemoteSwiftPackageReference).first
+
+    # The cached sibling gets rewired onto the proxy as normal.
+    expect(deps_by_product["CachedProduct"].package).to eq(proxy_ref)
+    # The excluded product's original dependency survives untouched, still
+    # pointing at the real package reference -- no shim, no proxy detour.
+    expect(deps_by_product["ExcludedProduct"].package).to eq(real_ref)
+    expect(real_ref.repositoryURL).to eq("https://github.com/example/SharedPkg.git")
   end
 
   # Field bug: a discarded product dep / package ref was only ever unlinked
