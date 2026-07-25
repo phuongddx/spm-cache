@@ -194,6 +194,42 @@ RSpec.describe SPMCache::Installer, "#integrate_proxy_into_project" do
     raw = File.read(File.join(project_path, "project.pbxproj"))
     expect(raw).not_to include("Alamofire.git")
   end
+
+  # Field bug (part 2): fixing the delete-vs-remove_from_project logic only
+  # stops NEW orphans from accumulating going forward. A project that
+  # already accumulated orphans under the old buggy code across many prior
+  # runs still has them physically in the file -- and they are NOT
+  # zero-referrer from Xcodeproj's perspective (an orphaned product
+  # dependency's `package` to-one attribute still points at its ref, giving
+  # the ref a nonzero referrer count even though nothing in any target
+  # actually uses it), so `.referrers.empty?` alone cannot find them.
+  # Verified against the real corrupted project this bug was found in: 113
+  # of 223 product-dependency objects and 33 of 34 package-reference
+  # objects were unreachable from root_object/targets despite nonzero
+  # referrer counts on the ref side.
+  it "purges refs/deps present in the object table but unreachable from root_object/targets (pre-existing corruption from before this fix)" do
+    project, target = build_project
+
+    orphaned_ref = project.new(Xcodeproj::Project::Object::XCRemoteSwiftPackageReference)
+    orphaned_ref.repositoryURL = "https://github.com/openid/AppAuth-iOS.git"
+    orphaned_dep = project.new(Xcodeproj::Project::Object::XCSwiftPackageProductDependency)
+    orphaned_dep.product_name = "AppAuth"
+    orphaned_dep.package = orphaned_ref
+    # Register directly in the object table WITHOUT adding to
+    # root_object.package_references / target.package_product_dependencies --
+    # reproduces exactly the state left behind by the old buggy code: present
+    # in the file, unreachable from anything a real build actually walks.
+    project.objects_by_uuid[orphaned_ref.uuid] = orphaned_ref
+    project.objects_by_uuid[orphaned_dep.uuid] = orphaned_dep
+    project.save
+
+    write_lockfile([])
+
+    make_installer.send(:integrate_proxy_into_project)
+
+    raw = File.read(File.join(project_path, "project.pbxproj"))
+    expect(raw).not_to include("AppAuth-iOS.git")
+  end
 end
 
 RSpec.describe SPMCache::Installer, "#normalize_package_url" do

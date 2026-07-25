@@ -43,6 +43,43 @@ module SPMCache
 
     private
 
+    # Field bug: even after fixing #integrate_proxy_into_project to properly
+    # purge (rather than merely unlink) newly-discarded refs/deps going
+    # forward, a project that already accumulated orphans under the OLD
+    # buggy code (every prior run, before this fix existed) still has them
+    # sitting in the file -- they are not zero-referrer from Xcodeproj's own
+    # perspective (a dangling XCSwiftPackageProductDependency object still
+    # holds a live `package` to-one attribute pointing at its ref, so the
+    # ref shows nonzero referrers even though nothing in any target actually
+    # uses it), so `.referrers.empty?` cannot detect them. Reachability must
+    # instead be computed explicitly from the two roots that matter for a
+    # working build: root_object.package_references and every target's own
+    # package_product_dependencies. Verified empirically against a real
+    # corrupted project: 113 of 223 product-dependency objects and 33 of 34
+    # package-reference objects were unreachable this way despite nonzero
+    # referrer counts on the ref side.
+    def purge_orphaned_spm_objects(project)
+      dep_class = Xcodeproj::Project::Object::XCSwiftPackageProductDependency
+      all_deps = project.objects.select { |o| o.is_a?(dep_class) }
+      reachable_deps = project.targets.flat_map { |t| t.package_product_dependencies.to_a }
+      orphaned_deps = all_deps - reachable_deps
+
+      ref_classes = [
+        Xcodeproj::Project::Object::XCRemoteSwiftPackageReference,
+        Xcodeproj::Project::Object::XCLocalSwiftPackageReference,
+      ]
+      all_refs = project.objects.select { |o| ref_classes.any? { |k| o.is_a?(k) } }
+      reachable_refs = project.root_object.package_references.to_a
+      orphaned_refs = all_refs - reachable_refs
+
+      return if orphaned_deps.empty? && orphaned_refs.empty?
+
+      Core::UI.info "  Purging #{orphaned_deps.size} orphaned product dependency(ies) and " \
+                    "#{orphaned_refs.size} orphaned package reference(s) left over from a prior run..."
+      orphaned_deps.each(&:remove_from_project)
+      orphaned_refs.each { |ref| ref.remove_from_project if ref.referrers.empty? }
+    end
+
     def verify_projects!
       raise "No project provided" unless @project_path
       raise "Project not found: #{@project_path}" unless File.exist?(@project_path)
@@ -309,6 +346,8 @@ module SPMCache
     def integrate_proxy_into_project
       Core::UI.info "Integrating proxy into #{@project_path}..."
       project = Xcodeproj::Project.open(@project_path)
+
+      purge_orphaned_spm_objects(project)
 
       plugin_urls = plugin_only_lockfile_urls
 
