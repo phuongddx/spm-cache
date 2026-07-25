@@ -225,6 +225,32 @@ RSpec.describe SPMCache::SPM::Buildable do
     end
   end
 
+  # Field bug: DeviceKit's own committed .xcodeproj has a Run Script build
+  # phase (`gyb`) that regenerates a file already checked out read-only by
+  # `swift package resolve` (mode 444), failing with "Permission denied"
+  # before the real build runs. Fix: make the checkout writable first.
+  describe "#xcodebuild checkout permissions" do
+    let(:pkg_dir) { Dir.mktmpdir }
+    let(:buildable) { described_class.new(name: "DeviceKit", pkg_dir: pkg_dir) }
+    let(:readonly_file) { File.join(pkg_dir, "Source", "Device.generated.swift") }
+
+    before do
+      FileUtils.mkdir_p(File.dirname(readonly_file))
+      File.write(readonly_file, "// generated")
+      File.chmod(0o444, readonly_file)
+    end
+
+    after { FileUtils.rm_rf(pkg_dir) }
+
+    it "makes the checkout writable before invoking xcodebuild" do
+      allow(SPMCache::Core::Sh).to receive(:run)
+
+      buildable.xcodebuild("platform=iOS Simulator,name=iPhone 17", derived_data_path: "/dd")
+
+      expect(File.stat(readonly_file).mode & 0o200).not_to eq(0)
+    end
+  end
+
   # Field bug: SVGKit's checkout carries THREE committed .xcodeproj files
   # at its root (the library plus two demo apps) alongside Package.swift.
   # xcodebuild refuses to guess which to use ("contains 3 projects ...

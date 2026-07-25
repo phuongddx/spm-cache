@@ -53,9 +53,25 @@ module SPMCache
         @scheme = scheme || name
       end
 
+      # Field bug: DeviceKit's own committed .xcodeproj has a "Generate
+      # Device" Run Script build phase that invokes `gyb` to regenerate
+      # Source/Device.generated.swift IN PLACE at build time -- but
+      # `swift package resolve` marks every file in a checkout read-only
+      # (mode 444) to guard against accidental local edits to vendored
+      # dependency source, so the script fails ("Permission denied")
+      # before the real build even starts. The normal SPM consumer path
+      # never hits this: Package.swift's target just globs "Source" and
+      # compiles the already-committed generated file directly, without
+      # ever invoking gyb. Only spm-cache's build-the-vendored-.xcodeproj
+      # path exercises that Run Script phase at all. Verified empirically
+      # that making the checkout writable before building (chmod -R u+w)
+      # fixes it standalone; safe to do unconditionally since it's a
+      # pure permission grant with no build-behavior side effects for
+      # packages that don't have a write-back script phase.
       def xcodebuild(destination, derived_data_path: nil, **opts)
         dd = derived_data_path || File.join(@pkg_dir, "DerivedData")
         cmd = build_command(destination, dd, opts)
+        FileUtils.chmod_R("u+w", @pkg_dir)
 
         begin
           SPMCache::Core::Sh.run(cmd, cwd: @pkg_dir, live_log: opts[:live_log])
