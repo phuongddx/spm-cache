@@ -115,7 +115,7 @@ struct ProxyGenerator {
             // Each library product gets its own independent hit/miss status;
             // ignored/excluded packages are always source, even when a cached
             // binary exists for one of their products.
-            let productBuilds: [ProductBuild] = pkg.libraryProducts.map { product in
+            var productBuilds: [ProductBuild] = pkg.libraryProducts.map { product in
                 let cachedBinary = (ignored || excluded) ? nil : cache.hit(module: product.name)
                 let status: GraphEntry.Status
                 if excluded {
@@ -128,6 +128,34 @@ struct ProxyGenerator {
                     status = .missed
                 }
                 return ProductBuild(product: product, status: status, cachedBinary: cachedBinary)
+            }
+
+            // Field bug: a package with a MIXED hit+missed status (one
+            // product cached, a sibling still pending/unbuildable) put both
+            // a .binaryTarget AND a shim re-declaring a dependency on the
+            // real upstream package in the SAME sub-proxy manifest. Xcode's
+            // PIF loader chokes on that co-existence regardless of whether
+            // anything actually consumes the missed sibling -- confirmed
+            // for three unrelated packages this session: AppAuth-iOS
+            // (AppAuthCore hit / AppAuth missed -> "already been
+            // registered"), realm-swift (Realm hit / RealmSwift missed ->
+            // same), and PhoneNumberKit (PhoneNumberKit hit /
+            // PhoneNumberKit-Static+Dynamic missed, and NOT independently
+            // buildable at all -- no dedicated scheme exists for the
+            // -Static/-Dynamic variants -> "multiple targets with the same
+            // GUID"). Once a package has ANY cached product, every OTHER
+            // still-missed sibling is downgraded to `.excluded` so it gets
+            // the same no-shim treatment (Ruby-side restores its Xcode
+            // dependency to the real package reference, same as a
+            // genuinely config-excluded product) instead of perpetuating
+            // the diamond. A package with NO hit products yet is unaffected
+            // -- its missed products still get shims as normal, since
+            // nothing conflicts until the first sibling is actually cached.
+            if productBuilds.contains(where: { $0.status == .hit }) {
+                productBuilds = productBuilds.map { build in
+                    guard build.status == .missed else { return build }
+                    return ProductBuild(product: build.product, status: .excluded, cachedBinary: nil)
+                }
             }
 
             // Record every product's status in graph.json regardless -- the
