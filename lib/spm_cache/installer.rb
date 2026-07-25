@@ -332,22 +332,36 @@ module SPMCache
       kept_refs = project.root_object.package_references.select { |ref| plugin_ref?(ref, plugin_urls) }
       warn_unmatched_plugin_entries(kept_refs, plugin_urls)
 
-      project.root_object.package_references.to_a.each do |ref|
-        next if kept_refs.include?(ref)
-
-        project.root_object.package_references.delete(ref)
-      end
-
-      # Remove product deps, except those exempted: pointing at a kept
-      # plugin-only ref, or carrying Xcode's own build-tool-plugin-dependency
-      # naming convention (a cheap second belt against rewiring them onto
-      # the proxy, which would silently break the plugin).
+      # Field bug: discarded product deps and package refs were only ever
+      # unlinked from their containing array (ObjectList#delete just calls
+      # remove_referrer -- see Xcodeproj source), never purged from the
+      # project's object table. The orphaned PBXObjects still got written
+      # out by `project.save` on every single run, silently accumulating in
+      # the pbxproj file. Existing tests only ever inspected the *reachable*
+      # graph from root_object.package_references, so this went unnoticed --
+      # until a partially-cached package (AppAuthCore cached, AppAuth
+      # excluded/fallback, both from the same underlying remote package)
+      # made Xcode's build system actually resolve the orphaned leftover
+      # ref (still a syntactically valid XCRemoteSwiftPackageReference)
+      # ALONGSIDE the proxy's own shim dependency on that identical remote
+      # package+revision, producing two independent paths to the same
+      # product and a duplicate PIF GUID registration ("has already been
+      # registered") that failed the real app build outright. Fix: remove
+      # product deps first (detaching their `package` to-one reference),
+      # then remove refs -- using #remove_from_project, which actually
+      # purges the object from the project, not just ObjectList#delete.
       project.targets.each do |target|
         target.package_product_dependencies.to_a.each do |dep|
           next if dep_exempted?(dep.product_name, dep.package, kept_refs)
 
-          target.package_product_dependencies.delete(dep)
+          dep.remove_from_project
         end
+      end
+
+      project.root_object.package_references.to_a.each do |ref|
+        next if kept_refs.include?(ref)
+
+        ref.remove_from_project
       end
 
       # Add local proxy package

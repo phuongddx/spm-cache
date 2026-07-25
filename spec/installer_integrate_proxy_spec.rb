@@ -164,6 +164,36 @@ RSpec.describe SPMCache::Installer, "#integrate_proxy_into_project" do
     proxy_ref = saved.root_object.package_references.grep(Xcodeproj::Project::Object::XCLocalSwiftPackageReference).first
     expect(dep.package).not_to eq(proxy_ref)
   end
+
+  # Field bug: a discarded product dep / package ref was only ever unlinked
+  # from its containing array (ObjectList#delete just calls remove_referrer
+  # -- see Xcodeproj source), never purged from the project's object table,
+  # so `project.save` kept silently re-serializing the orphaned PBXObject on
+  # every run. Every prior test here only inspected the *reachable* graph
+  # from root_object.package_references, so the orphan went unnoticed --
+  # until a partially-cached package (AppAuthCore cached, AppAuth excluded/
+  # fallback, both from the same underlying remote package) made Xcode's
+  # build system actually resolve the leftover orphaned ref ALONGSIDE the
+  # proxy's own shim dependency on that identical remote package+revision,
+  # producing a duplicate PIF GUID registration that failed the real app
+  # build. This test inspects the raw pbxproj file content directly, not
+  # just the reachable object graph, to catch that blind spot.
+  it "purges a discarded package ref from the raw pbxproj file, not just from root_object.package_references" do
+    project, target = build_project
+    alamofire_ref = remote_ref(project, "https://github.com/Alamofire/Alamofire.git")
+    product_dep(project, target, "Alamofire", alamofire_ref)
+    project.save
+
+    write_lockfile([
+      { "repositoryURL" => "https://github.com/Alamofire/Alamofire.git", "name" => "Alamofire",
+        "products" => [{ "name" => "Alamofire", "type" => "library", "targets" => ["Alamofire"] }] },
+    ])
+
+    make_installer.send(:integrate_proxy_into_project)
+
+    raw = File.read(File.join(project_path, "project.pbxproj"))
+    expect(raw).not_to include("Alamofire.git")
+  end
 end
 
 RSpec.describe SPMCache::Installer, "#normalize_package_url" do
