@@ -303,6 +303,22 @@ RSpec.describe SPMCache::SPM::Buildable do
     end
   end
 
+  describe "#build_command library evolution flags" do
+    it "forces BUILD_LIBRARY_FOR_DISTRIBUTION=YES alongside OTHER_SWIFT_FLAGS when enabled" do
+      b = described_class.new(name: "AEXML", pkg_dir: "/tmp", library_evolution: true)
+      cmd = b.build_command("platform=iOS Simulator,name=iPhone 17", "/dd")
+      expect(cmd).to include("OTHER_SWIFT_FLAGS='-enable-library-evolution -emit-module-interface -no-verify-emitted-module-interface'")
+      expect(cmd).to include("BUILD_LIBRARY_FOR_DISTRIBUTION=YES")
+    end
+
+    it "omits both when library evolution is disabled" do
+      b = described_class.new(name: "AEXML", pkg_dir: "/tmp", library_evolution: false)
+      cmd = b.build_command("platform=iOS Simulator,name=iPhone 17", "/dd")
+      expect(cmd).not_to include("OTHER_SWIFT_FLAGS")
+      expect(cmd).not_to include("BUILD_LIBRARY_FOR_DISTRIBUTION")
+    end
+  end
+
   describe "DESTINATIONS" do
     it "includes iphonesimulator and iphoneos" do
       expect(described_class::DESTINATIONS).to include("iphonesimulator", "iphoneos")

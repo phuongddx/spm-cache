@@ -262,8 +262,23 @@ module SPMCache
 </plist>)
       end
 
+      # Field bug: AEXML's own committed .xcodeproj (same vendored-project
+      # shape as CryptoSwift/AppAuth-iOS/FSPagerView/SkeletonView) explicitly
+      # sets BUILD_LIBRARY_FOR_DISTRIBUTION = NO at the project level. Passing
+      # `-enable-library-evolution -emit-module-interface` via OTHER_SWIFT_FLAGS
+      # alone still compiles fine, but Xcode's (new) build system only copies
+      # the resulting .swiftinterface into the framework's Modules/*.swiftmodule
+      # bundle when BUILD_LIBRARY_FOR_DISTRIBUTION=YES -- with it at NO, the
+      # interface file is silently dropped from the build product, so
+      # `xcodebuild -create-xcframework` later fails ("No 'swiftinterface'
+      # files found"). SPM-generated schemes (the common case) don't hit this
+      # because SwiftPM's own build description isn't gated the same way --
+      # verified empirically for AEXML that adding this explicit override
+      # fixes it standalone, with no effect on packages that already build
+      # fine (YES is themselves idempotent for schemes that already do this).
       def library_evolution_flags
-        " OTHER_SWIFT_FLAGS='-enable-library-evolution -emit-module-interface -no-verify-emitted-module-interface'"
+        " OTHER_SWIFT_FLAGS='-enable-library-evolution -emit-module-interface -no-verify-emitted-module-interface'" \
+          " BUILD_LIBRARY_FOR_DISTRIBUTION=YES"
       end
     end
   end
