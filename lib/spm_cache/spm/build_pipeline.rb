@@ -35,8 +35,22 @@ module SPMCache
 
           FileUtils.mkdir_p(out_dir)
 
+          # Class E: a product whose own declared target is a trivial
+          # forwarding wrapper (Google's "SwiftPM-PlatformExclude" convention)
+          # terminating in a `.binaryTarget` has no source to build at all --
+          # see #resolve_forwarded_target's doc comment. Short-circuit BEFORE
+          # scheme resolution/any xcodebuild invocation: there is no scheme
+          # to build for a pure binary artifact, and attempting one would be
+          # meaningless at best (nothing to compile) or actively wrong
+          # (compiling the empty dummy wrapper and discarding the real
+          # prebuilt content, the exact bug this fixes).
+          forwarded_target = resolve_forwarded_target(name, pkg_dir)
+          if forwarded_target && forwarded_target["module_type"] == "BinaryTarget"
+            return copy_prebuilt_binary_target(forwarded_target["name"], name, pkg_dir, out_dir)
+          end
+
           scheme = resolve_scheme(name, pkg_dir)
-          module_name = resolve_module_name(name, pkg_dir)
+          module_name = forwarded_target ? forwarded_target["name"] : resolve_module_name(name, pkg_dir)
           shim_targets = find_private_clang_shims(module_name, name, pkg_dir)
           header_paths = resolve_public_headers(module_name, name, pkg_dir)
 
@@ -261,6 +275,96 @@ module SPMCache
           return name if target_names.empty? || target_names.include?(name)
 
           target_names.first
+        end
+
+        # Google's own documented SwiftPM-compatibility idiom (used throughout
+        # firebase-ios-sdk and other Google SDKs) for wrapping a dependency
+        # that needs a `.when(platforms:)` condition SPM can't apply directly
+        # to a product's target list: interpose one or more trivial
+        # "dummy.m"/`include/dummy.h` ClangTargets, each forwarding via
+        # exactly one *interesting* target dependency, until the real content
+        # (or a `.binaryTarget`) is reached. Confirmed via `swift package
+        # describe` on the real firebase-ios-sdk checkout: EVERY such
+        # placeholder shim across the whole package (16 of them, spanning
+        # FirebaseAnalytics/FirebasePerformance/FirebaseFirestore/
+        # FirebaseInAppMessaging/FirebaseDynamicLinks/FirebaseAppDistribution
+        # and more) declares `"sources": ["dummy.m"]` and nothing else --
+        # zero false positives against every real (non-wrapper) ClangTarget
+        # checked (FirebaseCore: 13 real sources, FirebaseInstallations: 16,
+        # FirebasePerformance's real target: 49). This is a purely structural
+        # signal read from `swift package describe`'s own JSON (the target's
+        # declared `sources` list), not content-sniffing a file -- matching
+        # the same "read the dependency graph, not the artifact" standard
+        # already used for private Clang shims and companion detection above.
+        TRIVIAL_FORWARDER_SOURCES = ["dummy.m"].freeze
+
+        def trivial_forwarder?(target)
+          target && target["module_type"] == "ClangTarget" && (target["sources"] || []) == TRIVIAL_FORWARDER_SOURCES
+        end
+
+        # Walks the chain of trivial forwarding wrappers (see
+        # `TRIVIAL_FORWARDER_SOURCES` above) starting at `target_name`,
+        # returning the raw target JSON hash for whatever REAL content the
+        # chain terminates at, or nil when `target_name` itself isn't a
+        # trivial forwarder (nothing to redirect -- the common case) or the
+        # chain is ambiguous (safer to leave the existing behavior alone than
+        # guess wrong).
+        #
+        # Field bug (FirebaseAnalytics): the chain is TWO hops deep and the
+        # two hops have different shapes. Hop 1, `FirebaseAnalyticsTarget`
+        # (path `SwiftPM-PlatformExclude/FirebaseAnalyticsWrap`), forwards via
+        # its one and only target dependency to `FirebaseAnalyticsWrapper`.
+        # Hop 2, `FirebaseAnalyticsWrapper` (path `FirebaseAnalyticsWrapper`,
+        # NOT under `SwiftPM-PlatformExclude/` -- confirming path alone isn't
+        # a reliable signal, only `sources` is), is ALSO a dummy.m shim, but
+        # declares THREE target dependencies: the real `.binaryTarget`
+        # `FirebaseAnalytics`, plus `FirebaseCore` and `FirebaseInstallations`
+        # (each a real, independently-built-and-cached product in its own
+        # right, pulled in here only for linking, not for this product's own
+        # module content). A plain "exactly one dependency" rule would refuse
+        # to follow this hop at all. Prefer a direct `.binaryTarget`
+        # dependency when there is exactly one -- it is unambiguously the
+        # actual deliverable this wrapper exists to platform-conditionally
+        # re-expose, regardless of what else it links against. Otherwise
+        # require the dependency list to be a single entry before following,
+        # to avoid guessing among multiple real (non-binary) targets.
+        def follow_trivial_forwarder(target_name, targets_by_name, visited = Set.new)
+          return nil if visited.include?(target_name)
+
+          visited << target_name
+          target = targets_by_name[target_name]
+          return nil unless target && trivial_forwarder?(target)
+
+          deps = target["target_dependencies"] || []
+          binary_dep_names = deps.select { |d| targets_by_name[d]&.[]("module_type") == "BinaryTarget" }
+          return targets_by_name[binary_dep_names.first] if binary_dep_names.size == 1
+
+          return nil unless deps.size == 1
+
+          next_target = targets_by_name[deps.first]
+          return nil unless next_target
+          return next_target unless trivial_forwarder?(next_target)
+
+          follow_trivial_forwarder(deps.first, targets_by_name, visited)
+        end
+
+        # Entry point for the Class E redirect: resolves `name`'s product to
+        # its own declared target (same first step as #resolve_module_name)
+        # and, only when that target is itself a trivial forwarder, follows
+        # the chain to real content. Returns nil in every case
+        # #resolve_module_name already handles correctly on its own (empty
+        # target list, product name already in the target list, or raw
+        # target metadata unavailable -- e.g. in unit tests that stub only
+        # `Desc::Description#products`), so this is purely additive.
+        def resolve_forwarded_target(name, pkg_dir)
+          desc = Desc::Description.new(name: name, pkg_dir: pkg_dir)
+          desc.fetch
+          product = desc.products.find { |p| p.name == name }
+          target_names = product&.target_names || []
+          return nil if target_names.empty? || target_names.include?(name)
+
+          targets_by_name = (desc.raw["targets"] || []).each_with_object({}) { |t, h| h[t["name"]] = t }
+          follow_trivial_forwarder(target_names.first, targets_by_name)
         end
 
         # Some Swift targets privately depend on an internal Clang ("C shim")
@@ -708,6 +812,63 @@ module SPMCache
           return if built_shim_names.empty?
 
           File.write("#{output_path}.shims.json", JSON.generate(built_shim_names))
+        end
+
+        # Terminal step of the Class E redirect (see #resolve_forwarded_target
+        # above): `target_name` is a `.binaryTarget` with no source to
+        # compile at all -- SPM has already resolved and unzipped its real
+        # artifact on disk as a side effect of `swift package resolve`.
+        # Copies that prebuilt xcframework directly into the cache, bypassing
+        # Buildable/xcodebuild/create_framework/XCFramework.build entirely
+        # (there is nothing for any of those to do here).
+        #
+        # Field confirmation (FirebaseAnalytics): the product name and the
+        # binaryTarget's own name are the SAME ("FirebaseAnalytics"), so no
+        # rename is needed and a plain recursive copy is already fully
+        # correct end to end. Only raises (rather than silently shipping a
+        # mismatched artifact) in the differently-named case, since renaming
+        # a multi-slice prebuilt xcframework correctly would also require
+        # patching the xcframework's OWN top-level Info.plist
+        # (`LibraryPath`/`BinaryPath` per slice, not just each slice's inner
+        # framework) -- unneeded machinery for a case neither of this
+        # session's two real products (FirebaseAnalytics, FirebasePerformance)
+        # exercises; the existing rename_framework_to_product path already
+        # covers the differently-named non-binary case (FirebasePerformance).
+        def copy_prebuilt_binary_target(target_name, product_name, pkg_dir, out_dir)
+          if target_name != product_name
+            raise "Class E binaryTarget '#{target_name}' name differs from product '#{product_name}'; " \
+                  "renaming a prebuilt xcframework's slices is not implemented"
+          end
+
+          source = locate_prebuilt_xcframework(target_name, pkg_dir)
+          raise "No prebuilt .xcframework found for binaryTarget '#{target_name}' (product '#{product_name}')" unless source
+
+          output_path = File.join(out_dir, "#{product_name}.xcframework")
+          FileUtils.rm_rf(output_path)
+          FileUtils.cp_r(source, output_path)
+          output_path
+        end
+
+        # SPM's standard convention for a resolved binaryTarget's unpacked
+        # artifact: `{umbrella}/.build/artifacts/<package-name>/<TargetName>/
+        # <TargetName>.xcframework`, a SIBLING of
+        # `{umbrella}/.build/checkouts/<package-name>` (`pkg_dir` here) --
+        # confirmed general within this checkout, not a one-off: the same
+        # shape holds for a second, unrelated binaryTarget in the same
+        # package (`FirebaseFirestoreInternal`). Falls back to a broader glob
+        # across every package's artifacts directory (keyed only by target
+        # name) in case the checkout directory name and the resolved package
+        # identity ever diverge -- not observed here, but cheap insurance
+        # against relying on a single naming coincidence.
+        def locate_prebuilt_xcframework(target_name, pkg_dir)
+          checkouts_dir = File.dirname(pkg_dir)
+          return nil unless File.basename(checkouts_dir) == "checkouts"
+
+          build_dir = File.dirname(checkouts_dir)
+          primary = File.join(build_dir, "artifacts", File.basename(pkg_dir), target_name, "#{target_name}.xcframework")
+          return primary if File.directory?(primary)
+
+          Dir.glob(File.join(build_dir, "artifacts", "*", target_name, "#{target_name}.xcframework")).first
         end
 
         def resolve_scheme_fallback(name, pkg_dir)

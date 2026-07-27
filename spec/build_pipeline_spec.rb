@@ -321,6 +321,161 @@ RSpec.describe SPMCache::SPM::BuildPipeline do
     )
   end
 
+  # Class E: Google's "SwiftPM-PlatformExclude" trivial-forwarding-wrapper
+  # convention. Mirrors FirebasePerformance's real shape: a product whose own
+  # declared target (`FirebasePerformanceTarget`, a `dummy.m`-only ClangTarget
+  # under `SwiftPM-PlatformExclude/FirebasePerformanceWrap`) forwards via its
+  # one dependency to the REAL target (`FirebasePerformance`, real ObjC
+  # sources, real headers) -- distinctly named from the wrapper but
+  # coincidentally equal to the PRODUCT's own name, so Class C's rename
+  # mechanism is a no-op here. `resolve_module_name` alone (the pre-Class-E
+  # behavior) would resolve to the empty wrapper target and cache nothing but
+  # the dummy stub; the fix must resolve all the way through to the real
+  # target instead.
+  it "follows a trivial forwarding wrapper through to its real target (FirebasePerformance shape)" do
+    fake_desc = stub_desc_products(
+      [{ "name" => "FirebasePerformance", "type" => { "library" => ["automatic"] },
+         "targets" => ["FirebasePerformanceTarget"] }],
+    )
+    allow(fake_desc).to receive(:raw).and_return(
+      "targets" => [
+        { "name" => "FirebasePerformanceTarget", "module_type" => "ClangTarget", "sources" => ["dummy.m"],
+          "path" => "SwiftPM-PlatformExclude/FirebasePerformanceWrap",
+          "target_dependencies" => ["FirebasePerformance"] },
+        { "name" => "FirebasePerformance", "module_type" => "ClangTarget",
+          "sources" => ["Sources/FIRPerformance.m", "Sources/FPRClient.m"],
+          "path" => "FirebasePerformance/Sources",
+          "target_dependencies" => ["FirebaseCore", "FirebaseInstallations"] },
+      ],
+    )
+
+    expect(SPMCache::SPM::Buildable).to receive(:new)
+      .with(hash_including(scheme: "FirebasePerformance", module_name: "FirebasePerformance"))
+      .and_return(instance_double(SPMCache::SPM::Buildable).tap do |fb|
+        allow(fb).to receive(:build_for_destination).and_return(object_file: "/dd/FirebasePerformance.o")
+        allow(fb).to receive(:create_framework) do |_arts, subdir|
+          fw = File.join(subdir, "FirebasePerformance.framework")
+          FileUtils.mkdir_p(fw)
+          File.write(File.join(fw, "FirebasePerformance"), "stub")
+          fw
+        end
+      end)
+    allow(SPMCache::SPM::XCFramework::XCFramework).to receive(:new).and_return(
+      double("XCFramework", build: File.join(out_dir, "FirebasePerformance.xcframework")),
+    )
+
+    result = described_class.run(
+      name: "FirebasePerformance",
+      pkg_dir: pkg_dir,
+      destinations: ["iphonesimulator"],
+      out_dir: out_dir,
+    )
+
+    expect(result).to eq(File.join(out_dir, "FirebasePerformance.xcframework"))
+  end
+
+  # Class E: the FirebaseAnalytics shape is a TWO-hop chain
+  # (FirebaseAnalyticsTarget -> FirebaseAnalyticsWrapper) where BOTH hops are
+  # dummy.m-only wrappers, and the second hop has THREE target dependencies
+  # (the binaryTarget plus FirebaseCore/FirebaseInstallations, each an
+  # independent real product built elsewhere) -- confirming path-based or
+  # single-dependency-only detection is insufficient; only the "prefer a
+  # lone binaryTarget dependency" rule resolves this correctly. The real
+  # content is a `.binaryTarget` that SPM has already resolved and unzipped
+  # on disk; the fix must copy it directly and MUST NOT invoke
+  # Buildable/xcodebuild at all.
+  it "short-circuits to a direct xcframework copy when the chain terminates at a binaryTarget (FirebaseAnalytics shape)" do
+    stub_desc_products(
+      [{ "name" => "FirebaseAnalytics", "type" => { "library" => ["automatic"] },
+         "targets" => ["FirebaseAnalyticsTarget"] }],
+    )
+    fake_desc = SPMCache::SPM::Desc::Description.new(name: "FirebaseAnalytics", pkg_dir: pkg_dir)
+    allow(SPMCache::SPM::Desc::Description).to receive(:new).and_return(fake_desc)
+    allow(fake_desc).to receive(:fetch)
+    allow(fake_desc).to receive(:products).and_return(
+      [SPMCache::SPM::Desc::Product.new(
+        raw: { "name" => "FirebaseAnalytics", "type" => { "library" => ["automatic"] },
+               "targets" => ["FirebaseAnalyticsTarget"] },
+        pkg_dir: pkg_dir,
+      )],
+    )
+    allow(fake_desc).to receive(:raw).and_return(
+      "targets" => [
+        { "name" => "FirebaseAnalyticsTarget", "module_type" => "ClangTarget", "sources" => ["dummy.m"],
+          "path" => "SwiftPM-PlatformExclude/FirebaseAnalyticsWrap",
+          "target_dependencies" => ["FirebaseAnalyticsWrapper"] },
+        { "name" => "FirebaseAnalyticsWrapper", "module_type" => "ClangTarget", "sources" => ["dummy.m"],
+          "path" => "FirebaseAnalyticsWrapper",
+          "target_dependencies" => ["FirebaseAnalytics", "FirebaseCore", "FirebaseInstallations"] },
+        { "name" => "FirebaseAnalytics", "module_type" => "BinaryTarget", "path" => "remote/archive/FirebaseAnalytics.zip" },
+        { "name" => "FirebaseCore", "module_type" => "ClangTarget", "sources" => ["FIRApp.m"], "path" => "FirebaseCore/Sources" },
+        { "name" => "FirebaseInstallations", "module_type" => "ClangTarget", "sources" => ["FIRInstallations.m"],
+          "path" => "FirebaseInstallations/Source/Library" },
+      ],
+    )
+
+    # Real SPM layout: {umbrella}/.build/checkouts/<pkg> (pkg_dir) is a
+    # sibling of {umbrella}/.build/artifacts/<pkg>/<Target>/<Target>.xcframework.
+    build_root = File.join(tmpdir, "umbrella", ".build")
+    real_pkg_dir = File.join(build_root, "checkouts", "firebase-ios-sdk")
+    FileUtils.mkdir_p(real_pkg_dir)
+    prebuilt = File.join(build_root, "artifacts", "firebase-ios-sdk", "FirebaseAnalytics", "FirebaseAnalytics.xcframework")
+    FileUtils.mkdir_p(File.join(prebuilt, "ios-arm64", "FirebaseAnalytics.framework", "Headers"))
+    File.write(File.join(prebuilt, "ios-arm64", "FirebaseAnalytics.framework", "Headers", "FIRAnalytics.h"), "// real header\n")
+    File.write(File.join(prebuilt, "Info.plist"), "<plist/>")
+
+    expect(SPMCache::SPM::Buildable).not_to receive(:new)
+    expect(SPMCache::Core::Sh).not_to receive(:run)
+
+    result = described_class.run(
+      name: "FirebaseAnalytics",
+      pkg_dir: real_pkg_dir,
+      destinations: ["iphonesimulator"],
+      out_dir: out_dir,
+    )
+
+    expect(result).to eq(File.join(out_dir, "FirebaseAnalytics.xcframework"))
+    copied_header = File.join(result, "ios-arm64", "FirebaseAnalytics.framework", "Headers", "FIRAnalytics.h")
+    expect(File.read(copied_header)).to eq("// real header\n")
+  end
+
+  # Regression: a real (non-wrapper) target reached via the product/target
+  # name mismatch path (same shape as the pre-existing
+  # FirebaseAnalyticsWithoutAdIdSupport test above) must NOT be redirected
+  # just because it happens to have exactly one target dependency --
+  # `trivial_forwarder?` must gate on the dummy.m-only source shape, not
+  # dependency count alone.
+  it "does not redirect a real (non-wrapper) target even when it has a single dependency" do
+    fake_desc = stub_desc_products(
+      [{ "name" => "RealProduct", "type" => { "library" => ["automatic"] }, "targets" => ["RealProductTarget"] }],
+    )
+    allow(fake_desc).to receive(:raw).and_return(
+      "targets" => [
+        { "name" => "RealProductTarget", "module_type" => "ClangTarget",
+          "sources" => ["RealProductTarget/Sources/Impl.m"] },
+      ],
+    )
+
+    expect(SPMCache::SPM::Buildable).to receive(:new)
+      .with(hash_including(scheme: "RealProduct", module_name: "RealProductTarget"))
+      .and_return(instance_double(SPMCache::SPM::Buildable).tap do |fb|
+        allow(fb).to receive(:build_for_destination).and_return(object_file: "/dd/RealProductTarget.o")
+        allow(fb).to receive(:create_framework) do |_arts, subdir|
+          fw = File.join(subdir, "RealProductTarget.framework")
+          FileUtils.mkdir_p(fw)
+          File.write(File.join(fw, "RealProductTarget"), "stub")
+          fw
+        end
+      end)
+
+    described_class.run(
+      name: "RealProduct",
+      pkg_dir: pkg_dir,
+      destinations: ["iphonesimulator"],
+      out_dir: out_dir,
+    )
+  end
+
   # Field bug: CryptoSwift's checkout carries its own committed .xcodeproj
   # (Xcode "Framework" target type) -- xcodebuild links a genuine
   # CryptoSwift.framework directly, no raw .o exists anywhere. When
