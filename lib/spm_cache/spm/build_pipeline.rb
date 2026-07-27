@@ -423,7 +423,56 @@ module SPMCache
             FileUtils.mv(old_swiftmodule, File.join(new_dir, "Modules", "#{product_name}.swiftmodule"))
           end
 
+          patch_info_plist(new_dir, module_name, product_name)
+          rename_objc_module(new_dir, module_name, product_name)
+
           new_dir
+        end
+
+        # Field bug, confirmed live and blocking the entire app build: the renames
+        # above never touched the framework's own Info.plist, so CFBundleExecutable
+        # and CFBundleName stayed as the pre-rename target name while the binary on
+        # disk was renamed to the product name. Xcode's build-plan resolution reads
+        # CFBundleExecutable to find the bundle's executable, doesn't find a file by
+        # that name, and aborts the whole build before any compilation starts
+        # ("could not determine executable path for bundle"). Handles both
+        # spm-cache's own compact single-line template (#framework_info_plist) and
+        # a real xcodebuild-produced multi-line Info.plist (the use_existing_framework
+        # path) since the key and its value can be separated by a newline there.
+        def patch_info_plist(fw_dir, module_name, product_name)
+          plist_path = File.join(fw_dir, "Info.plist")
+          return unless File.exist?(plist_path)
+
+          content = File.read(plist_path)
+          %w[CFBundleExecutable CFBundleName].each do |key|
+            content = content.sub(
+              /(<key>#{key}<\/key>\s*<string>)#{Regexp.escape(module_name)}(<\/string>)/,
+              "\\1#{product_name}\\2",
+            )
+          end
+          File.write(plist_path, content)
+        end
+
+        # Field gap, same function: create_objc_module (build.rb) writes
+        # Modules/module.modulemap declaring `framework module <module_name>` with
+        # `umbrella header "<module_name>.h"`, and the actual file is
+        # Headers/<module_name>.h. The renames above never touched the modulemap
+        # content or the umbrella header filename -- latent today (no current
+        # product with product != target also has public headers), but a real gap
+        # in the same function. No-op when no ObjC module was assembled (no
+        # Headers/<module_name>.h alongside the modulemap), which covers every
+        # Swift-only rename exercised so far.
+        def rename_objc_module(fw_dir, module_name, product_name)
+          modulemap_path = File.join(fw_dir, "Modules", "module.modulemap")
+          old_header = File.join(fw_dir, "Headers", "#{module_name}.h")
+          return unless File.exist?(modulemap_path) && File.exist?(old_header)
+
+          FileUtils.mv(old_header, File.join(fw_dir, "Headers", "#{product_name}.h"))
+
+          content = File.read(modulemap_path)
+          content = content.sub("framework module #{module_name} {", "framework module #{product_name} {")
+          content = content.sub(%(umbrella header "#{module_name}.h"), %(umbrella header "#{product_name}.h"))
+          File.write(modulemap_path, content)
         end
 
         def find_framework_companions(artifacts, module_name, out_dir, fw_subdir: nil, pkg_dir: nil)

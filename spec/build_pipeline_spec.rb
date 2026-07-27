@@ -591,4 +591,113 @@ RSpec.describe SPMCache::SPM::BuildPipeline do
     expect(result).to eq(fw)
     expect(File.exist?(File.join(fw, "Alamofire"))).to be(true)
   end
+
+  # Field bug, confirmed live and blocking the entire app build: rename_framework_to_product
+  # renamed the framework directory, binary, and .swiftmodule directory, but never patched
+  # the framework's own Info.plist -- CFBundleExecutable/CFBundleName stayed as the pre-rename
+  # target name (FirebaseAnalyticsTarget) while everything else on disk was renamed to the
+  # product name (FirebaseAnalytics). Xcode's build-plan resolution reads CFBundleExecutable to
+  # find the bundle's executable, doesn't find a file by that name, and aborts the whole build
+  # before any compilation starts ("could not determine executable path for bundle").
+  it "patches Info.plist's CFBundleExecutable and CFBundleName from target name to product name" do
+    staging = File.join(tmpdir, "staging3")
+    fw = File.join(staging, "FirebaseAnalyticsTarget.framework")
+    FileUtils.mkdir_p(fw)
+    File.write(File.join(fw, "FirebaseAnalyticsTarget"), "binary")
+    File.write(File.join(fw, "Info.plist"), <<~PLIST)
+      <?xml version="1.0" encoding="UTF-8"?>
+      <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+      <plist version="1.0">
+      <dict>
+      <key>CFBundleExecutable</key><string>FirebaseAnalyticsTarget</string>
+      <key>CFBundleIdentifier</key><string>com.spm-cache.firebaseanalyticstarget</string>
+      <key>CFBundleName</key><string>FirebaseAnalyticsTarget</string>
+      </dict>
+      </plist>
+    PLIST
+
+    result = described_class.send(:rename_framework_to_product, fw, "FirebaseAnalyticsTarget", "FirebaseAnalytics")
+
+    plist = File.read(File.join(result, "Info.plist"))
+    expect(plist).to include("<key>CFBundleExecutable</key><string>FirebaseAnalytics</string>")
+    expect(plist).to include("<key>CFBundleName</key><string>FirebaseAnalytics</string>")
+    expect(plist).not_to include("FirebaseAnalyticsTarget")
+  end
+
+  # Real xcodebuild-produced Info.plist (use_existing_framework path, e.g. CryptoSwift-shaped
+  # checkouts) uses Apple's standard multi-line indented format rather than spm-cache's own
+  # compact single-line template -- the patch must handle both shapes.
+  it "patches a multi-line, Xcode-style Info.plist just as well as the compact template" do
+    staging = File.join(tmpdir, "staging3b")
+    fw = File.join(staging, "SomeTarget.framework")
+    FileUtils.mkdir_p(fw)
+    File.write(File.join(fw, "Info.plist"), <<~PLIST)
+      <?xml version="1.0" encoding="UTF-8"?>
+      <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+      <plist version="1.0">
+      <dict>
+      	<key>CFBundleExecutable</key>
+      	<string>SomeTarget</string>
+      	<key>CFBundleName</key>
+      	<string>SomeTarget</string>
+      </dict>
+      </plist>
+    PLIST
+
+    result = described_class.send(:rename_framework_to_product, fw, "SomeTarget", "SomeProduct")
+
+    plist = File.read(File.join(result, "Info.plist"))
+    expect(plist).to include("<string>SomeProduct</string>")
+    expect(plist).not_to include("SomeTarget")
+  end
+
+  # Field gap, same function: create_objc_module (build.rb) writes
+  # Modules/module.modulemap declaring `framework module <module_name>` with
+  # `umbrella header "<module_name>.h"`, and the actual file
+  # Headers/<module_name>.h. The rename touched dir/binary/swiftmodule/Info.plist
+  # but never the modulemap content or the umbrella header filename -- latent
+  # today (no current product with product != target also has public headers),
+  # but a real gap in the same function.
+  it "renames the umbrella header and rewrites the modulemap when an ObjC module was assembled" do
+    staging = File.join(tmpdir, "staging4")
+    fw = File.join(staging, "FirebaseCoreTarget.framework")
+    headers_dir = File.join(fw, "Headers")
+    modules_dir = File.join(fw, "Modules")
+    FileUtils.mkdir_p(headers_dir)
+    FileUtils.mkdir_p(modules_dir)
+    File.write(File.join(headers_dir, "FIRApp.h"), "@interface FIRApp @end")
+    File.write(File.join(headers_dir, "FirebaseCoreTarget.h"), '#import "FIRApp.h"')
+    File.write(File.join(modules_dir, "module.modulemap"), <<~MODULEMAP)
+      framework module FirebaseCoreTarget {
+        umbrella header "FirebaseCoreTarget.h"
+        export *
+
+        module * { export * }
+      }
+    MODULEMAP
+
+    result = described_class.send(:rename_framework_to_product, fw, "FirebaseCoreTarget", "FirebaseCore")
+
+    expect(File.exist?(File.join(result, "Headers", "FirebaseCore.h"))).to be(true)
+    expect(File.exist?(File.join(result, "Headers", "FirebaseCoreTarget.h"))).to be(false)
+    expect(File.exist?(File.join(result, "Headers", "FIRApp.h"))).to be(true)
+
+    modulemap = File.read(File.join(result, "Modules", "module.modulemap"))
+    expect(modulemap).to include("framework module FirebaseCore {")
+    expect(modulemap).to include('umbrella header "FirebaseCore.h"')
+    expect(modulemap).not_to include("FirebaseCoreTarget")
+  end
+
+  it "leaves modulemap handling a no-op for a Swift-only framework with no modulemap (existing rename tests unaffected)" do
+    staging = File.join(tmpdir, "staging5")
+    fw = File.join(staging, "FirebaseAnalyticsTarget.framework")
+    FileUtils.mkdir_p(File.join(fw, "Modules", "FirebaseAnalyticsTarget.swiftmodule"))
+    File.write(File.join(fw, "FirebaseAnalyticsTarget"), "binary")
+
+    result = described_class.send(:rename_framework_to_product, fw, "FirebaseAnalyticsTarget", "FirebaseAnalytics")
+
+    expect(Dir.exist?(File.join(result, "Headers"))).to be(false)
+    expect(File.exist?(File.join(result, "Modules", "module.modulemap"))).to be(false)
+    expect(Dir.exist?(File.join(result, "Modules", "FirebaseAnalytics.swiftmodule"))).to be(true)
+  end
 end
