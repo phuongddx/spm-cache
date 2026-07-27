@@ -475,4 +475,85 @@ RSpec.describe SPMCache::SPM::BuildPipeline do
 
     expect(companions.keys).to eq(["InternalCollectionsUtilities"])
   end
+
+  # Regression test: multi-destination builds must not collide. Each destination
+  # gets its own fw_subdir to avoid the second destination overwriting the first
+  # destination's synthesized companion framework in the same tmpdir.
+  it "produces distinct companion framework paths for different destination subdirs" do
+    products = File.join(tmpdir, "dd4", "Build", "Products", "Debug-iphonesimulator")
+    # Main module: bare
+    main_interface_dir = File.join(products, "OrderedCollections.swiftmodule")
+    FileUtils.mkdir_p(main_interface_dir)
+    File.write(
+      File.join(main_interface_dir, "arm64-apple-ios-simulator.swiftinterface"),
+      "import InternalCollectionsUtilities\nimport Swift\n",
+    )
+    File.write(File.join(products, "OrderedCollections.o"), "fake object file")
+
+    # Companion module: bare
+    companion_interface_dir = File.join(products, "InternalCollectionsUtilities.swiftmodule")
+    FileUtils.mkdir_p(companion_interface_dir)
+    File.write(
+      File.join(companion_interface_dir, "arm64-apple-ios-simulator.swiftinterface"),
+      "import Swift\n",
+    )
+    File.write(File.join(products, "InternalCollectionsUtilities.o"), "fake companion object")
+
+    fake_buildable = instance_double(SPMCache::SPM::Buildable)
+    allow(SPMCache::SPM::Buildable).to receive(:new).and_return(fake_buildable)
+    allow(fake_buildable).to receive(:find_object_file).and_return(File.join(products, "InternalCollectionsUtilities.o"))
+    allow(fake_buildable).to receive(:find_object_files).and_return([File.join(products, "InternalCollectionsUtilities.o")])
+    allow(fake_buildable).to receive(:find_file) do |_dd, basename|
+      file = File.join(products, basename)
+      File.exist?(file) ? file : nil
+    end
+    allow(fake_buildable).to receive(:create_framework) do |_arts, subdir|
+      fw = File.join(subdir, "InternalCollectionsUtilities.framework")
+      FileUtils.mkdir_p(fw)
+      fw
+    end
+
+    # Simulate two destinations calling find_framework_companions with different fw_subdirs
+    fw_subdir_ios_sim = File.join(tmpdir, "ios-sim-subdir")
+    fw_subdir_ios_dev = File.join(tmpdir, "ios-dev-subdir")
+    FileUtils.mkdir_p(fw_subdir_ios_sim)
+    FileUtils.mkdir_p(fw_subdir_ios_dev)
+
+    # First destination (iphonesimulator)
+    companions_sim = described_class.send(
+      :find_framework_companions,
+      { derived_data: File.join(tmpdir, "dd4") },
+      "OrderedCollections",
+      out_dir,
+      fw_subdir: fw_subdir_ios_sim,
+      pkg_dir: tmpdir,
+    )
+
+    # Second destination (iphoneos) — should write to a different subdir, not collide
+    companions_dev = described_class.send(
+      :find_framework_companions,
+      { derived_data: File.join(tmpdir, "dd4") },
+      "OrderedCollections",
+      out_dir,
+      fw_subdir: fw_subdir_ios_dev,
+      pkg_dir: tmpdir,
+    )
+
+    # Both should have found the companion
+    expect(companions_sim.keys).to eq(["InternalCollectionsUtilities"])
+    expect(companions_dev.keys).to eq(["InternalCollectionsUtilities"])
+
+    # The frameworks should be in different directories (no collision)
+    sim_fw_path = companions_sim["InternalCollectionsUtilities"]
+    dev_fw_path = companions_dev["InternalCollectionsUtilities"]
+    expect(sim_fw_path).not_to eq(dev_fw_path)
+
+    # Both framework paths should still exist (not overwritten by each other)
+    expect(File.directory?(sim_fw_path)).to be true
+    expect(File.directory?(dev_fw_path)).to be true
+
+    # Verify they're in their respective subdirs
+    expect(sim_fw_path).to include("ios-sim-subdir")
+    expect(dev_fw_path).to include("ios-dev-subdir")
+  end
 end

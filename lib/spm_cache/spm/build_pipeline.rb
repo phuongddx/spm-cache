@@ -73,7 +73,7 @@ module SPMCache
               shim_framework_paths[shim["name"]] << fw if fw
             end
 
-            find_framework_companions(artifacts, module_name, out_dir).each do |companion_name, companion_fw|
+            find_framework_companions(artifacts, module_name, out_dir, fw_subdir: fw_subdir, pkg_dir: pkg_dir).each do |companion_name, companion_fw|
               shim_framework_paths[companion_name] << companion_fw
             end
           end
@@ -139,7 +139,7 @@ module SPMCache
             # Cross-package public-header dependencies must travel with the
             # cached binary here too -- this fallback path is the one a
             # vendored-.xcodeproj package like DTCoreText actually takes.
-            find_framework_companions(artifacts, name, out_dir).each do |companion_name, companion_fw|
+            find_framework_companions(artifacts, name, out_dir, fw_subdir: fw_subdir, pkg_dir: pkg_dir).each do |companion_name, companion_fw|
               companion_framework_paths[companion_name] << companion_fw
             end
           end
@@ -376,7 +376,7 @@ module SPMCache
         #     proxy already vends that as its own product and a second copy
         #     inside this one would collide (the same duplicate-GUID/duplicate
         #     -symbol family of failure documented throughout spm-cache.yml).
-        def find_framework_companions(artifacts, module_name, out_dir)
+        def find_framework_companions(artifacts, module_name, out_dir, fw_subdir: nil, pkg_dir: nil)
           products_dir = Dir.glob(File.join(artifacts[:derived_data].to_s, "Build", "Products", "*"))
                             .find { |d| File.directory?(d) }
           return {} unless products_dir
@@ -415,14 +415,15 @@ module SPMCache
             bare_swiftmodule = File.join(products_dir, "#{companion_name}.swiftmodule")
             next unless File.directory?(bare_swiftmodule)
 
-            # Synthesize a framework for this bare module
-            tmpdir = File.join(out_dir, "#{companion_name}-tmp")
-            FileUtils.mkdir_p(tmpdir)
+            # Synthesize a framework for this bare module, using the per-destination
+            # scratch dir (fw_subdir) to avoid multi-destination collisions
+            companion_scratch = fw_subdir ? File.join(fw_subdir, "#{companion_name}-tmp") : File.join(out_dir, "#{companion_name}-tmp")
+            FileUtils.mkdir_p(companion_scratch)
             fw = build_swift_companion_framework(
               module_name: companion_name,
-              pkg_dir: File.dirname(File.dirname(File.dirname(artifacts[:derived_data]))), # navigate back to pkg_dir
+              pkg_dir: pkg_dir,
               derived_data: artifacts[:derived_data],
-              output_dir: tmpdir,
+              output_dir: companion_scratch,
             )
             companions[companion_name] = fw if fw
           end
