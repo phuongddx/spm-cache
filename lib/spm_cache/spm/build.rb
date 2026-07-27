@@ -251,9 +251,9 @@ module SPMCache
           FileUtils.cp(artifacts[:swiftinterface], File.join(sm_dir, arch))
         end
 
-        copy_module_artifact(artifacts[:swiftmodule], modules_dir)
-        copy_module_artifact(artifacts[:swiftdoc], modules_dir)
-        copy_module_artifact(artifacts[:swiftsourceinfo], modules_dir)
+        copy_module_artifact(artifacts[:swiftmodule], modules_dir, "#{@module_name}.swiftmodule")
+        copy_module_artifact(artifacts[:swiftdoc], modules_dir, "#{@module_name}.swiftdoc")
+        copy_module_artifact(artifacts[:swiftsourceinfo], modules_dir, "#{@module_name}.swiftsourceinfo")
 
         fw_dir
       end
@@ -281,10 +281,17 @@ module SPMCache
       # `cp_r`'s contents merge into `destination` rather than replacing it,
       # so this is safe even when `sm_dir` was already created above from
       # `artifacts[:swiftinterface]` for the same module name.
-      def copy_module_artifact(source, modules_dir)
+      #
+      # `expected_basename` forces the destination filename. Without it the
+      # destination inherited `File.basename(source)`, and because macOS APFS
+      # is case-insensitive `find_file`'s glob happily matches a differently
+      # cased file than the one it asked for -- so Xcode's casing leaked into
+      # the framework (mcemojipicker.swiftmodule), leaving the module
+      # unimportable under the name consumers actually write.
+      def copy_module_artifact(source, modules_dir, expected_basename = nil)
         return unless source && File.exist?(source)
 
-        destination = File.join(modules_dir, File.basename(source))
+        destination = File.join(modules_dir, expected_basename || File.basename(source))
         if File.directory?(source)
           FileUtils.mkdir_p(destination)
           FileUtils.cp_r(Dir.glob(File.join(source, "*")), destination)

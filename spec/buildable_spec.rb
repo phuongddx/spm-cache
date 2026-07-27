@@ -69,6 +69,29 @@ RSpec.describe SPMCache::SPM::Buildable do
       expect(File.read(File.join(sm_dir, "arm64-apple-ios.swiftinterface"))).to eq("public interface contents")
       expect(File.read(File.join(sm_dir, "arm64-apple-ios.swiftdoc"))).to eq("arch-specific doc")
     end
+
+    # Field regression: MCEmojiPicker and CustomBlurEffectView cached with a
+    # LOWERCASE module dir (mcemojipicker.swiftmodule). find_file's glob asks
+    # for "<Module>.swiftmodule" but macOS APFS is case-insensitive, so it
+    # matches whatever case Xcode emitted, and File.basename then preserved
+    # that wrong case into the framework.
+    it "writes swift module artifacts under the expected module-name case" do
+      swiftmodule = File.join(pkg_dir, "ehealth.swiftmodule")
+      swiftdoc = File.join(pkg_dir, "ehealth.swiftdoc")
+      swiftsourceinfo = File.join(pkg_dir, "ehealth.swiftsourceinfo")
+      File.write(swiftmodule, "m")
+      File.write(swiftdoc, "d")
+      File.write(swiftsourceinfo, "s")
+
+      fw_dir = buildable.create_framework(
+        { swiftmodule: swiftmodule, swiftdoc: swiftdoc, swiftsourceinfo: swiftsourceinfo },
+        output_dir,
+      )
+
+      entries = Dir.children(modules_dir_for(fw_dir))
+      expect(entries).to include("eHealth.swiftmodule", "eHealth.swiftdoc", "eHealth.swiftsourceinfo")
+      expect(entries).not_to include("ehealth.swiftmodule")
+    end
   end
 
   # Field bug: CryptoSwift's checkout carries its own committed .xcodeproj
