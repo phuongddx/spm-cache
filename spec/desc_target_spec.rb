@@ -158,6 +158,40 @@ RSpec.describe SPMCache::SPM::Desc::Target do
         # Default path is Sources/{name}
         expect(target.header_paths).to eq([File.join(pkg_dir, "Sources/DefaultPath", "Headers")])
       end
+
+      # Regression test: Firebase bug where wrapper target's dependencies array contains
+      # inline .target(name: "FirebaseDynamicLinks") reference. Without proper parenthesis
+      # tracking, the naive regex matched the WRAPPER's block instead of the real target.
+      it "avoids matching inline .target references in another target's dependencies array" do
+        package_swift = File.join(pkg_dir, "Package.swift")
+        File.write(package_swift, <<~MANIFEST)
+          let package = Package(
+            name: "FirebaseSDK",
+            targets: [
+              .target(
+                name: "FirebaseDynamicLinksTarget",
+                dependencies: [
+                  .target(name: "FirebaseDynamicLinks"),
+                  .product(name: "GoogleUtilities", package: "GoogleUtilities")
+                ]
+              ),
+              .target(
+                name: "FirebaseDynamicLinks",
+                path: "FirebaseDynamicLinks/Sources",
+                publicHeadersPath: "Public"
+              )
+            ]
+          )
+        MANIFEST
+
+        target = described_class.new(
+          raw: { "name" => "FirebaseDynamicLinks", "path" => "FirebaseDynamicLinks/Sources" },
+          pkg_dir: pkg_dir
+        )
+
+        # Should find the REAL target's publicHeadersPath, not the wrapper's inline reference
+        expect(target.header_paths).to eq([File.join(pkg_dir, "FirebaseDynamicLinks/Sources", "Public")])
+      end
     end
   end
 end

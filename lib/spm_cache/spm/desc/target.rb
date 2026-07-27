@@ -58,48 +58,66 @@ module SPMCache
 
           text = File.read(manifest_path)
 
-          # More robust approach: find the .target block by name first, then extract publicHeadersPath
-          # Split into lines and find the target block
-          lines = text.lines
-          target_start = nil
+          # Extract all .target(...) blocks using proper parenthesis nesting, avoiding the
+          # bug where inline .target(name: "X") references in a wrapper's dependencies:
+          # array get mistaken for the actual target declaration.
+          target_blocks = extract_all_target_blocks(text)
 
-          lines.each_with_index do |line, idx|
-            if line.include?(".target(") && lines[idx..idx+5].join.include?(%("#{target_name}"))
-              target_start = idx
-              break
+          # Find blocks whose own name: argument matches this target
+          matching_blocks = target_blocks.select do |block|
+            block_name = block[/name:\s*"([^"]+)"/, 1]
+            block_name == target_name
+          end
+
+          return [] if matching_blocks.empty?
+
+          # Return publicHeadersPath from the first block that actually declares one
+          matching_blocks.each do |block|
+            public_headers_path = block[/publicHeadersPath:\s*"([^"]+)"/, 1]
+            next unless public_headers_path
+
+            # Compute the absolute path: target's root dir + publicHeadersPath
+            target_root = raw["path"] || "Sources/#{target_name}"
+            absolute_headers_dir = File.join(pkg_dir, target_root, public_headers_path)
+
+            # Normalize paths like "./" or "." to just the target root
+            absolute_headers_dir = File.join(pkg_dir, target_root) if public_headers_path == "./" || public_headers_path == "."
+
+            return [absolute_headers_dir]
+          end
+
+          []
+        end
+
+        def extract_all_target_blocks(text)
+          blocks = []
+          idx = 0
+
+          while (target_pos = text.index(".target(", idx))
+            # Found a .target( occurrence; extract its full block by tracking parentheses
+            start_paren = text.index("(", target_pos + ".target".length)
+            return blocks unless start_paren
+
+            paren_depth = 1
+            end_pos = start_paren + 1
+
+            # Walk forward, tracking paren depth until we find the matching close paren
+            while end_pos < text.length && paren_depth > 0
+              char = text[end_pos]
+              paren_depth += 1 if char == "("
+              paren_depth -= 1 if char == ")"
+              end_pos += 1
             end
+
+            # Extract the complete block: from .target( to the matching )
+            block_text = text[target_pos..end_pos - 1]
+            blocks << block_text
+
+            # Continue searching after this block
+            idx = end_pos
           end
 
-          return [] unless target_start
-
-          # Scan from target_start to find publicHeadersPath, stopping at the closing paren
-          # that ends the .target(...) block
-          paren_depth = 0
-          target_block_lines = []
-
-          lines[target_start..].each do |line|
-            target_block_lines << line
-            paren_depth += line.count("(")
-            paren_depth -= line.count(")")
-
-            # We've found the end of the .target(...) block
-            break if paren_depth == 0 && target_block_lines.length > 1
-          end
-
-          target_block_text = target_block_lines.join
-
-          # Extract publicHeadersPath from the target block
-          public_headers_path = target_block_text[/publicHeadersPath:\s*"([^"]+)"/, 1]
-          return [] unless public_headers_path
-
-          # Compute the absolute path: target's root dir + publicHeadersPath
-          target_root = raw["path"] || "Sources/#{target_name}"
-          absolute_headers_dir = File.join(pkg_dir, target_root, public_headers_path)
-
-          # Normalize paths like "./" or "." to just the target root
-          absolute_headers_dir = File.join(pkg_dir, target_root) if public_headers_path == "./" || public_headers_path == "."
-
-          [absolute_headers_dir]
+          blocks
         end
 
         def resource_paths
