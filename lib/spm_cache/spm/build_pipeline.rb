@@ -493,22 +493,36 @@ module SPMCache
           end
           return {} if referenced.empty?
 
-          # Companion collection: framework-wrapped first (existing behavior)
+          # Companion collection: framework-wrapped first (existing behavior).
+          #
+          # Field bug (Class D sibling-skip): an already-cached companion used
+          # to be skipped from this hash entirely -- avoiding a wasteful
+          # rebuild (see #write_shim_sidecar, which OVERWRITES whatever
+          # .xcframework already exists at that name), but that also meant
+          # the companion never got wired into a LATER sibling product's own
+          # `.library` target list, even though the companion binary is
+          # genuinely correct and already cached. Record it with a :cached
+          # marker instead of a real framework path, so the caller still
+          # notes the name for THIS product's own sidecar while
+          # #write_shim_sidecar knows not to rebuild it.
           companions = Dir.glob(File.join(products_dir, "*.framework")).each_with_object({}) do |fw, acc|
             fw_name = File.basename(fw, ".framework")
             next if fw_name == module_name
             next unless referenced.include?(fw_name)
-            next if File.exist?(File.join(out_dir, "#{fw_name}.xcframework"))
 
-            acc[fw_name] = fw
+            acc[fw_name] = File.exist?(File.join(out_dir, "#{fw_name}.xcframework")) ? :cached : fw
           end
 
           # Also check for bare companion modules and synthesize frameworks
           # (SPM pure-Swift library internal dependencies).
           referenced.each do |companion_name|
-            # Skip if already found as a framework or cached
+            # Skip if already found as a framework (real path or :cached above)
             next if companions.key?(companion_name)
-            next if File.exist?(File.join(out_dir, "#{companion_name}.xcframework"))
+
+            if File.exist?(File.join(out_dir, "#{companion_name}.xcframework"))
+              companions[companion_name] = :cached
+              next
+            end
 
             # Check if this is a bare module in products_dir
             bare_swiftmodule = File.join(products_dir, "#{companion_name}.swiftmodule")
@@ -630,14 +644,26 @@ module SPMCache
         # `<name>.xcframework.shims.json` sidecar so the proxy generator
         # knows to wire each one in as an extra `.binaryTarget` combined
         # into the SAME `.library` product as the main binary.
+        #
+        # A companion whose paths are all the :cached marker (see
+        # #find_framework_companions) is already correct on disk from a
+        # previously-processed sibling product -- its name still needs to
+        # land in THIS product's sidecar so the proxy wires it in here too,
+        # but it must not be rebuilt: XCFramework.build would OVERWRITE the
+        # existing, already-correct .xcframework for no benefit.
         def write_shim_sidecar(output_path, shim_framework_paths, out_dir)
           built_shim_names = shim_framework_paths.filter_map do |shim_name, paths|
             next nil if paths.empty?
 
-            shim_output = File.join(out_dir, "#{shim_name}.xcframework")
-            FileUtils.rm_rf(shim_output)
-            XCFramework::XCFramework.new(name: shim_name, framework_paths: paths, output_path: shim_output).build
-            shim_name
+            real_paths = paths.reject { |p| p == :cached }
+            if real_paths.empty?
+              shim_name
+            else
+              shim_output = File.join(out_dir, "#{shim_name}.xcframework")
+              FileUtils.rm_rf(shim_output)
+              XCFramework::XCFramework.new(name: shim_name, framework_paths: real_paths, output_path: shim_output).build
+              shim_name
+            end
           end
           return if built_shim_names.empty?
 

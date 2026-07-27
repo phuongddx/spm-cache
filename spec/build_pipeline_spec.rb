@@ -411,7 +411,19 @@ RSpec.describe SPMCache::SPM::BuildPipeline do
     expect(companions.keys).to eq(["InternalCollectionsUtilities"])
   end
 
-  it "ignores a .swiftinterface import that is already independently cached" do
+  # Field bug (Class D sibling-skip): the guard against re-adding an
+  # already-cached companion used to skip it from the returned hash
+  # entirely -- avoiding a wasteful rebuild, but ALSO preventing the
+  # companion from being wired into a LATER sibling product's own
+  # `.library` target list, even though the companion binary is genuinely
+  # correct and cached. Confirmed live: InternalCollectionsUtilities.xcframework
+  # existed and was correct, but BitCollections/DequeModule/HashTreeCollections/
+  # HeapModule/Collections (all of which reference it via their own
+  # .swiftinterface) never got it wired into their own
+  # .xcframework.shims.json sidecar. The companion must still be recorded
+  # for THIS product's own sidecar -- flagged as :cached so the caller
+  # (write_shim_sidecar) knows not to rebuild it.
+  it "still records an already-cached companion for this product's own sidecar, without rebuilding it" do
     products = File.join(tmpdir, "dd2", "Build", "Products", "Debug-iphonesimulator")
     interface_dir = File.join(products, "OrderedCollections.framework", "Modules", "OrderedCollections.swiftmodule")
     FileUtils.mkdir_p(interface_dir)
@@ -429,7 +441,7 @@ RSpec.describe SPMCache::SPM::BuildPipeline do
       out_dir,
     )
 
-    expect(companions).to be_empty
+    expect(companions).to eq("InternalCollectionsUtilities" => :cached)
   end
 
   # Field bug: SPM pure-Swift library builds produce bare .swiftmodule dirs
@@ -699,5 +711,43 @@ RSpec.describe SPMCache::SPM::BuildPipeline do
     expect(Dir.exist?(File.join(result, "Headers"))).to be(false)
     expect(File.exist?(File.join(result, "Modules", "module.modulemap"))).to be(false)
     expect(Dir.exist?(File.join(result, "Modules", "FirebaseAnalytics.swiftmodule"))).to be(true)
+  end
+
+  # Field bug (Class D sibling-skip), completing the fix started in
+  # #find_framework_companions above: write_shim_sidecar consumes the
+  # per-companion arrays collected across all destinations and, for each
+  # name with at least one entry, calls XCFramework.build -- OVERWRITING
+  # whatever .xcframework already exists at that name in out_dir. That's
+  # presumably why the old guard existed: to avoid a wasteful, redundant
+  # full rebuild of an unchanged companion for every sibling that
+  # references it. The fix must record the name in THIS product's own
+  # sidecar without triggering that rebuild: a :cached marker (rather than
+  # a real framework path) means "already built, just note the name."
+  describe "#write_shim_sidecar" do
+    it "records an already-cached companion in the sidecar without invoking XCFramework.build for it, while still building a genuinely new one" do
+      output_path = File.join(out_dir, "BitCollections.xcframework")
+      FileUtils.mkdir_p(File.join(out_dir, "InternalCollectionsUtilities.xcframework"))
+      cached_mtime = File.mtime(File.join(out_dir, "InternalCollectionsUtilities.xcframework"))
+
+      new_companion_fw = File.join(tmpdir, "NewCompanion.framework")
+      FileUtils.mkdir_p(new_companion_fw)
+
+      expect(SPMCache::SPM::XCFramework::XCFramework).to receive(:new)
+        .with(hash_including(name: "NewCompanion"))
+        .and_return(double("XC", build: File.join(out_dir, "NewCompanion.xcframework")))
+      expect(SPMCache::SPM::XCFramework::XCFramework).not_to receive(:new)
+        .with(hash_including(name: "InternalCollectionsUtilities"))
+
+      shim_framework_paths = {
+        "InternalCollectionsUtilities" => [:cached],
+        "NewCompanion" => [new_companion_fw],
+      }
+
+      described_class.send(:write_shim_sidecar, output_path, shim_framework_paths, out_dir)
+
+      sidecar = JSON.parse(File.read("#{output_path}.shims.json"))
+      expect(sidecar).to match_array(%w[InternalCollectionsUtilities NewCompanion])
+      expect(File.mtime(File.join(out_dir, "InternalCollectionsUtilities.xcframework"))).to eq(cached_mtime)
+    end
   end
 end
