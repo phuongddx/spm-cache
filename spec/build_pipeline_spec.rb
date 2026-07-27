@@ -31,6 +31,36 @@ RSpec.describe SPMCache::SPM::BuildPipeline do
     fake_desc
   end
 
+  # Builds a name-aware Buildable.new stub: only the given companion_name
+  # gets a working #find_object_file/#create_framework double (mirroring a
+  # real bare Swift companion's artifacts); every other name (e.g. "Swift",
+  # always present since virtually every .swiftinterface imports it) gets
+  # a double whose #find_object_file returns nil, matching what a REAL
+  # Buildable would find for a name with no actual object file anywhere --
+  # required because Gap #3's relaxed gate now calls Buildable.new for every
+  # remaining referenced name, not just ones with a bare .swiftmodule.
+  def stub_companion_buildable_factory(companion_name, object_file)
+    allow(SPMCache::SPM::Buildable).to receive(:new) do |name:, **_kwargs|
+      double = instance_double(SPMCache::SPM::Buildable)
+      if name == companion_name
+        allow(double).to receive(:find_object_file).and_return(object_file)
+        allow(double).to receive(:find_object_files).and_return([object_file])
+        allow(double).to receive(:find_file) do |_dd, basename|
+          file = File.join(File.dirname(object_file), basename)
+          File.exist?(file) ? file : nil
+        end
+        allow(double).to receive(:create_framework) do |_arts, subdir|
+          fw = File.join(subdir, "#{companion_name}.framework")
+          FileUtils.mkdir_p(fw)
+          fw
+        end
+      else
+        allow(double).to receive(:find_object_file).and_return(nil)
+      end
+      double
+    end
+  end
+
   before do
     FileUtils.mkdir_p(pkg_dir)
     FileUtils.mkdir_p(out_dir)
@@ -401,6 +431,13 @@ RSpec.describe SPMCache::SPM::BuildPipeline do
     )
     FileUtils.mkdir_p(File.join(products, "InternalCollectionsUtilities.framework"))
 
+    # "InternalCollectionsUtilities" is already resolved via the existing
+    # .framework above; "Swift" (also imported) is the only name that now
+    # reaches the relaxed bare-companion attempt (Gap #3) -- let the real
+    # Buildable answer it, since a real #find_object_file glob correctly
+    # finds no "Swift.o" anywhere in this fixture.
+    allow(SPMCache::SPM::Buildable).to receive(:new).and_call_original
+
     companions = described_class.send(
       :find_framework_companions,
       { derived_data: File.join(tmpdir, "dd") },
@@ -468,6 +505,13 @@ RSpec.describe SPMCache::SPM::BuildPipeline do
     FileUtils.mkdir_p(File.join(out_dir, "BitCollections.xcframework"))
     FileUtils.mkdir_p(File.join(out_dir, "OrderedCollections.xcframework"))
 
+    # "BitCollections"/"OrderedCollections" are already resolved via the
+    # cached-xcframework check; "Swift" (also imported) is the only name
+    # that now reaches the relaxed bare-companion attempt (Gap #3) -- let
+    # the real Buildable answer it, since a real #find_object_file glob
+    # correctly finds no "Swift.o" anywhere in this fixture.
+    allow(SPMCache::SPM::Buildable).to receive(:new).and_call_original
+
     companions = described_class.send(
       :find_framework_companions,
       { derived_data: File.join(tmpdir, "dd5") },
@@ -502,19 +546,7 @@ RSpec.describe SPMCache::SPM::BuildPipeline do
     )
     File.write(File.join(products, "InternalCollectionsUtilities.o"), "fake companion object")
 
-    fake_buildable = instance_double(SPMCache::SPM::Buildable)
-    allow(SPMCache::SPM::Buildable).to receive(:new).and_return(fake_buildable)
-    allow(fake_buildable).to receive(:find_object_file).and_return(File.join(products, "InternalCollectionsUtilities.o"))
-    allow(fake_buildable).to receive(:find_object_files).and_return([File.join(products, "InternalCollectionsUtilities.o")])
-    allow(fake_buildable).to receive(:find_file) do |_dd, basename|
-      file = File.join(products, basename)
-      File.exist?(file) ? file : nil
-    end
-    allow(fake_buildable).to receive(:create_framework) do |_arts, subdir|
-      fw = File.join(subdir, "InternalCollectionsUtilities.framework")
-      FileUtils.mkdir_p(fw)
-      fw
-    end
+    stub_companion_buildable_factory("InternalCollectionsUtilities", File.join(products, "InternalCollectionsUtilities.o"))
 
     companions = described_class.send(
       :find_framework_companions,
@@ -549,19 +581,7 @@ RSpec.describe SPMCache::SPM::BuildPipeline do
     )
     File.write(File.join(products, "InternalCollectionsUtilities.o"), "fake companion object")
 
-    fake_buildable = instance_double(SPMCache::SPM::Buildable)
-    allow(SPMCache::SPM::Buildable).to receive(:new).and_return(fake_buildable)
-    allow(fake_buildable).to receive(:find_object_file).and_return(File.join(products, "InternalCollectionsUtilities.o"))
-    allow(fake_buildable).to receive(:find_object_files).and_return([File.join(products, "InternalCollectionsUtilities.o")])
-    allow(fake_buildable).to receive(:find_file) do |_dd, basename|
-      file = File.join(products, basename)
-      File.exist?(file) ? file : nil
-    end
-    allow(fake_buildable).to receive(:create_framework) do |_arts, subdir|
-      fw = File.join(subdir, "InternalCollectionsUtilities.framework")
-      FileUtils.mkdir_p(fw)
-      fw
-    end
+    stub_companion_buildable_factory("InternalCollectionsUtilities", File.join(products, "InternalCollectionsUtilities.o"))
 
     # Simulate two destinations calling find_framework_companions with different fw_subdirs
     fw_subdir_ios_sim = File.join(tmpdir, "ios-sim-subdir")
@@ -605,6 +625,128 @@ RSpec.describe SPMCache::SPM::BuildPipeline do
     # Verify they're in their respective subdirs
     expect(sim_fw_path).to include("ios-sim-subdir")
     expect(dev_fw_path).to include("ios-dev-subdir")
+  end
+
+  # Gap #3: a bare Clang/ObjC internal target -- no .framework (not yet built
+  # standalone) AND no .swiftmodule (it's not Swift at all), just a raw .o
+  # sitting in the shared Products dir plus real public headers declared via
+  # Package.swift's `publicHeadersPath:`. Reproduces firebase-ios-sdk's
+  # FirebaseAuthInternal/FirebaseCoreExtension/etc, referenced by
+  # FirebaseAuth's own .swiftinterface but never vended as their own library
+  # product. Before this fix, the bare-companion loop only ever attempted
+  # synthesis when a `.swiftmodule` directory existed, so this shape was
+  # never even attempted -- exercises the real wiring end to end: object-file
+  # detection -> #resolve_public_headers's Package.swift manifest fallback
+  # (the same fallback desc_target_spec.rb covers in isolation) ->
+  # Buildable#create_framework -> #create_objc_module, proving a real
+  # Headers/ + module.modulemap + binary framework comes out, not just that
+  # the companion's name gets detected.
+  it "synthesizes a real ObjC-module companion framework for a bare Clang/ObjC internal target (no .swiftmodule, no .framework)" do
+    products = File.join(tmpdir, "dd6", "Build", "Products", "Debug-iphonesimulator")
+    main_interface_dir = File.join(products, "FirebaseAuth.swiftmodule")
+    FileUtils.mkdir_p(main_interface_dir)
+    File.write(
+      File.join(main_interface_dir, "arm64-apple-ios-simulator.swiftinterface"),
+      "import FirebaseAuthInternal\nimport Swift\n",
+    )
+    File.write(File.join(products, "FirebaseAuth.o"), "fake main object file")
+
+    # Companion: bare Clang/ObjC target -- only a raw .o, deliberately no
+    # .swiftmodule and no .framework for it anywhere.
+    File.write(File.join(products, "FirebaseAuthInternal.o"), "fake companion object")
+
+    # Real Package.swift declaring the companion as a ClangTarget with
+    # publicHeadersPath, plus its actual public header file, so
+    # #resolve_public_headers's manifest fallback has something real to
+    # resolve (mirrors desc_target_spec.rb's fixture style).
+    header_dir = File.join(pkg_dir, "Sources", "FirebaseAuthInternal", "Public")
+    FileUtils.mkdir_p(header_dir)
+    File.write(File.join(header_dir, "SomeHeader.h"), "// public header\n")
+    File.write(File.join(pkg_dir, "Package.swift"), <<~MANIFEST)
+      // swift-tools-version: 5.9
+      import PackageDescription
+
+      let package = Package(
+        name: "FirebaseCore",
+        targets: [
+          .target(
+            name: "FirebaseAuthInternal",
+            path: "Sources/FirebaseAuthInternal",
+            publicHeadersPath: "Public"
+          )
+        ]
+      )
+    MANIFEST
+
+    fake_desc = stub_desc_products([])
+    allow(fake_desc).to receive(:raw).and_return(
+      "targets" => [
+        { "name" => "FirebaseAuth", "module_type" => "SwiftTarget" },
+        { "name" => "FirebaseAuthInternal", "module_type" => "ClangTarget", "path" => "Sources/FirebaseAuthInternal" },
+      ],
+    )
+
+    # Run the REAL Buildable (not the global stub from the outer `before`)
+    # so create_framework/create_objc_module actually assemble the
+    # framework; only the `libtool` shell-out is faked, mirroring how
+    # libtool's real effect (writing the archive to -o) is never exercised
+    # elsewhere in this suite either.
+    allow(SPMCache::SPM::Buildable).to receive(:new).and_call_original
+    allow(SPMCache::Core::Sh).to receive(:run) do |cmd|
+      match = cmd.match(/-o '([^']+)'/)
+      File.write(match[1], "fake static library") if match
+    end
+
+    companions = described_class.send(
+      :find_framework_companions,
+      { derived_data: File.join(tmpdir, "dd6") },
+      "FirebaseAuth",
+      out_dir,
+      pkg_dir: pkg_dir,
+    )
+
+    expect(companions.keys).to eq(["FirebaseAuthInternal"])
+    fw_dir = companions["FirebaseAuthInternal"]
+    expect(File.exist?(File.join(fw_dir, "FirebaseAuthInternal"))).to be true
+    expect(Dir.children(File.join(fw_dir, "Headers"))).to include("SomeHeader.h")
+    modulemap = File.read(File.join(fw_dir, "Modules", "module.modulemap"))
+    expect(modulemap).to include("framework module FirebaseAuthInternal")
+    expect(modulemap).to include('umbrella header "FirebaseAuthInternal.h"')
+  end
+
+  # Gap #3 safety net: relaxing the bare-companion gate to also attempt a
+  # Clang/ObjC shape means #find_framework_companions now tries synthesis
+  # for every remaining referenced name, including ones backed by nothing at
+  # all (e.g. a system framework like Foundation caught by the import scan,
+  # or any other name with no real target behind it). That must not crash or
+  # produce a companion -- #build_companion_framework's own #find_object_file
+  # check (nil when nothing exists) is the only gate left.
+  it "does not synthesize (and does not crash) for a referenced name with neither an object file nor headers" do
+    products = File.join(tmpdir, "dd7", "Build", "Products", "Debug-iphonesimulator")
+    main_interface_dir = File.join(products, "SomeModule.swiftmodule")
+    FileUtils.mkdir_p(main_interface_dir)
+    File.write(
+      File.join(main_interface_dir, "arm64-apple-ios-simulator.swiftinterface"),
+      "import GhostModule\nimport Swift\n",
+    )
+    File.write(File.join(products, "SomeModule.o"), "fake main object file")
+
+    fake_buildable = instance_double(SPMCache::SPM::Buildable)
+    allow(SPMCache::SPM::Buildable).to receive(:new).and_return(fake_buildable)
+    allow(fake_buildable).to receive(:find_object_file).and_return(nil)
+
+    companions = nil
+    expect {
+      companions = described_class.send(
+        :find_framework_companions,
+        { derived_data: File.join(tmpdir, "dd7") },
+        "SomeModule",
+        out_dir,
+        pkg_dir: pkg_dir,
+      )
+    }.not_to raise_error
+
+    expect(companions).to eq({})
   end
 
   # Field regression: FirebaseAnalytics.xcframework contained

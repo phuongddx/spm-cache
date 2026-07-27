@@ -534,15 +534,23 @@ module SPMCache
               next
             end
 
-            # Check if this is a bare module in products_dir
-            bare_swiftmodule = File.join(products_dir, "#{companion_name}.swiftmodule")
-            next unless File.directory?(bare_swiftmodule)
-
-            # Synthesize a framework for this bare module, using the per-destination
-            # scratch dir (fw_subdir) to avoid multi-destination collisions
+            # Bare companion shapes needing synthesis: a bare Swift module
+            # (.swiftmodule dir, no .framework -- the original SPM
+            # pure-Swift-lib case) or a bare Clang/ObjC internal target (no
+            # .swiftmodule either, just a raw .o plus real public headers
+            # via Package.swift's `publicHeadersPath:` -- e.g. Firebase's
+            # FirebaseAuthInternal/FirebaseCoreExtension/etc, pure internal
+            # dependencies never vended as their own library product).
+            # Neither shape is distinguishable from the referenced name
+            # alone, so both are attempted unconditionally here;
+            # #build_companion_framework's own #find_object_file check
+            # (a cheap glob, no shell-out) is the real gate and returns nil
+            # immediately for a referenced name with no object file at all
+            # (e.g. plain system frameworks like Foundation/Swift), so this
+            # costs nothing for those.
             companion_scratch = fw_subdir ? File.join(fw_subdir, "#{companion_name}-tmp") : File.join(out_dir, "#{companion_name}-tmp")
             FileUtils.mkdir_p(companion_scratch)
-            fw = build_swift_companion_framework(
+            fw = build_companion_framework(
               module_name: companion_name,
               pkg_dir: pkg_dir,
               derived_data: artifacts[:derived_data],
@@ -624,17 +632,40 @@ module SPMCache
           fw_dir
         end
 
-        # Synthesizes a companion framework for a bare Swift module (.swiftmodule
-        # dir with no .framework wrapper). Used for SPM pure-Swift library
-        # targets whose .swiftinterface names an internal dependency
-        # (e.g. InternalCollectionsUtilities). Reuses Buildable to collect
-        # artifacts and create_framework to assemble the binary, so the
-        # result has the same layout and metadata as the main module's framework.
-        def build_swift_companion_framework(module_name:, pkg_dir:, derived_data:, output_dir:)
-          companion = Buildable.new(name: module_name, module_name: module_name, pkg_dir: pkg_dir)
-          obj = companion.find_object_file(derived_data)
+        # Synthesizes a companion framework for a bare module with no existing
+        # .framework wrapper -- either a bare Swift module (.swiftmodule dir,
+        # SPM pure-Swift library internal dependency, e.g.
+        # InternalCollectionsUtilities) or a bare Clang/ObjC internal target
+        # (no .swiftmodule either, just a raw .o plus real public headers
+        # declared via Package.swift's `publicHeadersPath:`, e.g. Firebase's
+        # FirebaseAuthInternal/FirebaseCoreExtension/FirebaseAppCheckInterop/
+        # etc). Reuses Buildable to collect artifacts and #create_framework
+        # to assemble the binary, so the result has the same layout and
+        # metadata as the main module's framework -- #create_framework's own
+        # #create_objc_module already emits Headers/ + module.modulemap
+        # whenever header_paths is non-empty, and is a correct no-op when
+        # empty, so passing #resolve_public_headers's result here is all
+        # that's needed to make the Clang/ObjC shape work; no separate
+        # synthesis path required.
+        #
+        # Gated on #find_object_file (a cheap glob, no shell-out) BEFORE
+        # calling #resolve_public_headers (which shells out to `swift
+        # package describe`) -- #find_framework_companions calls this for
+        # every referenced name with no existing .framework/.xcframework,
+        # including plain system frameworks (Foundation, Swift, ...) that
+        # will never have an object file here at all, so the ordering avoids
+        # a wasted `swift package describe` per such name.
+        def build_companion_framework(module_name:, pkg_dir:, derived_data:, output_dir:)
+          probe = Buildable.new(name: module_name, module_name: module_name, pkg_dir: pkg_dir)
+          obj = probe.find_object_file(derived_data)
           return nil unless obj && File.exist?(obj)
 
+          companion = Buildable.new(
+            name: module_name,
+            module_name: module_name,
+            pkg_dir: pkg_dir,
+            header_paths: resolve_public_headers(module_name, module_name, pkg_dir),
+          )
           artifacts = {
             derived_data: derived_data,
             object_file: obj,
@@ -644,8 +675,7 @@ module SPMCache
             swiftsourceinfo: companion.find_file(derived_data, "#{module_name}.swiftsourceinfo"),
             swiftinterface: companion.find_file(derived_data, "#{module_name}.swiftinterface"),
           }
-          fw_dir = companion.create_framework(artifacts, output_dir)
-          fw_dir
+          companion.create_framework(artifacts, output_dir)
         end
 
         # Builds one companion `<ShimName>.xcframework` per detected shim
