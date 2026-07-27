@@ -181,9 +181,24 @@ module SPMCache
       # marker object so the static library actually contains the whole
       # module; harmless (single-element result) for the WMO case where the
       # marker genuinely is the only object.
+      #
+      # Field bug: the fan-out above is only safe when the marker sits under
+      # Objects-normal/<arch>/ -- the per-target intermediates directory
+      # #find_object_file's SECOND glob pattern lands in. Its FIRST pattern
+      # (`**/Products/**/#{module_name}.o`) can instead find an ObjC
+      # ClangTarget's marker directly in the SHARED Products/<config>-<sdk>/
+      # directory during a whole-scheme Xcode build, where every target in
+      # the invocation dumps its own object file. Fanning out there scoops up
+      # every sibling target's object too. Confirmed live: FirebaseCore's
+      # cached binary had 72 archive members -- FirebaseAuth.o,
+      # FirebaseFirestore.o, and dozens of other unrelated Firebase products
+      # -- not just FirebaseCore's own 13 .m files. Only gather siblings in
+      # the verified-safe Objects-normal case; otherwise return just the
+      # marker, matching the narrower, correct pre-fan-out behavior.
       def find_object_files(derived_data, marker = nil)
         marker ||= find_object_file(derived_data)
         return [] unless marker
+        return [marker] unless marker.include?("Objects-normal")
 
         Dir.glob(File.join(File.dirname(marker), "*.o"))
       end

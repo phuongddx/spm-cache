@@ -206,6 +206,58 @@ RSpec.describe SPMCache::SPM::Buildable do
     end
   end
 
+  # Field bug: FirebaseCore is an ObjC ClangTarget built as part of a
+  # whole-scheme Xcode build. find_object_file's marker glob can land the
+  # marker directly in the shared Products/<config>-<sdk>/ dir (not inside a
+  # per-target Objects-normal/<arch>/ subdirectory), where EVERY target in
+  # the whole build dumps its own object file. The old blind
+  # Dir.glob(dirname(marker) + "/*.o") scooped up every sibling target's
+  # object too -- confirmed live: FirebaseCore.xcframework's binary had 72
+  # archive members including FirebaseAuth.o, FirebaseFirestore.o, and dozens
+  # of other unrelated Firebase products. Only fan out when the marker's own
+  # path proves the safe, verified case (Swift per-file compilation objects
+  # sitting together under Objects-normal/<arch>/, per #find_object_files'
+  # own comment above); otherwise return just the marker.
+  describe "#find_object_files" do
+    let(:pkg_dir) { Dir.mktmpdir }
+    let(:buildable) { described_class.new(name: "Alamofire", pkg_dir: pkg_dir) }
+
+    after { FileUtils.rm_rf(pkg_dir) }
+
+    it "gathers every sibling .o when the marker sits under Objects-normal/<arch> (per-file Swift compilation, existing verified behavior)" do
+      dd = Dir.mktmpdir
+      objs_dir = File.join(dd, "Build", "Intermediates.noindex", "Alamofire.build", "Debug-iphonesimulator",
+                            "Alamofire.build", "Objects-normal", "arm64")
+      FileUtils.mkdir_p(objs_dir)
+      marker = File.join(objs_dir, "Alamofire.o")
+      File.write(marker, "stub marker")
+      File.write(File.join(objs_dir, "Session.o"), "real per-file object")
+      File.write(File.join(objs_dir, "Request.o"), "real per-file object")
+
+      result = buildable.find_object_files(dd, marker)
+
+      expect(result).to match_array(
+        [marker, File.join(objs_dir, "Session.o"), File.join(objs_dir, "Request.o")],
+      )
+      FileUtils.rm_rf(dd)
+    end
+
+    it "returns only the marker when it sits directly under Products/<config> alongside other targets' objects (whole-scheme Clang build)" do
+      dd = Dir.mktmpdir
+      products_dir = File.join(dd, "Build", "Products", "Debug-iphonesimulator")
+      FileUtils.mkdir_p(products_dir)
+      marker = File.join(products_dir, "FirebaseCore.o")
+      File.write(marker, "stub marker")
+      File.write(File.join(products_dir, "FirebaseAuth.o"), "unrelated sibling target -- must not be collected")
+      File.write(File.join(products_dir, "FirebaseFirestore.o"), "unrelated sibling target -- must not be collected")
+
+      result = buildable.find_object_files(dd, marker)
+
+      expect(result).to eq([marker])
+      FileUtils.rm_rf(dd)
+    end
+  end
+
   describe "#build_for_destination" do
     let(:pkg_dir) { Dir.mktmpdir }
     let(:buildable) { described_class.new(name: "CryptoSwift", pkg_dir: pkg_dir) }
