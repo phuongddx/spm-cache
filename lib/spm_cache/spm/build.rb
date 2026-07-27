@@ -2,6 +2,7 @@
 
 require "fileutils"
 require "tmpdir"
+require "tempfile"
 require "spm_cache/core/sh"
 require "spm_cache/swift/sdk"
 require "spm_cache/swift/swiftc"
@@ -104,6 +105,7 @@ module SPMCache
         cmd
       end
 
+
       # Field bug: SVGKit's checkout carries THREE committed .xcodeproj
       # files at its root (the library itself plus two demo apps) alongside
       # Package.swift -- xcodebuild refuses to guess which one to use
@@ -144,6 +146,7 @@ module SPMCache
         {
           derived_data: dd,
           object_file: obj,
+          object_files: find_object_files(dd, obj),
           # Only look for a pre-built .framework when no raw .o was produced
           # -- see #find_framework for why, and avoid the wasted glob in the
           # common case where the .o lookup already succeeded.
@@ -158,6 +161,29 @@ module SPMCache
       def find_object_file(derived_data)
         Dir.glob(File.join(derived_data, "**", "Products", "**", "#{@module_name}.o")).first ||
           Dir.glob(File.join(derived_data, "**", "#{@module_name}.o")).first
+      end
+
+      # Field bug: Xcode only compiles a target's Swift sources into a SINGLE
+      # object file named after the module (what #find_object_file looks for)
+      # under whole-module optimization. The generated schemes this tool
+      # builds run in Xcode's default per-file ("Incremental") Swift
+      # compilation mode instead, so real multi-file packages (Alamofire,
+      # SkeletonView) end up with ONE small compile-summary stub object
+      # matching the module name (Xcode still emits this) PLUS the real
+      # per-file implementation objects (Session.o, Request.o, ...) sitting
+      # right alongside it in the same Objects-normal/<arch> directory.
+      # Verified empirically for Alamofire: the module-named stub was 12KB
+      # while the other 37 real per-file objects in that same directory
+      # totaled 6.4MB combined -- archiving only the stub silently produced a
+      # near-empty, symbol-less binary. Gather every ".o" sitting next to the
+      # marker object so the static library actually contains the whole
+      # module; harmless (single-element result) for the WMO case where the
+      # marker genuinely is the only object.
+      def find_object_files(derived_data, marker = nil)
+        marker ||= find_object_file(derived_data)
+        return [] unless marker
+
+        Dir.glob(File.join(File.dirname(marker), "*.o"))
       end
 
       # Field bug: CryptoSwift's checkout carries its own committed
@@ -180,9 +206,19 @@ module SPMCache
           Dir.glob(File.join(derived_data, "**", basename)).first
       end
 
-      def create_static_library(object_file, output_path = nil)
+      # Archives one or more object files into a single static library.
+      # Uses a -filelist (rather than interpolating every path onto the
+      # command line) so this works whether given one object or the full
+      # per-file set from #find_object_files -- see that method for why a
+      # single object is not always the whole module's implementation.
+      def create_static_library(object_files, output_path = nil)
         output_path ||= File.join(Dir.mktmpdir, @module_name)
-        SPMCache::Core::Sh.run("libtool -static -o #{output_path} #{object_file}")
+        object_files = Array(object_files)
+        filelist = Tempfile.new(["objs", ".txt"])
+        filelist.write(object_files.join("\n"))
+        filelist.close
+        SPMCache::Core::Sh.run("libtool -static -o '#{output_path}' -filelist '#{filelist.path}'")
+        filelist.unlink
         output_path
       end
 
@@ -190,9 +226,13 @@ module SPMCache
         fw_dir = File.join(output_dir, "#{@module_name}.framework")
         FileUtils.mkdir_p(fw_dir)
 
-        # 1. Static library binary
-        if artifacts[:object_file] && File.exist?(artifacts[:object_file])
-          lib = create_static_library(artifacts[:object_file])
+        # 1. Static library binary -- prefer the full per-file object set
+        # (see #find_object_files); fall back to the single marker object
+        # for callers that never populated :object_files.
+        objects = artifacts[:object_files]&.any? ? artifacts[:object_files] : Array(artifacts[:object_file])
+        objects = objects.select { |o| o && File.exist?(o) }
+        if objects.any?
+          lib = create_static_library(objects)
           FileUtils.cp(lib, File.join(fw_dir, @module_name))
         end
 
