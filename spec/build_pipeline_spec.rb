@@ -2,6 +2,7 @@
 
 require "spec_helper"
 require "tmpdir"
+require "json"
 
 # Unit-tests SPM::BuildPipeline argument assembly with stubbed Buildable and
 # XCFramework layers. No real xcodebuild is invoked. Correctness beyond
@@ -22,6 +23,12 @@ RSpec.describe SPMCache::SPM::BuildPipeline do
     allow(fake_desc).to receive(:products).and_return(
       products.map { |p| SPMCache::SPM::Desc::Product.new(raw: p, pkg_dir: pkg_dir) },
     )
+    # Default: no targets at all, so #find_private_clang_shims's lookup
+    # finds nothing and returns [] -- matches "no private Clang shim
+    # dependency" (the common case for every package before this feature).
+    # Tests exercising the shim-detection feature itself override this.
+    allow(fake_desc).to receive(:raw).and_return({ "targets" => [] })
+    fake_desc
   end
 
   before do
@@ -64,6 +71,76 @@ RSpec.describe SPMCache::SPM::BuildPipeline do
       out_dir: out_dir,
     )
     expect(result).to eq(File.join(out_dir, "Alamofire.xcframework"))
+  end
+
+  # Reproduces swift-numerics' RealModule -> _NumericsShims shape: a Swift
+  # target privately depending on an internal Clang target that is never
+  # declared as its own library product. See build_pipeline.rb's
+  # #find_private_clang_shims for the full root-cause writeup (RealModule's
+  # own `.swiftinterface` embeds `import _NumericsShims` as a real public
+  # import, so a binary-cached consumer needs that module resolvable on its
+  # own).
+  it "builds a companion shim xcframework and writes a sidecar when a target has a private ClangTarget dependency" do
+    shim_include_dir = File.join(pkg_dir, "Sources", "_NumericsShims", "include")
+    FileUtils.mkdir_p(shim_include_dir)
+    File.write(File.join(shim_include_dir, "_NumericsShims.h"), "// shim header\n")
+
+    fake_desc = stub_desc_products([{ "name" => "RealModule", "type" => { "library" => ["automatic"] } }])
+    allow(fake_desc).to receive(:raw).and_return(
+      "targets" => [
+        { "name" => "RealModule", "module_type" => "SwiftTarget", "target_dependencies" => ["_NumericsShims"] },
+        { "name" => "_NumericsShims", "module_type" => "ClangTarget", "path" => "Sources/_NumericsShims" },
+      ],
+    )
+
+    dd_dir = File.join(tmpdir, "dd")
+    FileUtils.mkdir_p(dd_dir)
+    shim_object_file = File.join(dd_dir, "_NumericsShims.o")
+    File.write(shim_object_file, "fake object")
+
+    fake_buildable = instance_double(SPMCache::SPM::Buildable)
+    allow(SPMCache::SPM::Buildable).to receive(:new).and_return(fake_buildable)
+    artifacts = {
+      derived_data: dd_dir,
+      object_file: File.join(dd_dir, "RealModule.o"),
+      swiftmodule: nil, swiftdoc: nil, swiftsourceinfo: nil, swiftinterface: nil,
+    }
+    allow(fake_buildable).to receive(:build_for_destination).and_return(artifacts)
+    allow(fake_buildable).to receive(:create_framework) do |_arts, subdir|
+      fw = File.join(subdir, "RealModule.framework")
+      FileUtils.mkdir_p(fw)
+      fw
+    end
+    allow(fake_buildable).to receive(:find_object_file).and_return(shim_object_file)
+    allow(SPMCache::Core::Sh).to receive(:run)
+
+    main_xc = double("MainXCFramework", build: File.join(out_dir, "RealModule.xcframework"))
+    shim_xc = double("ShimXCFramework", build: File.join(out_dir, "_NumericsShims.xcframework"))
+    allow(SPMCache::SPM::XCFramework::XCFramework).to receive(:new) do |name:, **_kwargs|
+      name == "RealModule" ? main_xc : shim_xc
+    end
+
+    result = described_class.run(
+      name: "RealModule",
+      pkg_dir: pkg_dir,
+      destinations: ["iphonesimulator"],
+      out_dir: out_dir,
+    )
+
+    expect(result).to eq(File.join(out_dir, "RealModule.xcframework"))
+    sidecar = File.join(out_dir, "RealModule.xcframework.shims.json")
+    expect(File.exist?(sidecar)).to be true
+    expect(JSON.parse(File.read(sidecar))).to eq(["_NumericsShims"])
+  end
+
+  it "does not build any companion shim, or write a sidecar, for the common case of no private ClangTarget dependency" do
+    described_class.run(
+      name: "Alamofire",
+      pkg_dir: pkg_dir,
+      destinations: ["iphonesimulator"],
+      out_dir: out_dir,
+    )
+    expect(File.exist?(File.join(out_dir, "Alamofire.xcframework.shims.json"))).to be false
   end
 
   it "raises when name is empty" do

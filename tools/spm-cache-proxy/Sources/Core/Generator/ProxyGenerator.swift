@@ -210,6 +210,15 @@ struct ProxyGenerator {
                         at: dest,
                         withDestinationURL: binary
                     )
+
+                    // Symlink in any companion shim xcframework(s) too --
+                    // see BinariesCache.shims(for:) for why these exist.
+                    for shim in cache.shims(for: build.product.name) {
+                        guard let shimBinary = cache.shimXCFramework(named: shim) else { continue }
+                        let shimDest = artifactsDir.appendingPathComponent(shimBinary.lastPathComponent)
+                        try? FileManager.default.removeItem(at: shimDest)
+                        try? FileManager.default.createSymbolicLink(at: shimDest, withDestinationURL: shimBinary)
+                    }
                 } else {
                     // Source fallback (missed, not yet built): emit a shim
                     // that re-exports the real package module(s) so `import
@@ -260,8 +269,24 @@ struct ProxyGenerator {
 
             if build.status == .hit, build.cachedBinary != nil {
                 let relativePath = "../../.build/artifacts/\(build.product.name).xcframework"
-                productLines.append(".library(name: \"\(build.product.name)\", targets: [\"\(productSlug)_binary\"])")
+                var productTargets = ["\(productSlug)_binary"]
                 targetLines.append(".binaryTarget(name: \"\(productSlug)_binary\", path: \"\(relativePath)\")")
+
+                // Companion shim binaryTarget(s) go in the SAME product as
+                // the main binary -- Xcode's package graph then adds BOTH
+                // xcframeworks' framework search paths to any consumer of
+                // this one product, which is what lets the main binary's
+                // `.swiftinterface` resolve an `import <Shim>` it can't
+                // satisfy on its own. See BinariesCache.shims(for:).
+                for shim in cache.shims(for: build.product.name) {
+                    let shimSlug = "\(productSlug)_\(shim.c99extidentifier)_shim_binary"
+                    let shimRelativePath = "../../.build/artifacts/\(shim).xcframework"
+                    targetLines.append(".binaryTarget(name: \"\(shimSlug)\", path: \"\(shimRelativePath)\")")
+                    productTargets.append(shimSlug)
+                }
+
+                let targetsList = productTargets.map { "\"\($0)\"" }.joined(separator: ", ")
+                productLines.append(".library(name: \"\(build.product.name)\", targets: [\(targetsList)])")
             } else {
                 let (depLine, targetDep) = sourceDependencyLines(pkg: pkg, productName: build.product.name)
                 if !sharedDepEmitted {

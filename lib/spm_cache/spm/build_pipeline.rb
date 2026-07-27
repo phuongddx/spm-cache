@@ -3,6 +3,7 @@
 require "fileutils"
 require "tmpdir"
 require "digest"
+require "json"
 
 require "spm_cache/core/log"
 require "spm_cache/core/sh"
@@ -35,6 +36,7 @@ module SPMCache
 
           scheme = resolve_scheme(name, pkg_dir)
           module_name = resolve_module_name(name, pkg_dir)
+          shim_targets = find_private_clang_shims(module_name, name, pkg_dir)
 
           buildable = Buildable.new(
             name: name,
@@ -46,6 +48,7 @@ module SPMCache
 
           tmpdir = Dir.mktmpdir
           framework_paths = []
+          shim_framework_paths = Hash.new { |h, k| h[k] = [] }
 
           destinations.each do |dest_key|
             Core::UI.info "  Building #{name} for #{dest_key}..."
@@ -63,6 +66,15 @@ module SPMCache
             fw_dir = artifacts[:framework] ? buildable.use_existing_framework(artifacts, fw_subdir) :
                      buildable.create_framework(artifacts, fw_subdir)
             framework_paths << fw_dir
+
+            shim_targets.each do |shim|
+              fw = build_clang_shim_framework(shim: shim, pkg_dir: pkg_dir, derived_data: dd, output_dir: fw_subdir)
+              shim_framework_paths[shim["name"]] << fw if fw
+            end
+
+            find_framework_companions(artifacts, module_name, out_dir).each do |companion_name, companion_fw|
+              shim_framework_paths[companion_name] << companion_fw
+            end
           end
 
           if framework_paths.empty?
@@ -86,6 +98,7 @@ module SPMCache
             output_path: output_path,
           )
           result = xcframework.build
+          write_shim_sidecar(output_path, shim_framework_paths, out_dir)
           FileUtils.rm_rf(tmpdir)
           result
         end
@@ -103,6 +116,7 @@ module SPMCache
 
           tmpdir = Dir.mktmpdir
           framework_paths = []
+          companion_framework_paths = Hash.new { |h, k| h[k] = [] }
 
           destinations.each do |dest_key|
             Core::UI.info "  Building #{name} (scheme #{scheme}) for #{dest_key}..."
@@ -120,6 +134,13 @@ module SPMCache
             fw_dir = artifacts[:framework] ? buildable.use_existing_framework(artifacts, fw_subdir) :
                      buildable.create_framework(artifacts, fw_subdir)
             framework_paths << fw_dir
+
+            # Cross-package public-header dependencies must travel with the
+            # cached binary here too -- this fallback path is the one a
+            # vendored-.xcodeproj package like DTCoreText actually takes.
+            find_framework_companions(artifacts, name, out_dir).each do |companion_name, companion_fw|
+              companion_framework_paths[companion_name] << companion_fw
+            end
           end
 
           raise "No slices were built successfully for #{name}" if framework_paths.empty?
@@ -133,6 +154,7 @@ module SPMCache
             output_path: output_path,
           )
           result = xcframework.build
+          write_shim_sidecar(output_path, companion_framework_paths, out_dir)
           FileUtils.rm_rf(tmpdir)
           result
         end
@@ -232,6 +254,190 @@ module SPMCache
           return name if target_names.empty? || target_names.include?(name)
 
           target_names.first
+        end
+
+        # Some Swift targets privately depend on an internal Clang ("C shim")
+        # target that is never declared as its own library product -- e.g.
+        # swift-numerics' RealModule depends on `_NumericsShims` purely for
+        # libm wrapper functions. Because RealModule's own source imports it
+        # with a plain (non-`@_implementationOnly`) `import`, and those
+        # functions are used inside `@_transparent` (cross-module-inlinable)
+        # bodies -- verified empirically that marking the import
+        # `@_implementationOnly` breaks compilation ("cannot be used in a
+        # '@_transparent' function because '_NumericsShims' was imported
+        # implementation-only") -- swiftc's emitted `.swiftinterface` embeds
+        # `import _NumericsShims` as a real, unavoidable public import. A
+        # binary-cached consumer of RealModule.xcframework therefore needs
+        # `_NumericsShims`'s Clang module resolvable on its own, but
+        # spm-cache never builds/bundles it since it isn't a declared
+        # library product -- "no such module '_NumericsShims'" when Xcode
+        # reparses the interface under library evolution. Detect any such
+        # target-level (not product-level) Clang dependency so a companion
+        # xcframework can be assembled alongside the main one.
+        def find_private_clang_shims(module_name, name, pkg_dir)
+          desc = Desc::Description.new(name: name, pkg_dir: pkg_dir)
+          desc.fetch
+          product_names = desc.products.map(&:name).to_set
+          targets_by_name = (desc.raw["targets"] || []).each_with_object({}) { |t, h| h[t["name"]] = t }
+          target = targets_by_name[module_name] || targets_by_name[name]
+          return [] unless target
+
+          (target["target_dependencies"] || []).filter_map do |dep_name|
+            dep = targets_by_name[dep_name]
+            next unless dep && dep["module_type"] == "ClangTarget" && !product_names.include?(dep_name)
+
+            dep
+          end
+        end
+
+        # Cross-PACKAGE counterpart to #find_private_clang_shims. Where that
+        # method handles a private Clang target INSIDE the same package, this
+        # one handles a dependency living in a wholly separate package whose
+        # headers the cached module's own PUBLIC headers `#import` by
+        # framework name.
+        #
+        # Field bug: DTCoreText's public header DTHTMLAttributedStringBuilder.h
+        # does `#import <DTFoundation/DTHTMLParser.h>` -- DTFoundation is a
+        # separate SPM package (github.com/Cocoanetics/DTFoundation), consumed
+        # via `.product(name: "DTFoundation", package: "DTFoundation")`. The
+        # generated proxy replaces DTCoreText with a plain binaryTarget and
+        # drops that dependency edge entirely (verified: DTFoundation appears
+        # nowhere in the generated proxy Package.swift), so once DTCoreText is
+        # a cached xcframework nothing supplies DTFoundation's headers and the
+        # app build dies in Clang's dependency scanner ("'DTFoundation/
+        # DTHTMLParser.h' file not found" -> "could not build module
+        # 'DTCoreText'"). Unlike the _NumericsShims case there is nothing to
+        # assemble by hand: xcodebuild already emits a complete, real
+        # DTFoundation.framework (binary + Headers/ + module.modulemap) right
+        # next to DTCoreText.framework in the same Products dir, because
+        # building the main scheme necessarily builds its dependency graph.
+        # Pick those siblings up and let the existing companion-shim plumbing
+        # (#write_shim_sidecar -> <module>.xcframework.shims.json ->
+        # BinariesCache.shims -> extra binaryTarget in the SAME .library
+        # product) carry them alongside the main binary.
+        #
+        # Deliberately narrow, to avoid bundling a copy of something the app
+        # already gets by another route:
+        #   * only siblings actually named in a PUBLIC header's angle-bracket
+        #     import are taken -- a dependency used solely from .m
+        #     implementation files needs no headers at consumer-compile time
+        #     (its symbols are already linked into the main binary), so
+        #     bundling it would be pure duplication;
+        #   * anything independently cached in `out_dir` is skipped, since the
+        #     proxy already vends that as its own product and a second copy
+        #     inside this one would collide (the same duplicate-GUID/duplicate
+        #     -symbol family of failure documented throughout spm-cache.yml).
+        def find_framework_companions(artifacts, module_name, out_dir)
+          products_dir = Dir.glob(File.join(artifacts[:derived_data].to_s, "Build", "Products", "*"))
+                            .find { |d| File.directory?(d) }
+          return {} unless products_dir
+
+          main_framework = File.join(products_dir, "#{module_name}.framework")
+          headers_dir = File.join(main_framework, "Headers")
+          return {} unless File.directory?(headers_dir)
+
+          public_headers = Dir.glob(File.join(headers_dir, "**", "*.h"))
+                              .map { |h| File.read(h) rescue "" }
+                              .join("\n")
+
+          Dir.glob(File.join(products_dir, "*.framework")).each_with_object({}) do |fw, acc|
+            fw_name = File.basename(fw, ".framework")
+            next if fw_name == module_name
+            next unless public_headers.match?(/#\s*(?:import|include)\s*<#{Regexp.escape(fw_name)}\//)
+            next if File.exist?(File.join(out_dir, "#{fw_name}.xcframework"))
+
+            acc[fw_name] = fw
+          end
+        end
+
+        # Assembles a companion `.framework` slice for a private Clang shim
+        # target, reusing the `.o` that xcodebuild already produced as a
+        # side effect of building the main target in the SAME derived_data
+        # tree (no extra build invocation needed -- confirmed empirically
+        # that `_NumericsShims.o` sits right there under
+        # `Products/<config>/_NumericsShims.o` once `RealModule` finishes
+        # building, same layout `find_object_file` already globs). Headers
+        # come from the target's own `include/` dir (SwiftPM's default
+        # public-headers convention for a Clang target with no explicit
+        # `publicHeadersPath`). The framework module is declared as
+        # `framework module` under an umbrella header that re-exports every
+        # real header -- verified empirically (standalone swiftc repro,
+        # outside spm-cache) that this is what makes Clang's `-F`
+        # framework-module search resolve `import _NumericsShims` when the
+        # resulting framework sits alongside RealModule.framework on the
+        # same search path; a plain `module` declaration embedded inside
+        # RealModule.framework's OWN Modules/ dir does NOT get found, and
+        # neither does re-using the real (non-framework) module.modulemap
+        # from the checkout verbatim.
+        def build_clang_shim_framework(shim:, pkg_dir:, derived_data:, output_dir:)
+          shim_name = shim["name"]
+          shim_buildable = Buildable.new(name: shim_name, module_name: shim_name, pkg_dir: pkg_dir)
+          object_file = shim_buildable.find_object_file(derived_data)
+          return nil unless object_file && File.exist?(object_file)
+
+          header_dir = File.join(pkg_dir, shim["path"], "include")
+          headers = Dir.glob(File.join(header_dir, "*.h"))
+          return nil if headers.empty?
+
+          fw_dir = File.join(output_dir, "#{shim_name}-shim", "#{shim_name}.framework")
+          FileUtils.mkdir_p(fw_dir)
+
+          Core::Sh.run("libtool -static -o '#{File.join(fw_dir, shim_name)}' '#{object_file}'")
+
+          headers_dir = File.join(fw_dir, "Headers")
+          FileUtils.mkdir_p(headers_dir)
+          headers.each { |h| FileUtils.cp(h, File.join(headers_dir, File.basename(h))) }
+
+          umbrella_name = "#{shim_name}-Umbrella.h"
+          File.write(File.join(headers_dir, umbrella_name),
+                     headers.map { |h| "#import \"#{File.basename(h)}\"" }.join("\n") + "\n")
+
+          modules_dir = File.join(fw_dir, "Modules")
+          FileUtils.mkdir_p(modules_dir)
+          File.write(File.join(modules_dir, "module.modulemap"), <<~MODULEMAP)
+            framework module #{shim_name} {
+              umbrella header "#{umbrella_name}"
+              export *
+            }
+          MODULEMAP
+
+          File.write(File.join(fw_dir, "Info.plist"), <<~PLIST)
+            <?xml version="1.0" encoding="UTF-8"?>
+            <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+            <plist version="1.0">
+            <dict>
+            <key>CFBundleExecutable</key><string>#{shim_name}</string>
+            <key>CFBundleIdentifier</key><string>com.spm-cache.#{shim_name.downcase}</string>
+            <key>CFBundleInfoDictionaryVersion</key><string>6.0</string>
+            <key>CFBundleName</key><string>#{shim_name}</string>
+            <key>CFBundlePackageType</key><string>FMWK</string>
+            <key>CFBundleShortVersionString</key><string>1.0</string>
+            <key>CFBundleVersion</key><string>1</string>
+            </dict>
+            </plist>
+          PLIST
+
+          fw_dir
+        end
+
+        # Builds one companion `<ShimName>.xcframework` per detected shim
+        # (skipping any that never produced a slice) alongside the main
+        # xcframework in `out_dir`, and records their names in a
+        # `<name>.xcframework.shims.json` sidecar so the proxy generator
+        # knows to wire each one in as an extra `.binaryTarget` combined
+        # into the SAME `.library` product as the main binary.
+        def write_shim_sidecar(output_path, shim_framework_paths, out_dir)
+          built_shim_names = shim_framework_paths.filter_map do |shim_name, paths|
+            next nil if paths.empty?
+
+            shim_output = File.join(out_dir, "#{shim_name}.xcframework")
+            FileUtils.rm_rf(shim_output)
+            XCFramework::XCFramework.new(name: shim_name, framework_paths: paths, output_path: shim_output).build
+            shim_name
+          end
+          return if built_shim_names.empty?
+
+          File.write("#{output_path}.shims.json", JSON.generate(built_shim_names))
         end
 
         def resolve_scheme_fallback(name, pkg_dir)

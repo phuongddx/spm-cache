@@ -123,6 +123,97 @@ struct ProxyGeneratorTests {
         #expect(appAuthCoreShimDir.exists)
     }
 
+    // Reproduces swift-numerics' RealModule -> _NumericsShims shape: a hit
+    // product whose own `.swiftinterface` needs a private (non-product)
+    // Clang-target dependency resolvable on its own. The Ruby build
+    // pipeline builds a companion `_NumericsShims.xcframework` alongside
+    // the main one and records it in a `<module>.xcframework.shims.json`
+    // sidecar (see BinariesCache.shims(for:)); the proxy generator must
+    // wire the shim in as an EXTRA `.binaryTarget` combined into the SAME
+    // `.library` product as the main binary, so Xcode's package graph adds
+    // both xcframeworks' framework search paths to any consumer.
+    @Test("a hit product with a companion shim xcframework gets an extra binaryTarget combined into the same library product")
+    func hitProductWithShimGetsMultiTargetProduct() throws {
+        let tmp = try makeTempDir()
+        defer { try? FileManager.default.removeItem(at: tmp) }
+
+        let cacheDir = tmp.appendingPathComponent("cache")
+        try cacheDir.mkdir()
+        try cacheDir.appendingPathComponent("RealModule.xcframework").mkdir()
+        try cacheDir.appendingPathComponent("_NumericsShims.xcframework").mkdir()
+        let sidecar = cacheDir.appendingPathComponent("RealModule.xcframework.shims.json")
+        try JSONEncoder().encode(["_NumericsShims"]).write(to: sidecar)
+
+        let outputDir = tmp.appendingPathComponent("proxy")
+        let pkg = Lockfile.PackageRef(
+            repositoryURL: "https://github.com/apple/swift-numerics.git",
+            pathFromRoot: nil,
+            name: "swift-numerics",
+            productName: nil,
+            version: nil,
+            revision: "0a5bc04",
+            products: [
+                .init(name: "RealModule", type: "library", targets: ["RealModule"]),
+            ]
+        )
+
+        let generator = ProxyGenerator(
+            cache: BinariesCache(dir: cacheDir),
+            outputDir: outputDir,
+            cacheOnlyPatterns: ["RealModule"]
+        )
+        let entries = try generator.generate(for: [pkg])
+        #expect(entries.first { $0.module == "RealModule" }?.status == .hit)
+
+        let proxyDir = outputDir.appendingPathComponent(".proxies").appendingPathComponent("swift-numerics_proxy")
+        let manifest = try String(contentsOf: proxyDir.appendingPathComponent("Package.swift"), encoding: .utf8)
+
+        #expect(manifest.contains(".binaryTarget(name: \"swift-numerics_RealModule_binary\""))
+        #expect(manifest.contains(".binaryTarget(name: \"swift-numerics_RealModule__NumericsShims_shim_binary\""))
+        #expect(manifest.contains(".library(name: \"RealModule\", targets: [\"swift-numerics_RealModule_binary\", \"swift-numerics_RealModule__NumericsShims_shim_binary\"])"))
+
+        // Both the main binary and the companion shim get symlinked into
+        // the shared artifacts dir the proxy manifests reference.
+        let artifactsDir = outputDir.appendingPathComponent(".build").appendingPathComponent("artifacts")
+        #expect(artifactsDir.appendingPathComponent("RealModule.xcframework").exists)
+        #expect(artifactsDir.appendingPathComponent("_NumericsShims.xcframework").exists)
+    }
+
+    @Test("a hit product with no shim sidecar gets a single binaryTarget, unchanged from before this feature")
+    func hitProductWithoutShimGetsSingleTarget() throws {
+        let tmp = try makeTempDir()
+        defer { try? FileManager.default.removeItem(at: tmp) }
+
+        let cacheDir = tmp.appendingPathComponent("cache")
+        try cacheDir.mkdir()
+        try cacheDir.appendingPathComponent("Alamofire.xcframework").mkdir()
+
+        let outputDir = tmp.appendingPathComponent("proxy")
+        let pkg = Lockfile.PackageRef(
+            repositoryURL: "https://github.com/Alamofire/Alamofire.git",
+            pathFromRoot: nil,
+            name: "Alamofire",
+            productName: nil,
+            version: nil,
+            revision: "abc123",
+            products: [
+                .init(name: "Alamofire", type: "library", targets: ["Alamofire"]),
+            ]
+        )
+
+        let generator = ProxyGenerator(
+            cache: BinariesCache(dir: cacheDir),
+            outputDir: outputDir,
+            cacheOnlyPatterns: ["Alamofire"]
+        )
+        _ = try generator.generate(for: [pkg])
+
+        let proxyDir = outputDir.appendingPathComponent(".proxies").appendingPathComponent("Alamofire_proxy")
+        let manifest = try String(contentsOf: proxyDir.appendingPathComponent("Package.swift"), encoding: .utf8)
+        #expect(manifest.contains(".library(name: \"Alamofire\", targets: [\"Alamofire_Alamofire_binary\"])"))
+        #expect(!manifest.contains("shim_binary"))
+    }
+
     @Test("a package excluded by cache_only (matches none of its patterns) gets no proxy wrapper at all")
     func cacheOnlyExcludedPackageNoWrapper() throws {
         let tmp = try makeTempDir()
