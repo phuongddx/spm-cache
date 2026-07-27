@@ -68,6 +68,7 @@ module SPMCache
             FileUtils.mkdir_p(fw_subdir)
             fw_dir = artifacts[:framework] ? buildable.use_existing_framework(artifacts, fw_subdir) :
                      buildable.create_framework(artifacts, fw_subdir)
+            fw_dir = rename_framework_to_product(fw_dir, module_name, name)
             framework_paths << fw_dir
 
             shim_targets.each do |shim|
@@ -396,6 +397,35 @@ module SPMCache
         #     proxy already vends that as its own product and a second copy
         #     inside this one would collide (the same duplicate-GUID/duplicate
         #     -symbol family of failure documented throughout spm-cache.yml).
+        # Field bug: FirebaseAnalytics' product wraps a target literally named
+        # FirebaseAnalyticsTarget, and Xcode stamps every artifact with the
+        # TARGET name -- so the cached xcframework held
+        # FirebaseAnalyticsTarget.framework and was importable only under a
+        # name no consumer writes.
+        #
+        # Renaming after the fact rather than forcing PRODUCT_MODULE_NAME on
+        # the xcodebuild invocation: that override applies to every target in
+        # the invocation, and on a multi-target graph several targets then
+        # raced to emit the same module ("Multiple commands produce
+        # ... .swiftmodule"). Verified failure on Zendesk; do not reintroduce.
+        def rename_framework_to_product(fw_dir, module_name, product_name)
+          return fw_dir if module_name == product_name
+
+          new_dir = File.join(File.dirname(fw_dir), "#{product_name}.framework")
+          FileUtils.rm_rf(new_dir)
+          FileUtils.mv(fw_dir, new_dir)
+
+          old_binary = File.join(new_dir, module_name)
+          FileUtils.mv(old_binary, File.join(new_dir, product_name)) if File.exist?(old_binary)
+
+          old_swiftmodule = File.join(new_dir, "Modules", "#{module_name}.swiftmodule")
+          if File.exist?(old_swiftmodule)
+            FileUtils.mv(old_swiftmodule, File.join(new_dir, "Modules", "#{product_name}.swiftmodule"))
+          end
+
+          new_dir
+        end
+
         def find_framework_companions(artifacts, module_name, out_dir, fw_subdir: nil, pkg_dir: nil)
           products_dir = Dir.glob(File.join(artifacts[:derived_data].to_s, "Build", "Products", "*"))
                             .find { |d| File.directory?(d) }

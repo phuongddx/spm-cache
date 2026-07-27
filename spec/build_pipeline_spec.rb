@@ -247,9 +247,13 @@ RSpec.describe SPMCache::SPM::BuildPipeline do
           object_file: "/dd/FirebaseAnalyticsWithoutAdIdSupportTarget.o",
         )
         allow(fb).to receive(:create_framework) do |_arts, subdir|
-          fw = File.join(subdir, "FirebaseAnalyticsWithoutAdIdSupport.framework")
+          # Matches real Buildable#create_framework: the framework and its
+          # binary are always named after @module_name (the target name
+          # here), not the product name -- rename_framework_to_product is
+          # what fixes that up afterward.
+          fw = File.join(subdir, "FirebaseAnalyticsWithoutAdIdSupportTarget.framework")
           FileUtils.mkdir_p(fw)
-          File.write(File.join(fw, "FirebaseAnalyticsWithoutAdIdSupport"), "stub")
+          File.write(File.join(fw, "FirebaseAnalyticsWithoutAdIdSupportTarget"), "stub")
           fw
         end
       end)
@@ -555,5 +559,36 @@ RSpec.describe SPMCache::SPM::BuildPipeline do
     # Verify they're in their respective subdirs
     expect(sim_fw_path).to include("ios-sim-subdir")
     expect(dev_fw_path).to include("ios-dev-subdir")
+  end
+
+  # Field regression: FirebaseAnalytics.xcframework contained
+  # FirebaseAnalyticsTarget.framework, because Xcode stamps artifacts with
+  # the TARGET name while consumers import the PRODUCT name.
+  it "renames framework, binary, and module dir from target name to product name" do
+    staging = File.join(tmpdir, "staging")
+    fw = File.join(staging, "FirebaseAnalyticsTarget.framework")
+    FileUtils.mkdir_p(File.join(fw, "Modules", "FirebaseAnalyticsTarget.swiftmodule"))
+    File.write(File.join(fw, "FirebaseAnalyticsTarget"), "binary")
+
+    result = described_class.send(
+      :rename_framework_to_product, fw, "FirebaseAnalyticsTarget", "FirebaseAnalytics"
+    )
+
+    expect(File.basename(result)).to eq("FirebaseAnalytics.framework")
+    expect(File.exist?(File.join(result, "FirebaseAnalytics"))).to be(true)
+    expect(Dir.exist?(File.join(result, "Modules", "FirebaseAnalytics.swiftmodule"))).to be(true)
+    expect(Dir.exist?(fw)).to be(false)
+  end
+
+  it "leaves the framework untouched when product and module names match" do
+    staging = File.join(tmpdir, "staging2")
+    fw = File.join(staging, "Alamofire.framework")
+    FileUtils.mkdir_p(fw)
+    File.write(File.join(fw, "Alamofire"), "binary")
+
+    result = described_class.send(:rename_framework_to_product, fw, "Alamofire", "Alamofire")
+
+    expect(result).to eq(fw)
+    expect(File.exist?(File.join(fw, "Alamofire"))).to be(true)
   end
 end
