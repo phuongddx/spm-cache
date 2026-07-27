@@ -4,6 +4,7 @@ require "fileutils"
 require "tmpdir"
 require "digest"
 require "json"
+require "set"
 
 require "spm_cache/core/log"
 require "spm_cache/core/sh"
@@ -316,6 +317,38 @@ module SPMCache
         # BinariesCache.shims -> extra binaryTarget in the SAME .library
         # product) carry them alongside the main binary.
         #
+        # Module names this framework's PUBLIC surface names -- either an ObjC
+        # public header's angle-bracket import (`#import <DTFoundation/X.h>`)
+        # or a Swift `.swiftinterface` import line
+        # (`import InternalCollectionsUtilities`). Both forms make the named
+        # module part of the consumer-visible contract, so it must resolve
+        # when a consumer compiles against the cached binary. A dependency
+        # used only from implementation files appears in neither and needs no
+        # companion -- its symbols are already linked into the main binary.
+        def referenced_module_names(main_framework)
+          names = Set.new
+
+          Dir.glob(File.join(main_framework, "Headers", "**", "*.h")).each do |header|
+            content = begin
+              File.read(header)
+            rescue StandardError
+              ""
+            end
+            content.scan(%r{#\s*(?:import|include)\s*<([A-Za-z0-9_]+)/}) { |m| names << m[0] }
+          end
+
+          Dir.glob(File.join(main_framework, "Modules", "*.swiftmodule", "*.swiftinterface")).each do |interface|
+            content = begin
+              File.read(interface)
+            rescue StandardError
+              ""
+            end
+            content.scan(/^\s*import\s+([A-Za-z0-9_]+)\s*$/) { |m| names << m[0] }
+          end
+
+          names
+        end
+
         # Deliberately narrow, to avoid bundling a copy of something the app
         # already gets by another route:
         #   * only siblings actually named in a PUBLIC header's angle-bracket
@@ -333,17 +366,13 @@ module SPMCache
           return {} unless products_dir
 
           main_framework = File.join(products_dir, "#{module_name}.framework")
-          headers_dir = File.join(main_framework, "Headers")
-          return {} unless File.directory?(headers_dir)
-
-          public_headers = Dir.glob(File.join(headers_dir, "**", "*.h"))
-                              .map { |h| File.read(h) rescue "" }
-                              .join("\n")
+          referenced = referenced_module_names(main_framework)
+          return {} if referenced.empty?
 
           Dir.glob(File.join(products_dir, "*.framework")).each_with_object({}) do |fw, acc|
             fw_name = File.basename(fw, ".framework")
             next if fw_name == module_name
-            next unless public_headers.match?(/#\s*(?:import|include)\s*<#{Regexp.escape(fw_name)}\//)
+            next unless referenced.include?(fw_name)
             next if File.exist?(File.join(out_dir, "#{fw_name}.xcframework"))
 
             acc[fw_name] = fw

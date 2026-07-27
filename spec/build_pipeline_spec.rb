@@ -381,4 +381,50 @@ RSpec.describe SPMCache::SPM::BuildPipeline do
       out_dir: out_dir,
     )
   end
+
+  # Field regression: OrderedCollections' .swiftinterface declares
+  # `import InternalCollectionsUtilities` -- a Swift target that is not a
+  # declared product and was never cached, so consumers hit "Unable to find
+  # module dependency". Public-surface scanning must read .swiftinterface
+  # files, not just ObjC headers.
+  it "detects a companion named only by a .swiftinterface import" do
+    products = File.join(tmpdir, "dd", "Build", "Products", "Debug-iphonesimulator")
+    interface_dir = File.join(products, "OrderedCollections.framework", "Modules", "OrderedCollections.swiftmodule")
+    FileUtils.mkdir_p(interface_dir)
+    File.write(
+      File.join(interface_dir, "arm64-apple-ios-simulator.swiftinterface"),
+      "// swift-interface-format-version: 1.0\nimport InternalCollectionsUtilities\nimport Swift\n",
+    )
+    FileUtils.mkdir_p(File.join(products, "InternalCollectionsUtilities.framework"))
+
+    companions = described_class.send(
+      :find_framework_companions,
+      { derived_data: File.join(tmpdir, "dd") },
+      "OrderedCollections",
+      out_dir,
+    )
+
+    expect(companions.keys).to eq(["InternalCollectionsUtilities"])
+  end
+
+  it "ignores a .swiftinterface import that is already independently cached" do
+    products = File.join(tmpdir, "dd2", "Build", "Products", "Debug-iphonesimulator")
+    interface_dir = File.join(products, "OrderedCollections.framework", "Modules", "OrderedCollections.swiftmodule")
+    FileUtils.mkdir_p(interface_dir)
+    File.write(
+      File.join(interface_dir, "arm64-apple-ios-simulator.swiftinterface"),
+      "import InternalCollectionsUtilities\n",
+    )
+    FileUtils.mkdir_p(File.join(products, "InternalCollectionsUtilities.framework"))
+    FileUtils.mkdir_p(File.join(out_dir, "InternalCollectionsUtilities.xcframework"))
+
+    companions = described_class.send(
+      :find_framework_companions,
+      { derived_data: File.join(tmpdir, "dd2") },
+      "OrderedCollections",
+      out_dir,
+    )
+
+    expect(companions).to be_empty
+  end
 end
