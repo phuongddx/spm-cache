@@ -9,6 +9,7 @@ spm-cache prebuilds your SPM dependencies into `.xcframework` files and swaps th
 ### Key Features
 
 - **Proxy Package Architecture** - Seamless source/binary switching at the SPM manifest level
+- **Auto-Sync Diff Detection** - Detects SPM graph changes (Package.resolved + project refs) and auto-regenerates the proxy -- no manual manifest sync required
 - **Automatic Cache Fallback** - Cache miss automatically falls back to source compilation
 - **Swift Macro Support** - Prebuild and cache Swift macros as `.macro` binaries
 - **Resource Bundle Handling** - Properly handles `Bundle.module` access in cached frameworks
@@ -59,6 +60,51 @@ bundle install
    ```bash
    spm-cache rollback
    ```
+
+## Auto-Sync: Zero-Maintenance Dependency Tracking
+
+spm-cache **reads your Xcode project directly** -- it never requires a separate manifest that you must keep in sync by hand. Every time you run `spm-cache use`, it diffs the live SPM graph against the last run's snapshot and auto-regenerates the proxy package transparently.
+
+### How it works
+
+1. **Source of truth:** `Package.resolved` (resolved versions) + `project.pbxproj` SPM package references (local packages, un-resolved refs)
+2. **Snapshot:** `spm-cache.lock` records the exact package set from the last successful integration
+3. **Diff:** On every run, spm-cache compares live vs. locked and prints a human-readable summary:
+
+```
+# Added 2 SPM deps in Xcode, then ran spm-cache:
+$ spm-cache
+Detected: +2 packages (Foo, Bar). Regenerating proxy package.
+
+# Nothing changed:
+$ spm-cache
+No changes detected. Proxy package up to date.
+```
+
+4. **Fast path:** When the diff is empty AND the proxy package already exists, spm-cache skips the costly regenerate/resolve/build cycle entirely -- the integration is a near-instant no-op.
+
+### Watch mode
+
+For continuous integration during development, `--watch` monitors `Package.resolved` and auto-regenerates whenever it changes:
+
+```bash
+spm-cache use --watch
+# Watching .../Package.resolved for changes (Ctrl-C to stop)...
+# [watch] Package.resolved changed, re-integrating...
+```
+
+### spm-cache vs Scipio: dependency tracking
+
+| | spm-cache | Scipio |
+|---|---|---|
+| **Dependency source** | Reads `.xcodeproj` + `Package.resolved` directly | Separate `Package.swift` manifest you create via `scipio init` |
+| **Adding a new SPM dep** | Add in Xcode → run `spm-cache` (auto-detected) | Add in Xcode → manually edit the Scipio manifest package |
+| **Updating a dep version** | Bump in Xcode → run `spm-cache` (auto-detected) | Bump in Xcode → manually update the Scipio manifest |
+| **Removing a dep** | Remove in Xcode → run `spm-cache` (auto-detected) | Remove in Xcode → manually remove from the Scipio manifest |
+| **Sync drift risk** | None (single source of truth) | High -- manifest drifts silently, builds break with confusing errors |
+| **First-run setup** | Zero (just run `spm-cache`) | Must run `scipio init` and curate the manifest |
+
+The manifest-sync burden is Scipio's #1 friction point: every dependency change in Xcode requires a corresponding manual edit to a separate file, and forgetting to do so produces stale or broken builds. spm-cache eliminates this entirely by treating the Xcode project as the single source of truth.
 
 ## CLI Commands
 

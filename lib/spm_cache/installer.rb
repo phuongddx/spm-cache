@@ -15,7 +15,7 @@ module SPMCache
   class Installer
     include SPM::CheckoutResolver
 
-    attr_reader :project_path, :config_name, :config, :lockfile, :proxy_pkg, :cachemap
+    attr_reader :project_path, :config_name, :config, :lockfile, :proxy_pkg, :cachemap, :diff
 
     def initialize(project:, config: "debug")
       @project_path = File.expand_path(project)
@@ -25,11 +25,13 @@ module SPMCache
       @lockfile = nil
       @proxy_pkg = nil
       @cachemap = nil
+      @diff = nil
     end
 
     def perform_install
       Core::UI.section("spm-cache") do
         verify_projects!
+        detect_diff
         recreate_dirs
         ensure_config_file
         sync_lockfile
@@ -39,6 +41,22 @@ module SPMCache
         integrate_proxy_into_project
         gen_cachemap_viz
       end
+    end
+
+    # Compares the existing spm-cache.lock snapshot against the live Xcode
+    # project state (Package.resolved + project.pbxproj SPM refs) and stores
+    # the result in @diff. An empty diff means nothing has changed since the
+    # last successful run -- Installer::Use takes the fast path and skips
+    # regeneration entirely. Prints the human-readable diff summary so the
+    # user sees exactly what changed (if anything). This is the structural
+    # moat vs Scipio, which requires a separate manifest the user must keep
+    # in sync by hand on every dependency change.
+    def detect_diff
+      require "spm_cache/core/diff_detector"
+      detector = Core::DiffDetector.new(project_path: @project_path, lockfile_path: @config.lockfile_path)
+      @diff = detector.detect
+      Core::UI.info @diff.summary
+      @diff
     end
 
     private
@@ -369,6 +387,7 @@ module SPMCache
       # i.e. a stale proxy ref from a prior run -- is stripped. Preserving an
       # unmatched library ref here would recreate the identity-collision bug
       # at the Xcode layer and accumulate proxy refs across runs.
+      #
       plugin_kept_refs = project.root_object.package_references.select { |ref| plugin_ref?(ref, plugin_urls) }
       warn_unmatched_plugin_entries(plugin_kept_refs, plugin_urls)
 
