@@ -45,13 +45,15 @@ module SPMCache
       LOW_DEPLOYMENT_TARGET_RETRY_VALUE = "13.0"
       LOW_DEPLOYMENT_TARGET_ERROR_PATTERN = /SDK does not contain 'libarclite'|is only available in iOS \d+\.\d+ or newer/.freeze
 
-      def initialize(name:, module_name: nil, pkg_dir:, config: "debug", library_evolution: true, scheme: nil)
+      def initialize(name:, module_name: nil, pkg_dir:, config: "debug", library_evolution: true, scheme: nil,
+                     header_paths: [])
         @name = name
         @module_name = module_name || name
         @pkg_dir = pkg_dir
         @config = config
         @library_evolution = library_evolution
         @scheme = scheme || name
+        @header_paths = header_paths
       end
 
       # Field bug: DeviceKit's own committed .xcodeproj has a "Generate
@@ -255,6 +257,8 @@ module SPMCache
         copy_module_artifact(artifacts[:swiftdoc], modules_dir, "#{@module_name}.swiftdoc")
         copy_module_artifact(artifacts[:swiftsourceinfo], modules_dir, "#{@module_name}.swiftsourceinfo")
 
+        create_objc_module(fw_dir)
+
         fw_dir
       end
 
@@ -298,6 +302,56 @@ module SPMCache
         else
           FileUtils.cp(source, destination)
         end
+      end
+
+      # Field bug: an ObjC target (FirebaseCore: 13 .m files, 0 Swift) cached
+      # with only a binary + Info.plist is not an importable module at all --
+      # Clang needs Headers/ plus a module.modulemap. create_framework
+      # previously emitted Swift artifacts exclusively, so every ObjC package
+      # landed in the cache unimportable ("Unable to find module dependency").
+      #
+      # Headers are flattened into Headers/, which is correct for framework
+      # layout: inside a framework, `#import <FirebaseCore/FIRApp.h>` resolves
+      # against Headers/FIRApp.h, so the package's own angle-bracket imports
+      # keep working without rewriting.
+      #
+      # The umbrella is the package's own <Module>.h when it ships one
+      # (Firebase does) -- it curates the public surface deliberately, and
+      # replacing it would change what consumers see. Only synthesize when
+      # absent.
+      def create_objc_module(fw_dir)
+        headers = @header_paths.flat_map do |path|
+          if File.directory?(path)
+            Dir.glob(File.join(path, "**", "*.h"))
+          elsif File.file?(path)
+            [path]
+          else
+            []
+          end
+        end
+        return if headers.empty?
+
+        headers_dir = File.join(fw_dir, "Headers")
+        FileUtils.mkdir_p(headers_dir)
+        headers.each { |h| FileUtils.cp(h, File.join(headers_dir, File.basename(h))) }
+
+        umbrella_name = "#{@module_name}.h"
+        umbrella_path = File.join(headers_dir, umbrella_name)
+        unless File.exist?(umbrella_path)
+          listed = headers.map { |h| %(#import "#{File.basename(h)}") }
+          File.write(umbrella_path, "#{listed.join("\n")}\n")
+        end
+
+        modules_dir = File.join(fw_dir, "Modules")
+        FileUtils.mkdir_p(modules_dir)
+        File.write(File.join(modules_dir, "module.modulemap"), <<~MODULEMAP)
+          framework module #{@module_name} {
+            umbrella header "#{umbrella_name}"
+            export *
+
+            module * { export * }
+          }
+        MODULEMAP
       end
 
       def destination_arch(artifacts)

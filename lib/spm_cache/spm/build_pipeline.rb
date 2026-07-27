@@ -38,6 +38,7 @@ module SPMCache
           scheme = resolve_scheme(name, pkg_dir)
           module_name = resolve_module_name(name, pkg_dir)
           shim_targets = find_private_clang_shims(module_name, name, pkg_dir)
+          header_paths = resolve_public_headers(module_name, name, pkg_dir)
 
           buildable = Buildable.new(
             name: name,
@@ -45,6 +46,7 @@ module SPMCache
             pkg_dir: pkg_dir,
             library_evolution: library_evolution,
             scheme: scheme,
+            header_paths: header_paths,
           )
 
           tmpdir = Dir.mktmpdir
@@ -107,12 +109,15 @@ module SPMCache
         private
 
         def run_with_scheme(name:, scheme:, pkg_dir:, destinations:, out_dir:, library_evolution:)
+          header_paths = resolve_public_headers(name, name, pkg_dir)
+
           buildable = Buildable.new(
             name: name,
             module_name: name,
             pkg_dir: pkg_dir,
             library_evolution: library_evolution,
             scheme: scheme,
+            header_paths: header_paths,
           )
 
           tmpdir = Dir.mktmpdir
@@ -289,6 +294,21 @@ module SPMCache
 
             dep
           end
+        end
+
+        # Public headers for an ObjC (ClangTarget) product, so create_framework
+        # can emit a real module. Returns [] for Swift targets, which need no
+        # Headers/ or modulemap.
+        def resolve_public_headers(module_name, name, pkg_dir)
+          desc = Desc::Description.new(name: name, pkg_dir: pkg_dir)
+          desc.fetch
+          targets = desc.raw["targets"] || []
+          target = targets.find { |t| t["name"] == module_name } || targets.find { |t| t["name"] == name }
+          return [] unless target && target["module_type"] == "ClangTarget"
+
+          Desc::Target.new(raw: target, pkg_dir: pkg_dir).header_paths
+        rescue StandardError
+          []
         end
 
         # Cross-PACKAGE counterpart to #find_private_clang_shims. Where that

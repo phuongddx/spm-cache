@@ -92,6 +92,60 @@ RSpec.describe SPMCache::SPM::Buildable do
       expect(entries).to include("eHealth.swiftmodule", "eHealth.swiftdoc", "eHealth.swiftsourceinfo")
       expect(entries).not_to include("ehealth.swiftmodule")
     end
+
+    # Field regression: the whole Firebase family cached as a bare binary with
+    # an empty Modules/ and no Headers/, because create_framework only ever
+    # emitted Swift artifacts. An ObjC module needs Headers/ plus a
+    # module.modulemap to be importable at all.
+    it "emits Headers and a framework modulemap for an ObjC target" do
+      headers_src = File.join(pkg_dir, "Sources", "Public", "eHealth")
+      FileUtils.mkdir_p(headers_src)
+      File.write(File.join(headers_src, "EHApp.h"), "@interface EHApp @end")
+      File.write(File.join(headers_src, "EHOptions.h"), "@interface EHOptions @end")
+
+      objc_buildable = described_class.new(
+        name: "eHealth",
+        pkg_dir: pkg_dir,
+        header_paths: [headers_src],
+      )
+
+      fw_dir = objc_buildable.create_framework({}, output_dir)
+
+      expect(Dir.children(File.join(fw_dir, "Headers"))).to include("EHApp.h", "EHOptions.h")
+      modulemap = File.read(File.join(fw_dir, "Modules", "module.modulemap"))
+      expect(modulemap).to include("framework module eHealth")
+      expect(modulemap).to include('umbrella header "eHealth.h"')
+    end
+
+    it "synthesizes an umbrella header only when the package does not ship one" do
+      headers_src = File.join(pkg_dir, "Sources", "Public", "eHealth")
+      FileUtils.mkdir_p(headers_src)
+      File.write(File.join(headers_src, "EHApp.h"), "@interface EHApp @end")
+
+      objc_buildable = described_class.new(name: "eHealth", pkg_dir: pkg_dir, header_paths: [headers_src])
+      fw_dir = objc_buildable.create_framework({}, output_dir)
+
+      expect(File.read(File.join(fw_dir, "Headers", "eHealth.h"))).to eq(%(#import "EHApp.h"\n))
+    end
+
+    it "prefers the package's own umbrella header over a synthesized one" do
+      headers_src = File.join(pkg_dir, "Sources", "Public", "eHealth")
+      FileUtils.mkdir_p(headers_src)
+      File.write(File.join(headers_src, "EHApp.h"), "@interface EHApp @end")
+      File.write(File.join(headers_src, "eHealth.h"), "// shipped umbrella")
+
+      objc_buildable = described_class.new(name: "eHealth", pkg_dir: pkg_dir, header_paths: [headers_src])
+      fw_dir = objc_buildable.create_framework({}, output_dir)
+
+      expect(File.read(File.join(fw_dir, "Headers", "eHealth.h"))).to eq("// shipped umbrella")
+    end
+
+    it "emits no Headers directory when the target has no public headers" do
+      fw_dir = buildable.create_framework({}, output_dir)
+
+      expect(Dir.exist?(File.join(fw_dir, "Headers"))).to be(false)
+      expect(File.exist?(File.join(fw_dir, "Modules", "module.modulemap"))).to be(false)
+    end
   end
 
   # Field bug: CryptoSwift's checkout carries its own committed .xcodeproj
