@@ -325,9 +325,12 @@ module SPMCache
         # when a consumer compiles against the cached binary. A dependency
         # used only from implementation files appears in neither and needs no
         # companion -- its symbols are already linked into the main binary.
-        def referenced_module_names(main_framework)
+        # Accepts either a framework path or a products_dir/module_name pair
+        # to support both framework-wrapped and bare .swiftmodule cases.
+        def referenced_module_names(main_framework, products_dir = nil, module_name = nil)
           names = Set.new
 
+          # ObjC header scanning (framework-wrapped case)
           Dir.glob(File.join(main_framework, "Headers", "**", "*.h")).each do |header|
             content = begin
               File.read(header)
@@ -337,6 +340,7 @@ module SPMCache
             content.scan(%r{#\s*(?:import|include)\s*<([A-Za-z0-9_]+)/}) { |m| names << m[0] }
           end
 
+          # Swift interface scanning: framework-wrapped case
           Dir.glob(File.join(main_framework, "Modules", "*.swiftmodule", "*.swiftinterface")).each do |interface|
             content = begin
               File.read(interface)
@@ -344,6 +348,18 @@ module SPMCache
               ""
             end
             content.scan(/^\s*import\s+([A-Za-z0-9_]+)\s*$/) { |m| names << m[0] }
+          end
+
+          # Swift interface scanning: bare .swiftmodule case (SPM pure-Swift libs)
+          if products_dir && module_name
+            Dir.glob(File.join(products_dir, "#{module_name}.swiftmodule", "*.swiftinterface")).each do |interface|
+              content = begin
+                File.read(interface)
+              rescue StandardError
+                ""
+              end
+              content.scan(/^\s*import\s+([A-Za-z0-9_]+)\s*$/) { |m| names << m[0] }
+            end
           end
 
           names
@@ -365,11 +381,21 @@ module SPMCache
                             .find { |d| File.directory?(d) }
           return {} unless products_dir
 
+          # Detect main module layout: framework-wrapped (DTFoundation case) or
+          # bare .swiftmodule (SPM pure-Swift lib case). Both must be scanned
+          # for referenced modules.
           main_framework = File.join(products_dir, "#{module_name}.framework")
-          referenced = referenced_module_names(main_framework)
+          if File.directory?(main_framework)
+            # Framework-wrapped case: scan headers and framework's Modules/*.swiftmodule
+            referenced = referenced_module_names(main_framework)
+          else
+            # Bare case: scan only the bare .swiftmodule dir
+            referenced = referenced_module_names(main_framework, products_dir, module_name)
+          end
           return {} if referenced.empty?
 
-          Dir.glob(File.join(products_dir, "*.framework")).each_with_object({}) do |fw, acc|
+          # Companion collection: framework-wrapped first (existing behavior)
+          companions = Dir.glob(File.join(products_dir, "*.framework")).each_with_object({}) do |fw, acc|
             fw_name = File.basename(fw, ".framework")
             next if fw_name == module_name
             next unless referenced.include?(fw_name)
@@ -377,6 +403,31 @@ module SPMCache
 
             acc[fw_name] = fw
           end
+
+          # Also check for bare companion modules and synthesize frameworks
+          # (SPM pure-Swift library internal dependencies).
+          referenced.each do |companion_name|
+            # Skip if already found as a framework or cached
+            next if companions.key?(companion_name)
+            next if File.exist?(File.join(out_dir, "#{companion_name}.xcframework"))
+
+            # Check if this is a bare module in products_dir
+            bare_swiftmodule = File.join(products_dir, "#{companion_name}.swiftmodule")
+            next unless File.directory?(bare_swiftmodule)
+
+            # Synthesize a framework for this bare module
+            tmpdir = File.join(out_dir, "#{companion_name}-tmp")
+            FileUtils.mkdir_p(tmpdir)
+            fw = build_swift_companion_framework(
+              module_name: companion_name,
+              pkg_dir: File.dirname(File.dirname(File.dirname(artifacts[:derived_data]))), # navigate back to pkg_dir
+              derived_data: artifacts[:derived_data],
+              output_dir: tmpdir,
+            )
+            companions[companion_name] = fw if fw
+          end
+
+          companions
         end
 
         # Assembles a companion `.framework` slice for a private Clang shim
@@ -446,6 +497,30 @@ module SPMCache
             </plist>
           PLIST
 
+          fw_dir
+        end
+
+        # Synthesizes a companion framework for a bare Swift module (.swiftmodule
+        # dir with no .framework wrapper). Used for SPM pure-Swift library
+        # targets whose .swiftinterface names an internal dependency
+        # (e.g. InternalCollectionsUtilities). Reuses Buildable to collect
+        # artifacts and create_framework to assemble the binary, so the
+        # result has the same layout and metadata as the main module's framework.
+        def build_swift_companion_framework(module_name:, pkg_dir:, derived_data:, output_dir:)
+          companion = Buildable.new(name: module_name, module_name: module_name, pkg_dir: pkg_dir)
+          obj = companion.find_object_file(derived_data)
+          return nil unless obj && File.exist?(obj)
+
+          artifacts = {
+            derived_data: derived_data,
+            object_file: obj,
+            object_files: companion.find_object_files(derived_data, obj),
+            swiftmodule: companion.find_file(derived_data, "#{module_name}.swiftmodule"),
+            swiftdoc: companion.find_file(derived_data, "#{module_name}.swiftdoc"),
+            swiftsourceinfo: companion.find_file(derived_data, "#{module_name}.swiftsourceinfo"),
+            swiftinterface: companion.find_file(derived_data, "#{module_name}.swiftinterface"),
+          }
+          fw_dir = companion.create_framework(artifacts, output_dir)
           fw_dir
         end
 

@@ -427,4 +427,52 @@ RSpec.describe SPMCache::SPM::BuildPipeline do
 
     expect(companions).to be_empty
   end
+
+  # Field bug: SPM pure-Swift library builds produce bare .swiftmodule dirs
+  # alongside .o files, not wrapped in .framework bundles. The main module's
+  # .swiftinterface names a companion via `import InternalCollectionsUtilities`,
+  # but no .framework exists yet — we must synthesize one.
+  it "synthesizes a companion framework from a bare .swiftmodule for a referenced import" do
+    products = File.join(tmpdir, "dd3", "Build", "Products", "Debug-iphonesimulator")
+    # Main module: bare (no framework wrapper)
+    main_interface_dir = File.join(products, "OrderedCollections.swiftmodule")
+    FileUtils.mkdir_p(main_interface_dir)
+    File.write(
+      File.join(main_interface_dir, "arm64-apple-ios-simulator.swiftinterface"),
+      "import InternalCollectionsUtilities\nimport Swift\n",
+    )
+    File.write(File.join(products, "OrderedCollections.o"), "fake object file")
+
+    # Companion module: also bare (no framework wrapper yet)
+    companion_interface_dir = File.join(products, "InternalCollectionsUtilities.swiftmodule")
+    FileUtils.mkdir_p(companion_interface_dir)
+    File.write(
+      File.join(companion_interface_dir, "arm64-apple-ios-simulator.swiftinterface"),
+      "import Swift\n",
+    )
+    File.write(File.join(products, "InternalCollectionsUtilities.o"), "fake companion object")
+
+    fake_buildable = instance_double(SPMCache::SPM::Buildable)
+    allow(SPMCache::SPM::Buildable).to receive(:new).and_return(fake_buildable)
+    allow(fake_buildable).to receive(:find_object_file).and_return(File.join(products, "InternalCollectionsUtilities.o"))
+    allow(fake_buildable).to receive(:find_object_files).and_return([File.join(products, "InternalCollectionsUtilities.o")])
+    allow(fake_buildable).to receive(:find_file) do |_dd, basename|
+      file = File.join(products, basename)
+      File.exist?(file) ? file : nil
+    end
+    allow(fake_buildable).to receive(:create_framework) do |_arts, subdir|
+      fw = File.join(subdir, "InternalCollectionsUtilities.framework")
+      FileUtils.mkdir_p(fw)
+      fw
+    end
+
+    companions = described_class.send(
+      :find_framework_companions,
+      { derived_data: File.join(tmpdir, "dd3") },
+      "OrderedCollections",
+      out_dir,
+    )
+
+    expect(companions.keys).to eq(["InternalCollectionsUtilities"])
+  end
 end
