@@ -846,6 +846,16 @@ module SPMCache
           output_path = File.join(out_dir, "#{product_name}.xcframework")
           FileUtils.rm_rf(output_path)
           FileUtils.cp_r(source, output_path)
+
+          # A pre-Class-E cache entry for this product may carry a
+          # `.shims.json` sidecar from when it was still built (and
+          # companion-wired) via the normal Buildable/xcodebuild path.
+          # `cache clean <name>.xcframework` only removes the xcframework
+          # itself, so a targeted clean+rebuild would otherwise leave that
+          # stale sidecar in place, still pointing the proxy generator at a
+          # companion this direct-copy path never builds or needs.
+          FileUtils.rm_f("#{output_path}.shims.json")
+
           output_path
         end
 

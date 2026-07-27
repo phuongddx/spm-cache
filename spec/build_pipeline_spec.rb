@@ -424,6 +424,16 @@ RSpec.describe SPMCache::SPM::BuildPipeline do
     File.write(File.join(prebuilt, "ios-arm64", "FirebaseAnalytics.framework", "Headers", "FIRAnalytics.h"), "// real header\n")
     File.write(File.join(prebuilt, "Info.plist"), "<plist/>")
 
+    # Field bug found in review: a pre-Class-E cache entry for this product
+    # (built via the normal Buildable/xcodebuild path, back when the wrapper
+    # itself was still what got compiled) may carry a stale `.shims.json`
+    # sidecar from that era. `cache clean <name>.xcframework` only removes
+    # the xcframework directory, not this sidecar -- so a targeted
+    # clean+rebuild must still purge it, or the proxy generator keeps wiring
+    # in a companion this direct-copy path never builds.
+    stale_sidecar = File.join(out_dir, "FirebaseAnalytics.xcframework.shims.json")
+    File.write(stale_sidecar, '["FirebaseAnalyticsWrapper"]')
+
     expect(SPMCache::SPM::Buildable).not_to receive(:new)
     expect(SPMCache::Core::Sh).not_to receive(:run)
 
@@ -437,6 +447,7 @@ RSpec.describe SPMCache::SPM::BuildPipeline do
     expect(result).to eq(File.join(out_dir, "FirebaseAnalytics.xcframework"))
     copied_header = File.join(result, "ios-arm64", "FirebaseAnalytics.framework", "Headers", "FIRAnalytics.h")
     expect(File.read(copied_header)).to eq("// real header\n")
+    expect(File.exist?(stale_sidecar)).to be(false)
   end
 
   # Regression: a real (non-wrapper) target reached via the product/target
@@ -452,7 +463,8 @@ RSpec.describe SPMCache::SPM::BuildPipeline do
     allow(fake_desc).to receive(:raw).and_return(
       "targets" => [
         { "name" => "RealProductTarget", "module_type" => "ClangTarget",
-          "sources" => ["RealProductTarget/Sources/Impl.m"] },
+          "sources" => ["RealProductTarget/Sources/Impl.m"],
+          "target_dependencies" => ["SomeUnrelatedDependency"] },
       ],
     )
 
