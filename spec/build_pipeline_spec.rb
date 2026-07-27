@@ -444,6 +444,40 @@ RSpec.describe SPMCache::SPM::BuildPipeline do
     expect(companions).to eq("InternalCollectionsUtilities" => :cached)
   end
 
+  # Field bug, discovered while re-verifying the Class D sibling-skip fix above
+  # against the real swift-collections package: an umbrella product like
+  # Collections re-exports its sibling products with `@_exported import X`
+  # rather than a plain `import X` (confirmed against the real compiled
+  # arm64-apple-ios-simulator.swiftinterface: "@_exported import
+  # BitCollections", "@_exported import DequeModule", etc.) -- the anchored
+  # regex (`^\s*import\s+...`) only matches a line that starts with "import",
+  # so it never recognizes these lines as referencing a companion at all.
+  # Distinct from the sibling-skip bug (this is a detection gap, not a
+  # rebuild-vs-record gap), but blocks the same "Class D" companion family:
+  # Collections never gets BitCollections/DequeModule/etc. wired into its own
+  # sidecar because they're never even detected as referenced.
+  it "detects a companion referenced via '@_exported import' (umbrella re-export), not just a plain import" do
+    products = File.join(tmpdir, "dd5", "Build", "Products", "Debug-iphonesimulator")
+    interface_dir = File.join(products, "Collections.swiftmodule")
+    FileUtils.mkdir_p(interface_dir)
+    File.write(
+      File.join(interface_dir, "arm64-apple-ios-simulator.swiftinterface"),
+      "@_exported import BitCollections\n@_exported import OrderedCollections\nimport Swift\n",
+    )
+    File.write(File.join(products, "Collections.o"), "fake object file")
+    FileUtils.mkdir_p(File.join(out_dir, "BitCollections.xcframework"))
+    FileUtils.mkdir_p(File.join(out_dir, "OrderedCollections.xcframework"))
+
+    companions = described_class.send(
+      :find_framework_companions,
+      { derived_data: File.join(tmpdir, "dd5") },
+      "Collections",
+      out_dir,
+    )
+
+    expect(companions).to eq("BitCollections" => :cached, "OrderedCollections" => :cached)
+  end
+
   # Field bug: SPM pure-Swift library builds produce bare .swiftmodule dirs
   # alongside .o files, not wrapped in .framework bundles. The main module's
   # .swiftinterface names a companion via `import InternalCollectionsUtilities`,

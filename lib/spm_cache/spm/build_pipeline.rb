@@ -368,7 +368,12 @@ module SPMCache
             rescue StandardError
               ""
             end
-            content.scan(/^\s*import\s+([A-Za-z0-9_]+)\s*$/) { |m| names << m[0] }
+            # Field bug: an umbrella product (e.g. Collections, re-exporting
+            # BitCollections/DequeModule/OrderedCollections/...) writes
+            # `@_exported import X` rather than a plain `import X` -- the
+            # unqualified anchor missed it entirely, so Collections never
+            # detected any of its companions as referenced at all.
+            content.scan(/^\s*(?:@_exported\s+)?import\s+([A-Za-z0-9_]+)\s*$/) { |m| names << m[0] }
           end
 
           # Swift interface scanning: bare .swiftmodule case (SPM pure-Swift libs)
@@ -379,7 +384,12 @@ module SPMCache
               rescue StandardError
                 ""
               end
-              content.scan(/^\s*import\s+([A-Za-z0-9_]+)\s*$/) { |m| names << m[0] }
+              # Field bug: an umbrella product (e.g. Collections, re-exporting
+            # BitCollections/DequeModule/OrderedCollections/...) writes
+            # `@_exported import X` rather than a plain `import X` -- the
+            # unqualified anchor missed it entirely, so Collections never
+            # detected any of its companions as referenced at all.
+            content.scan(/^\s*(?:@_exported\s+)?import\s+([A-Za-z0-9_]+)\s*$/) { |m| names << m[0] }
             end
           end
 
