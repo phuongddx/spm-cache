@@ -15,9 +15,9 @@ module SPMCache
 
       # Destinations supported for multi-slice builds
       DESTINATIONS = {
-        "iphonesimulator" => "platform=iOS Simulator,name=iPhone 17",
+        "iphonesimulator" => "generic/platform=iOS Simulator",
         "iphoneos" => "generic/platform=iOS",
-        "ios_simulator" => "platform=iOS Simulator,name=iPhone 17",
+        "ios_simulator" => "generic/platform=iOS Simulator",
         "ios_device" => "generic/platform=iOS",
       }.freeze
 
