@@ -76,20 +76,22 @@ struct UmbrellaGenerator {
             case "visionos": pName = "visionOS"
             default: pName = platform
             }
-            let versionEnum: String
-            switch major {
-            case 13: versionEnum = "v13"
-            case 14: versionEnum = "v14"
-            case 15: versionEnum = "v15"
-            case 16: versionEnum = "v16"
-            case 17: versionEnum = "v17"
-            case 18: versionEnum = "v18"
-            default:
-                if major >= 18 { versionEnum = "v18" }
-                else if major >= 15 { versionEnum = "v15" }
-                else { versionEnum = "v13" }
+            // Each PackageDescription platform enum declares a different set
+            // of version members (watchOS tops out at .v11, iOS/tvOS at .v18,
+            // macOS at .v15, visionOS at .v2); clamp the project's deployment
+            // target into the range the target enum actually defines or the
+            // generated manifest won't compile (e.g. watchOS 11.6 previously
+            // fell through to an invalid .v13).
+            let floor: Int, ceiling: Int
+            switch platform.lowercased() {
+            case "ios", "tvos": floor = 13; ceiling = 18
+            case "macos": floor = 13; ceiling = 15
+            case "watchos": floor = 4; ceiling = 11
+            case "visionos": floor = 1; ceiling = 2
+            default: floor = 13; ceiling = 18
             }
-            return ".\(pName)(.\(versionEnum))"
+            let clamped = min(max(major, floor), ceiling)
+            return ".\(pName)(.v\(clamped))"
         }
 
         // Always include macOS for swift build compatibility
