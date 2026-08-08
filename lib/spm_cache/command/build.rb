@@ -24,7 +24,7 @@ module SPMCache
         raise "No .xcodeproj found" unless project_path
 
         require "xcodeproj"
-        installer = Installer::Build.new(project: project_path, targets: @targets)
+        installer = Installer::Build.new(project: project_path, config: config, targets: @targets)
         installer.perform_install
         puts "Build complete!"
       end
