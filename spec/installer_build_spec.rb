@@ -282,3 +282,45 @@ RSpec.describe SPMCache::Installer::Build, "umbrella resolve fallback (issue #3)
     ).to_stderr
   end
 end
+
+# Regression: a cached xcframework missing a slice for a requested destination
+# (e.g. sim-only under --sdk=all) must be rebuilt, not skipped as a "hit".
+RSpec.describe SPMCache::Installer::Build, "slice-aware rebuild of incomplete hits" do
+  let(:tmpdir) { Dir.mktmpdir }
+  let(:project_path) { File.join(tmpdir, "Fake.xcodeproj") }
+
+  let(:cachemap) do
+    SPMCache::Cache::Cachemap.new(
+      graph_data: [
+        { "module" => "SimOnlyLib", "status" => "hit" },
+        { "module" => "CompleteLib", "status" => "hit" },
+      ],
+    )
+  end
+
+  before do
+    FileUtils.mkdir_p(project_path)
+    FileUtils.mkdir_p(File.join(tmpdir, "SimOnlyLib.xcframework", "ios-arm64-simulator"))
+    FileUtils.mkdir_p(File.join(tmpdir, "CompleteLib.xcframework", "ios-arm64-simulator"))
+    FileUtils.mkdir_p(File.join(tmpdir, "CompleteLib.xcframework", "ios-arm64"))
+
+    allow_any_instance_of(SPMCache::Installer).to receive(:perform_install).and_wrap_original do |original, *args|
+      me = original.receiver
+      me.instance_variable_set(:@cachemap, cachemap) if me.respond_to?(:cachemap)
+      nil
+    end
+    allow_any_instance_of(SPMCache::Installer::Build).to receive(:resolve_umbrella_checkouts).and_return(nil)
+    allow_any_instance_of(SPMCache::Installer::Build).to receive(:checkout_map).and_return({})
+    allow_any_instance_of(SPMCache::Installer::Build).to receive(:build_single_target).and_return(nil)
+    allow(SPMCache::Core::Config.instance).to receive(:ignore_build_errors?).and_return(false)
+    allow(SPMCache::Core::Config.instance).to receive(:default_sdk).and_return("all")
+    allow(SPMCache::Core::Config.instance).to receive(:cache_dir).and_return(tmpdir)
+  end
+
+  after { FileUtils.rm_rf(tmpdir) }
+
+  it "rebuilds a hit package missing the device slice, but skips a complete one" do
+    inst = described_class.new(project: project_path)
+    expect { inst.perform_install }.to output(/Building 1 target.*: SimOnlyLib/).to_stdout
+  end
+end

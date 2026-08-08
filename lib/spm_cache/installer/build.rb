@@ -18,10 +18,16 @@ module SPMCache
         super
         return unless @cachemap
 
-        missed = @cachemap.missed
+        destinations = resolve_destinations
+        cache_out = @config.cache_dir(@config_name)
+
+        missed = @cachemap.missed.dup
+        missed.concat(@cachemap.hit.select { |m| !slice_complete?(cache_out, m, destinations) })
+
         if @requested_targets.any?
           filter_requested_targets!(missed)
         end
+        missed.uniq!
 
         if missed.empty?
           Core::UI.info "No targets to build."
@@ -29,9 +35,6 @@ module SPMCache
         end
 
         checkouts = checkout_map
-
-        destinations = resolve_destinations
-        cache_out = @config.cache_dir(@config_name)
         FileUtils.mkdir_p(cache_out)
 
         Core::UI.info "Building #{missed.size} target(s): #{missed.join(', ')}..."
@@ -41,6 +44,24 @@ module SPMCache
       end
 
       private
+
+      # True when the cached xcframework for `module_name` carries a slice for
+      # every requested destination. A sim-only artifact is not a complete hit
+      # under --sdk=all, so it must be rebuilt instead of skipped.
+      def slice_complete?(cache_dir, module_name, destinations)
+        fw = File.join(cache_dir, "#{module_name}.xcframework")
+        return true unless File.directory?(fw)
+        slices = Dir.children(fw).select { |s| File.directory?(File.join(fw, s)) }
+        destinations.all? { |d| slice_satisfies?(slices, d) }
+      end
+
+      def slice_satisfies?(slices, dest_key)
+        case dest_key
+        when "iphonesimulator" then slices.any? { |s| s.include?("simulator") }
+        when "iphoneos" then slices.any? { |s| s.start_with?("ios") && !s.include?("simulator") }
+        else true
+        end
+      end
 
       # Filters `missed` down to the intersection with requested targets and
       # emits warnings for unknown or ignored names. Requested names are
