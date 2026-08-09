@@ -127,6 +127,40 @@ struct UmbrellaGeneratorTransitiveSkipTests {
         #expect(content.contains("realm-swift"))
     }
 
+    // A transitive-only package carries the host's exact resolved revision in
+    // Package.resolved. Declaring it pinned to that revision reproduces the
+    // resolved graph and stops the isolated `swift package resolve` from
+    // floating it to a newer compatible release (field bug: MediaPicker pinned
+    // 3.3.2 in the app floated to 3.4.2 in the umbrella).
+    @Test("pins a transitive-only package to its revision instead of skipping it")
+    func pinsTransitiveOnlyPackageWithRevision() throws {
+        let mediaPicker = Lockfile.PackageRef(
+            repositoryURL: "https://github.com/exyte/MediaPicker.git",
+            pathFromRoot: nil,
+            name: "mediapicker",
+            productName: nil,
+            version: "3.3.2",
+            revision: "ce2eda6300337d1478a78fc033bce8dd9bf4bb2c",
+            products: [Lockfile.ProductRef(name: "ExyteMediaPicker", type: "library", targets: ["ExyteMediaPicker"])]
+        )
+        let chat = makePackage(
+            name: "chat",
+            url: "https://github.com/exyte/Chat.git",
+            version: "3.0.2",
+            products: [Lockfile.ProductRef(name: "ExyteChat", type: "library", targets: ["ExyteChat"])]
+        )
+        let lockfile = Lockfile(
+            packages: [mediaPicker, chat],
+            dependencies: ["AppTarget": ["ExyteChat"]],
+            platforms: ["ios": "16.0"]
+        )
+
+        let content = try generatedPackageSwift(lockfile: lockfile)
+
+        #expect(content.contains("MediaPicker"))
+        #expect(content.contains("revision: \"ce2eda6300337d1478a78fc033bce8dd9bf4bb2c\""))
+    }
+
     @Test("keeps a package when consumedProducts data is empty (legacy lockfile)")
     func keepsEverythingWhenNoConsumptionDataAvailable() throws {
         let realmCore = makePackage(

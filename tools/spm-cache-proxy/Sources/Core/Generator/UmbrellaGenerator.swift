@@ -54,7 +54,17 @@ struct UmbrellaGenerator {
             // against (empty `consumedProducts`) or the package hasn't been
             // enriched with product metadata yet — both cases fall back to
             // today's pin-everything behavior rather than guessing.
-            if pkg.isTransitiveOnly(consumedProducts: consumedProducts) { continue }
+            // A transitive-only package is still declared when we hold its exact
+            // revision: a revision pin reproduces the host's resolved graph
+            // (Package.resolved is consistent, so the commit satisfies every
+            // parent's range by construction) and stops the isolated resolve from
+            // floating it to a newer release. Skip only when there's no revision
+            // to pin -- the float-pin conflict that motivated skipping arose with
+            // open-ended `from:` pins, which a parent's own range can disagree with.
+            if pkg.isTransitiveOnly(consumedProducts: consumedProducts),
+               pkg.revision == nil || pkg.repositoryURL == nil {
+                continue
+            }
 
             if pkg.isLocal, let path = pkg.pathFromRoot {
                 dependencies.append(".package(path: \"\(path)\")")
