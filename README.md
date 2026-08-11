@@ -1,40 +1,61 @@
+<div align="center">
+
 # spm-cache
 
-Cache SPM (Swift Package Manager) dependencies as `.xcframework` binaries to dramatically reduce Xcode clean build times.
+**Cache Swift Package Manager dependencies as `.xcframework` binaries — slash Xcode clean build times, transparently.**
 
-## How It Works
+[![Gem Version](https://badge.fury.io/rb/spm-cache.svg)](https://rubygems.org/gems/spm-cache)
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 
-spm-cache prebuilds your SPM dependencies into `.xcframework` files and swaps them at the manifest level using an innovative **proxy package architecture**. When a cache hit occurs, Xcode uses the prebuilt binary instead of compiling from source. On cache miss, it automatically falls back to source compilation.
+[Installation](#installation) · [Quick Start](#quick-start) · [How It Works](#how-it-works) · [Commands](#cli-reference) · [Architecture](#architecture)
 
-### Key Features
+</div>
 
-- **Proxy Package Architecture** - Seamless source/binary switching at the SPM manifest level
-- **Auto-Sync Diff Detection** - Detects SPM graph changes (Package.resolved + project refs) and auto-regenerates the proxy -- no manual manifest sync required
-- **Automatic Cache Fallback** - Cache miss automatically falls back to source compilation
-- **Swift Macro Support** - Prebuild and cache Swift macros as `.macro` binaries
-- **Resource Bundle Handling** - Properly handles `Bundle.module` access in cached frameworks
-- **Remote Cache** - Sync cache via Git or S3
-- **Per-Configuration Caching** - Separate Debug and Release caches
-- **Dependency Graph Visualization** - Interactive cachemap visualization
+---
+
+`spm-cache` prebuilds your SPM dependencies into `.xcframework` binaries and swaps them in at the manifest level using a **proxy-package architecture**. On a cache hit, Xcode links the prebuilt binary instead of compiling from source. On a cache miss, it transparently falls back to source compilation — **a cache hit never breaks a build.**
+
+<div align="center">
+
+![Before vs After](docs/diagrams/before-after-spm.png)
+
+</div>
+
+## Why
+
+Clean Xcode builds recompile every SPM dependency from source — even when nothing changed. For a project with dozens of packages, that's minutes of wasted time, on every machine, on every CI run.
+
+`spm-cache` serves prebuilt binaries so clean builds skip dependency compilation entirely, while keeping source as the automatic fallback.
+
+## Key Features
+
+- **Proxy-Package Architecture** — seamless source ↔ binary switching at the SPM manifest level, no drag-and-drop.
+- **Auto-Sync Diff Detection** — reads the Xcode project directly; detects SPM graph changes (`Package.resolved` + project refs) and auto-regenerates the proxy. **No separate manifest to maintain.**
+- **Automatic Fallback** — cache miss transparently falls back to source compilation.
+- **Swift Macro Support** — prebuild and cache Swift macros as `.macro` binaries.
+- **Resource Bundles** — correctly handles `Bundle.module` access in cached frameworks.
+- **Remote Cache** — sync across machines and CI via Git or S3.
+- **Per-Configuration Caching** — separate Debug and Release caches.
+- **Dependency Graph Visualization** — interactive `cachemap` of hit / miss / ignored status.
+- **Watch Mode** — `--watch` monitors `Package.resolved` and re-integrates on change.
 
 ## Installation
 
-### Homebrew (recommended)
+**Homebrew** (recommended):
 
 ```bash
 brew install phuongddx/spm-cache/spm-cache
 ```
 
-### RubyGems
+**RubyGems**:
 
 ```bash
 gem install spm-cache
 ```
 
-### Bundler
+**Bundler** — add to your `Gemfile`:
 
 ```ruby
-# Gemfile
 gem "spm-cache"
 ```
 
@@ -42,34 +63,57 @@ gem "spm-cache"
 bundle install
 ```
 
-## Getting Started
+## Quick Start
 
-1. Navigate to your Xcode project directory
-2. Run the default command:
-   ```bash
-   spm-cache
-   ```
-   This integrates the proxy package and replaces source dependencies with cached binaries where available.
+```bash
+cd /path/to/your.xcodeproj/..   # your project root
+spm-cache                       # integrate cache (default: `spm-cache use`)
+spm-cache build Alamofire       # prebuild a target into the cache
+spm-cache                       # re-run — cached binary is now linked
+```
 
-3. Build specific targets into the cache:
-   ```bash
-   spm-cache build Alamofire --sdk=iphonesimulator
-   ```
+Roll back to the original project state any time:
 
-4. Rollback to original state:
-   ```bash
-   spm-cache rollback
-   ```
+```bash
+spm-cache rollback
+```
 
-## Auto-Sync: Zero-Maintenance Dependency Tracking
+## How It Works
 
-spm-cache **reads your Xcode project directly** -- it never requires a separate manifest that you must keep in sync by hand. Every time you run `spm-cache use`, it diffs the live SPM graph against the last run's snapshot and auto-regenerates the proxy package transparently.
+### 1. Proxy-Package swap
 
-### How it works
+For each dependency, `spm-cache` generates a small proxy `Package.swift` that switches between a `.binaryTarget` (cache hit) and the original source target (cache miss). Xcode resolves against the proxy, so switching modes is a manifest-level operation — no project file surgery per dependency.
 
-1. **Source of truth:** `Package.resolved` (resolved versions) + `project.pbxproj` SPM package references (local packages, un-resolved refs)
-2. **Snapshot:** `spm-cache.lock` records the exact package set from the last successful integration
-3. **Diff:** On every run, spm-cache compares live vs. locked and prints a human-readable summary:
+### 2. Build pipeline
+
+`spm-cache` uses `xcodebuild` (not `swift build`) to compile dependencies with library-evolution flags, then assembles multi-slice `.xcframework`s containing both simulator and device binaries.
+
+```
+Phase 1 — Build (per destination, parallel):
+  xcodebuild build -scheme {module} -destination '{sim|device}'
+    OTHER_SWIFT_FLAGS='-enable-library-evolution -emit-module-interface'
+    → .o + .swiftinterface + .swiftmodule
+
+Phase 2 — Static lib + Framework assembly:
+  libtool -static → .a
+  assemble .framework (binary + Info.plist + Modules/.swiftmodule/)
+
+Phase 3 — Merge slices:
+  xcodebuild -create-xcframework
+    -framework {sim_framework} -framework {device_framework}
+    → {module}.xcframework (ios-arm64-simulator + ios-arm64)
+
+Phase 4 — Store:
+  copy to ~/.spm-cache/{config}/{module}.xcframework
+```
+
+### 3. Auto-Sync: zero-maintenance tracking
+
+`spm-cache` reads your Xcode project directly — there is **no separate manifest** to keep in sync by hand. Every `spm-cache use` diffs the live SPM graph against the last run's snapshot and regenerates the proxy transparently.
+
+- **Source of truth** — `Package.resolved` (resolved versions) + `project.pbxproj` SPM package references (local packages, un-resolved refs).
+- **Snapshot** — `spm-cache.lock` records the exact package set from the last successful integration.
+- **Fast path** — when the diff is empty *and* the proxy exists, integration is a near-instant no-op (skips regenerate/resolve/build).
 
 ```
 # Added 2 SPM deps in Xcode, then ran spm-cache:
@@ -81,54 +125,44 @@ $ spm-cache
 No changes detected. Proxy package up to date.
 ```
 
-4. **Fast path:** When the diff is empty AND the proxy package already exists, spm-cache skips the costly regenerate/resolve/build cycle entirely -- the integration is a near-instant no-op.
+### spm-cache vs Scipio
 
-### Watch mode
+The manifest-sync burden is Scipio's #1 friction point: every dependency change in Xcode requires a matching manual edit to a separate file, and forgetting produces stale or broken builds. `spm-cache` treats the Xcode project as the single source of truth.
 
-For continuous integration during development, `--watch` monitors `Package.resolved` and auto-regenerates whenever it changes:
-
-```bash
-spm-cache use --watch
-# Watching .../Package.resolved for changes (Ctrl-C to stop)...
-# [watch] Package.resolved changed, re-integrating...
-```
-
-### spm-cache vs Scipio: dependency tracking
-
-| | spm-cache | Scipio |
+| | **spm-cache** | **Scipio** |
 |---|---|---|
-| **Dependency source** | Reads `.xcodeproj` + `Package.resolved` directly | Separate `Package.swift` manifest you create via `scipio init` |
-| **Adding a new SPM dep** | Add in Xcode → run `spm-cache` (auto-detected) | Add in Xcode → manually edit the Scipio manifest package |
-| **Updating a dep version** | Bump in Xcode → run `spm-cache` (auto-detected) | Bump in Xcode → manually update the Scipio manifest |
-| **Removing a dep** | Remove in Xcode → run `spm-cache` (auto-detected) | Remove in Xcode → manually remove from the Scipio manifest |
-| **Sync drift risk** | None (single source of truth) | High -- manifest drifts silently, builds break with confusing errors |
-| **First-run setup** | Zero (just run `spm-cache`) | Must run `scipio init` and curate the manifest |
+| Dependency source | Reads `.xcodeproj` + `Package.resolved` directly | Separate `Package.swift` you create via `scipio init` |
+| Add a dep | Add in Xcode → run `spm-cache` (auto-detected) | Add in Xcode → manually edit Scipio manifest |
+| Update a version | Bump in Xcode → run `spm-cache` (auto-detected) | Bump in Xcode → manually update Scipio manifest |
+| Remove a dep | Remove in Xcode → run `spm-cache` (auto-detected) | Remove in Xcode → manually edit Scipio manifest |
+| Sync drift risk | None (single source of truth) | High — manifest drifts silently |
+| First-run setup | Zero (just run `spm-cache`) | `scipio init` + curate manifest |
 
-The manifest-sync burden is Scipio's #1 friction point: every dependency change in Xcode requires a corresponding manual edit to a separate file, and forgetting to do so produces stale or broken builds. spm-cache eliminates this entirely by treating the Xcode project as the single source of truth.
-
-## CLI Commands
+## CLI Reference
 
 | Command | Description |
-|---------|-------------|
-| `spm-cache` (or `spm-cache use`) | Integrate cache (default) |
+|---|---|
+| `spm-cache` / `spm-cache use` | Integrate cache (default command) |
 | `spm-cache build [TARGETS]` | Build targets into xcframeworks |
 | `spm-cache off [TARGETS]` | Force source mode for targets |
 | `spm-cache rollback` | Restore original project state |
 | `spm-cache cache list` | List cached packages |
-| `spm-cache cache clean [--all]` | Clean cache |
-| `spm-cache pkg build TARGET` | Build single package to xcframework |
+| `spm-cache cache clean [--all]` | Clean the cache |
+| `spm-cache pkg build TARGET` | Build a single package to xcframework |
 | `spm-cache remote pull` | Pull cache from remote |
 | `spm-cache remote push` | Push cache to remote |
 
+Global options: `--sdk`, `--config`, `--log-dir`, `--no-merge-slices`, `--no-library-evolution`.
+
 ## Configuration
 
-Create `spm-cache.yml` in your project root:
+Drop a `spm-cache.yml` in your project root:
 
 ```yaml
-ignore: []
-ignore_local: false
-ignore_build_errors: false
-keep_pkgs_in_project: false
+ignore: []                  # package identities to skip
+ignore_local: false         # skip local packages
+ignore_build_errors: false  # don't fail the run on per-pkg build errors
+keep_pkgs_in_project: false # keep original package refs after integration
 default_sdk: iphonesimulator
 remote:
   debug:
@@ -141,70 +175,45 @@ remote:
 
 ## Architecture
 
-spm-cache consists of two components:
+`spm-cache` ships as two components:
 
-1. **Ruby Gem** (`lib/spm_cache/`) - CLI orchestrator, xcodeproj manipulation, installer pipeline
-2. **Swift Proxy Tool** (`tools/spm-cache-proxy/`) - SPM manifest generation and dependency graph resolution
+1. **Ruby gem** (`lib/spm_cache/`) — CLI orchestrator, `xcodeproj` manipulation, installer pipeline.
+2. **Swift proxy tool** (`tools/spm-cache-proxy/`) — SPM manifest generation and dependency-graph resolution.
 
-### System Architecture
+<div align="center">
+
+**System Architecture**
 
 ![System Architecture](docs/diagrams/system-architecture.png)
 
-### Build Pipeline
-
-spm-cache uses `xcodebuild` (not `swift build`) to compile dependencies with library evolution flags, then assembles multi-slice xcframeworks containing both simulator and device binaries.
+**Build Pipeline**
 
 ![Build Pipeline](docs/diagrams/build-pipeline.png)
 
-```
-Phase 1 - Build (per destination, parallel):
-  xcodebuild build -scheme {module} -destination '{sim|device}'
-    OTHER_SWIFT_FLAGS='-enable-library-evolution -emit-module-interface'
-    -> .o files + .swiftinterface + .swiftmodule
-
-Phase 2 - Static Library + Framework Assembly:
-  libtool -static -> .a binary
-  Assemble .framework (binary + Info.plist + Modules/.swiftmodule/)
-
-Phase 3 - Merge Slices:
-  xcodebuild -create-xcframework
-    -framework {sim_framework}
-    -framework {device_framework}
-    -> {module}.xcframework (ios-arm64-simulator + ios-arm64)
-
-Phase 4 - Store:
-  Copy to ~/.spm-cache/debug/{module}.xcframework
-```
+</div>
 
 ### Key Concepts
 
-- **Umbrella Package** - A synthetic `Package.swift` that references all project SPM dependencies in one place, enabling graph resolution.
-- **Proxy Package** - Per-dependency `Package.swift` that switches between `.binaryTarget` (cache hit) and source target (cache miss).
-- **Cachemap** - Graph of all dependencies with `hit`/`missed`/`ignored` status, used to drive build decisions and visualization.
-- **Lockfile** (`spm-cache.lock`) - JSON snapshot of project SPM dependencies (packages, targets, platforms).
+- **Umbrella Package** — synthetic `Package.swift` referencing all project SPM dependencies in one place, enabling graph resolution.
+- **Proxy Package** — per-dependency `Package.swift` switching between `.binaryTarget` (hit) and source target (miss).
+- **Cachemap** — graph of all dependencies with `hit`/`missed`/`ignored` status; drives build decisions and visualization.
+- **Lockfile** (`spm-cache.lock`) — JSON snapshot of project SPM dependencies (packages, targets, platforms).
 
 ## Development
 
 ```bash
-# Install dependencies
-make install
-
-# Build Swift proxy tool
-make proxy.build
-
-# Run tests
-make test
-
-# Format code
-make format
+make install        # install Ruby dependencies
+make proxy.build    # build the Swift proxy tool (release)
+make test           # rspec
+make format         # rubocop --auto-correct
 ```
 
 ### Agent Skills
 
-Two Claude agent skills are included for advanced workflows:
+Two bundled Claude agent skills for advanced workflows:
 
-- **`skills/spm-cache`** — End-user skill for using spm-cache: prerequisites, install methods, core workflow (build/integrate/verify/rollback), SDK flags, config options, remote cache setup, CI/CD patterns, and troubleshooting guides.
-- **`skills/spm-cache-issue`** — Automated GitHub issue filing: collects diagnostics, classifies issue type, drafts and confirms details, then files directly to the issue tracker.
+- **`skills/spm-cache`** — end-user usage skill: prerequisites, core workflow, SDK flags, config, remote cache, CI/CD patterns, troubleshooting.
+- **`skills/spm-cache-issue`** — automated GitHub issue filing: collects diagnostics, classifies the issue, drafts and files it.
 
 ## Project Structure
 
@@ -223,7 +232,7 @@ spm-cache/
 │   └── Sources/
 │       ├── CLI/               # gen-umbrella, gen-proxy, resolve subcommands
 │       └── Core/              # Cache, Lockfile, Resolver, Generators, Proxy
-└── docs/                      # Documentation
+└── docs/                      # Documentation + diagrams
 ```
 
 ## License
