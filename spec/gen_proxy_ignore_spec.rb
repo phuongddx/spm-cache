@@ -69,19 +69,26 @@ RSpec.describe "gen-proxy --ignore (Swift fixture smoke)" do
     expect(manifest).to include(".product(name:")
   end
 
-  it "emits source-fallback manifest for ignored" do
+  it "fully excludes ignored packages (no proxy folder generated)" do
     run_gen_proxy(ignore: "Alamofire")
-    af_pkg = File.join(output_dir, ".proxies", "Alamofire_proxy", "Package.swift")
-    manifest = File.read(af_pkg)
-    expect(manifest).to include(".package(url:")
+    af_pkg = File.join(output_dir, ".proxies", "Alamofire_proxy")
+    # Ignored packages are excluded entirely — no proxy folder, no manifest.
+    expect(File.directory?(af_pkg)).to be false
+    # Non-ignored packages still get source-fallback manifests.
+    snap_pkg = File.join(output_dir, ".proxies", "SnapKit_proxy", "Package.swift")
+    expect(File.read(snap_pkg)).to include(".package(url:")
   end
 
-  it "generates root proxy referencing the _proxy folder and identity (no collision)" do
+  it "generates root proxy referencing non-ignored _proxy folders (ignored excluded)" do
     run_gen_proxy(ignore: "Alamofire")
     root_pkg = File.read(File.join(output_dir, "Package.swift"))
-    expect(root_pkg).to include(".package(path: \".proxies/Alamofire_proxy\")")
-    expect(root_pkg).to include("package: \"Alamofire_proxy\"")
+    # Ignored packages are absent from the root proxy.
+    expect(root_pkg).not_to include("Alamofire_proxy")
     expect(root_pkg).not_to include(".package(path: \".proxies/Alamofire\")")
+    # Non-ignored packages are present with the _proxy suffix (no collision).
+    expect(root_pkg).to include(".package(path: \".proxies/SnapKit_proxy\")")
+    expect(root_pkg).to include("package: \"SnapKit_proxy\"")
+    expect(root_pkg).to include(".package(path: \".proxies/swift-log_proxy\")")
   end
 
   it "behaves as hit/missed only when --ignore absent" do

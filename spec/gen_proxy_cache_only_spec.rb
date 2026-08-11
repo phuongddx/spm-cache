@@ -49,12 +49,15 @@ RSpec.describe "gen-proxy --cache-only (Swift fixture smoke)" do
     expect(statuses["Logging"]).to eq("excluded")
   end
 
-  it "emits a valid source-fallback manifest for an excluded package" do
+  it "proxies only the cache-eligible module; excluded packages get no folder" do
     run_gen_proxy(cache_only: "Alamofire")
-    snap_pkg = File.join(output_dir, ".proxies", "SnapKit_proxy", "Package.swift")
-    manifest = File.read(snap_pkg)
+    # The cache-eligible (non-excluded) module gets a source-fallback manifest.
+    af_pkg = File.join(output_dir, ".proxies", "Alamofire_proxy", "Package.swift")
+    manifest = File.read(af_pkg)
     expect(manifest).to include(".package(url:")
     expect(manifest).to include(".product(name:")
+    # Excluded packages are NOT proxied (no folder generated).
+    expect(File.directory?(File.join(output_dir, ".proxies", "SnapKit_proxy"))).to be false
   end
 
   it "produces no excluded statuses when --cache-only is absent (parity guard)" do
