@@ -1,0 +1,86 @@
+name: "spm-cache-action"
+description: "Restore and save spm-cache binary dependencies in CI. A thin wrapper around the spm-cache gem — all real logic stays in the gem."
+author: "phuongddx"
+branding:
+  icon: "package"
+  color: "blue"
+
+inputs:
+  command:
+    description: "spm-cache remote command to run: pull, push, or sync"
+    required: true
+    default: "pull"
+  backend:
+    description: "Remote backend: git or s3"
+    required: true
+    default: "git"
+  backend-url:
+    description: "Git remote URL or S3 URI"
+    required: true
+  branch:
+    description: "Git remote branch (default: main)"
+    required: false
+    default: "main"
+  config:
+    description: "Build configuration (debug/release)"
+    required: false
+    default: "debug"
+  creds:
+    description: "S3 credentials JSON file path (optional, s3 only)"
+    required: false
+    default: ""
+
+runs:
+  using: "composite"
+  steps:
+    - name: Set up Ruby
+      uses: ruby/setup-ruby@v1
+      with:
+        ruby-version: "3.2"
+
+    - name: Install spm-cache
+      shell: bash
+      run: gem install spm-cache --no-document
+
+    - name: Configure remote backend
+      shell: bash
+      env:
+        BACKEND: ${{ inputs.backend }}
+        BACKEND_URL: ${{ inputs.backend-url }}
+        BRANCH: ${{ inputs.branch }}
+        CONFIG: ${{ inputs.config }}
+        CREDS: ${{ inputs.creds }}
+      run: |
+        set -euo pipefail
+        ARGS="--config=${CONFIG}"
+        if [ "$BACKEND" = "git" ]; then
+          ARGS="${ARGS} --remote=git --remote-url=${BACKEND_URL} --branch=${BRANCH}"
+        elif [ "$BACKEND" = "s3" ]; then
+          ARGS="${ARGS} --remote=s3 --remote-url=${BACKEND_URL}"
+          [ -n "$CREDS" ] && ARGS="${ARGS} --creds=${CREDS}"
+        else
+          echo "::error::Unsupported backend '$BACKEND' (expected git or s3)"
+          exit 1
+        fi
+        spm-cache init $ARGS || true
+
+    - name: Run spm-cache remote command
+      shell: bash
+      env:
+        COMMAND: ${{ inputs.command }}
+        CONFIG: ${{ inputs.config }}
+      run: |
+        set -euo pipefail
+        case "$COMMAND" in
+          pull|push)
+            spm-cache remote "$COMMAND" --config="$CONFIG"
+            ;;
+          sync)
+            spm-cache remote pull --config="$CONFIG"
+            spm-cache remote push --config="$CONFIG"
+            ;;
+          *)
+            echo "::error::Unknown command '$COMMAND' (expected pull, push, or sync)"
+            exit 1
+            ;;
+        esac
