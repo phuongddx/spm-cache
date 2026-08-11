@@ -7,7 +7,7 @@
 
 ### Reliability
 
-- [ ] **REL-01**: Test CI pipeline (`.github/workflows/ci.yml`) runs the full RSpec + `swift test` suite on every PR and push to main (Ruby 3.0–3.3 × macOS-latest matrix), separate from the release-only `update-tap.yml`
+- [x] **REL-01**: Test CI pipeline (`.github/workflows/ci.yml`) runs the full RSpec + `swift test` suite on every PR and push to main (Ruby 3.0–3.3 × macOS-latest matrix), separate from the release-only `update-tap.yml`
 - [ ] **REL-02**: `spm-cache doctor` runs a data-driven registry of diagnostic checks (Xcode version, Swift version, toolchain path, cache-dir health/orphans, library-evolution compatibility, remote-backend connectivity, companion-binary presence) and prints a color-coded green/yellow/red report with per-check fix hints
 - [ ] **REL-03**: `spm-cache doctor --json` emits the same diagnostics as a machine-readable JSON document for CI consumption
 
@@ -51,7 +51,7 @@
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| REL-01 | Phase 1 | Pending |
+| REL-01 | Phase 1 | Complete |
 | REL-02 | Phase 2 | Pending |
 | REL-03 | Phase 2 | Pending |
 | ONBD-01 | Phase 3 | Pending |
