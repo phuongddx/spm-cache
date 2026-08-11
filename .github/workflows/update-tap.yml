@@ -8,7 +8,7 @@ jobs:
   update-tap:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       - name: Get version from release
         id: version
@@ -23,7 +23,7 @@ jobs:
           echo "SHA256=$SHA" >> $GITHUB_OUTPUT
 
       - name: Checkout tap repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
         with:
           repository: phuongddx/homebrew-spm-cache
           token: ${{ secrets.TAP_REPO_TOKEN }}
