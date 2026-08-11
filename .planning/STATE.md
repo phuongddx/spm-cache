@@ -1,7 +1,7 @@
 # Project State: spm-cache
 
 **Initialized:** 2026-08-10
-**Current Phase:** 2 (ready for `$gsd-plan-phase 2` — Diagnostics Command)
+**Current Phase:** All v0.3.0 phases complete
 **Project Mode:** Horizontal Layers
 **Direction:** v0.3.0 Mixed cycle (moat + adoption + reliability)
 
@@ -36,7 +36,7 @@
 | Phase | Name | Status | Branch |
 |-------|------|--------|--------|
 | 1 | Test CI Foundation | complete | b664d0b |
-| 2 | Diagnostics Command | pending | — |
-| 3 | Project Bootstrap | pending | — |
-| 4 | CI GitHub Action | pending | — |
-| 5 | Auto-Sync Watcher | pending | — |
+| 2 | Diagnostics Command | complete | see SUMMARY |
+| 3 | Project Bootstrap | complete | see SUMMARY |
+| 4 | CI GitHub Action | complete | see SUMMARY |
+| 5 | Auto-Sync Watcher | complete | see SUMMARY |
