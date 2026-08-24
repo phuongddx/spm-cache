@@ -9,7 +9,7 @@ Gem::Specification.new do |spec|
   spec.description   = "spm-cache prebuilds Swift Package Manager dependencies into .xcframework binaries and swaps them at the manifest level via proxy packages."
   spec.authors       = ["spm-cache"]
   spec.email         = ["dev@spm-cache.dev"]
-  spec.homepage      = "https://github.com/your-org/spm-cache"
+  spec.homepage      = "https://github.com/phuongddx/spm-cache"
   spec.license       = "MIT"
 
   spec.files = Dir[
