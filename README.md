@@ -37,7 +37,8 @@ Clean Xcode builds recompile every SPM dependency from source — even when noth
 - **Remote Cache** — sync across machines and CI via Git or S3.
 - **Per-Configuration Caching** — separate Debug and Release caches.
 - **Dependency Graph Visualization** — interactive `cachemap` of hit / miss / ignored status.
-- **Watch Mode** — `--watch` monitors `Package.resolved` and re-integrates on change.
+- **Auto-Sync Watch** — `spm-cache watch` auto-regenerates the cache proxy when `Package.resolved` or `project.pbxproj` changes (`--debounce=SECONDS`, `--once` for CI).
+- **Watch Mode (use)** — `spm-cache use --watch` monitors `Package.resolved` and re-integrates on change.
 
 ## Installation
 

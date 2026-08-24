@@ -11,10 +11,10 @@ module SPMCache
   class Command
     class Doctor < Command
       self.summary = 'Run environment diagnostics'
-      self.description = 'Checks the Xcode/Swift toolchain, cache-dir health, remote-backend config, and the Swift companion binary. Prints a green/yellow/red report. Use --json for machine-readable output (CI).'
+      self.description = 'Checks the Xcode/Swift toolchain, cache-dir health, remote-backend config, and the Swift companion binary. Prints a status report with per-check markers and fix hints. Use --json for machine-readable output (CI).'
 
       def self.options
-        [['--json', 'Emit diagnostics as JSON instead of a color-coded report']].concat(super)
+        [['--json', 'Emit diagnostics as JSON instead of the text report']].concat(super)
       end
 
       def initialize(argv)

@@ -44,11 +44,13 @@ module SPMCache
 
       # Start the watch loop. Blocks until interrupted or a fatal error.
       def run
+        Signal.trap('TERM') { raise Interrupt }
         info "Watching #{watched_files.join(', ')} for changes (Ctrl-C to stop)..."
 
         # Initial sync so the proxy is current before watching starts.
         @last_signatures = current_signatures
         regenerate
+        @last_signatures = current_signatures
 
         loop do
           sleep debounce
@@ -59,6 +61,7 @@ module SPMCache
           info "\n[watch] SPM graph changed, re-integrating..."
           begin
             regenerate
+            @last_signatures = current_signatures
           rescue StandardError => e
             # Continue-on-error: log and keep watching. A transient build
             # failure must not kill the watcher.
@@ -66,6 +69,13 @@ module SPMCache
           end
         end
       rescue Interrupt
+        # Mask further signals for the shutdown path: a trap-raise
+        # landing inside this handler escapes uncaught (Interrupt is
+        # not a StandardError), so a second Ctrl-C/TERM must not abort
+        # the flush or break the exit-0 contract.
+        Signal.trap('TERM', 'IGNORE')
+        Signal.trap('INT', 'IGNORE')
+        flush_pending_event
         info "\n[watch] stopped."
       rescue StandardError => e
         # Fatal: project deleted/unwatchable, or installer construction failed.
@@ -78,6 +88,26 @@ module SPMCache
       def regenerate
         installer = @installer_factory.call(project_path)
         installer.perform_install
+      end
+
+      # On interrupt, a change that landed inside the current poll window
+      # has not been processed yet — flush it so Ctrl-C never silently
+      # drops a pending regeneration. Accepted edge (same trade-off as
+      # the post-regenerate re-snapshot): a change already consumed by a
+      # regeneration the interrupt aborts mid-flight is abandoned here —
+      # the signatures match — and healed by the next run's initial sync.
+      def flush_pending_event
+        current = current_signatures
+        return if current == @last_signatures
+
+        @last_signatures = current
+        info "\n[watch] SPM graph changed, flushing pending change..."
+        begin
+          regenerate
+          @last_signatures = current_signatures
+        rescue StandardError => e
+          warn_msg "[#{Time.now}] [watch] flush failed: #{e.message}"
+        end
       end
 
       # The files that define the SPM graph: Package.resolved (resolved

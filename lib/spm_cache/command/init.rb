@@ -1,17 +1,16 @@
 # frozen_string_literal: true
 
-require 'fileutils'
+require 'json'
 
 require 'spm_cache/command'
 require 'spm_cache/core/config'
 require 'spm_cache/core/lockfile'
-require 'spm_cache/core/sh'
 
 module SPMCache
   class Command
     class Init < Command
       self.summary = 'Bootstrap a project for spm-cache'
-      self.description = 'Detects the Xcode project, prompts for platforms/config/remote-backend, and generates spm-cache.yml + a seeded spm-cache.lock so the first `spm-cache use` is a fast path. Non-interactive via flags.'
+      self.description = 'Detects the Xcode project, prompts for platforms/config/remote-backend, and generates spm-cache.yml + a seeded spm-cache.lock so subsequent `spm-cache use` runs can take the fast path. Non-interactive via flags.'
 
       def self.options
         [
@@ -145,13 +144,50 @@ module SPMCache
         resolved = find_package_resolved(project_path)
         lockfile_path = File.join(File.dirname(project_path), Core::Config::LOCKFILE_FILENAME)
 
+        # Write the CANONICAL lockfile shape (mirrors installer.rb's
+        # generate_lockfile_from_resolved field-for-field) so the seeded lock
+        # is consumable by Core::DiffDetector and lock continuity holds across
+        # subsequent `use` runs. init never opens the project via the xcodeproj
+        # gem (pure file I/O), so platforms seeds as the empty Hash — the
+        # consumer default (core/lockfile.rb platforms_for_project).
+        # A malformed or non-object Package.resolved must not abort init
+        # mid-run (spm-cache.yml is already written by this point, but the
+        # .gitignore entry is not): treat it as absent and seed the empty
+        # skeleton, mirroring write_config's rescue posture for corrupt yml.
+        pins = []
+        seeded = false
         if resolved && File.exist?(resolved)
-          # Seed from Package.resolved so the first `use` can take the fast path.
-          FileUtils.cp(resolved, lockfile_path)
+          begin
+            data = JSON.parse(File.read(resolved))
+            if data.is_a?(Hash)
+              pins = data['pins'] || []
+              seeded = true
+            else
+              Core::UI.warn "Package.resolved at #{resolved} is not a JSON object; seeding an empty lock."
+            end
+          rescue JSON::ParserError, TypeError
+            Core::UI.warn "Package.resolved at #{resolved} is unreadable; seeding an empty lock."
+          end
+        end
+        lockfile_data = {
+          File.basename(project_path) => {
+            'packages' => pins.map do |pin|
+              {
+                'repositoryURL' => pin['location'],
+                'name' => pin['identity'],
+                'version' => pin.dig('state', 'version'),
+                'revision' => pin.dig('state', 'revision')
+              }
+            end,
+            'dependencies' => {},
+            'platforms' => {}
+          }
+        }
+        File.write(lockfile_path, JSON.pretty_generate(lockfile_data))
+
+        if seeded
           Core::UI.info "Seeded #{Core::Config::LOCKFILE_FILENAME} from #{resolved}."
         else
-          # No resolved graph yet — write an empty lockfile skeleton.
-          File.write(lockfile_path, "{\"projects\":[]}\n")
           Core::UI.info "Created empty #{Core::Config::LOCKFILE_FILENAME} (run `spm-cache use` after resolving deps)."
         end
       end
@@ -167,7 +203,7 @@ module SPMCache
         return if lines.include?(entry)
 
         File.open(gitignore, 'a') do |f|
-          f.puts unless lines.empty? || lines.last&.end_with?("\n")
+          f.puts unless lines.empty?
           f.puts '# spm-cache sandbox'
           f.puts entry
         end

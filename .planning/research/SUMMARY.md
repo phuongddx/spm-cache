@@ -30,7 +30,7 @@
 - **`build_pipeline.rb` (919 LOC) + `installer.rb` (578 LOC)** complexity — any feature touching the install/build path must respect the existing diff-driven fast path and orphan-purge logic in `installer.rb`.
 - **Ruby↔Swift companion version drift** — no explicit handshake; `doctor`'s `companion_binary` check closes this gap.
 - **Shell-string interpolation** in `core/git.rb` — new commands must route through `Core::Sh.run`; avoid interpolating untrusted values.
-- **`watch` FSEvents binding** — keep minimal; `--once` keeps the core path testable without the OS API. Fall back to `listen` gem behind a flag if brittle.
+- **`watch` polling loop** — no FSEvents/Fiddle binding exists; shipped as stdlib mtime+size polling (binding design superseded 2026-08-24, 05-CONTEXT); `--once` keeps the core path testable without any OS API.
 - **GitHub Action** lives in a separate repo — keep it a thin shell-out; don't duplicate logic or it drifts from the gem.
 
 ## Implications for Roadmap

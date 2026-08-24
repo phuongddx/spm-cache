@@ -52,7 +52,7 @@ runs:
         CREDS: ${{ inputs.creds }}
       run: |
         set -euo pipefail
-        ARGS="--config=${CONFIG}"
+        ARGS="--default-config=${CONFIG}"
         if [ "$BACKEND" = "git" ]; then
           ARGS="${ARGS} --remote=git --remote-url=${BACKEND_URL} --branch=${BRANCH}"
         elif [ "$BACKEND" = "s3" ]; then

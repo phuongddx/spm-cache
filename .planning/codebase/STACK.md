@@ -1,66 +1,98 @@
 ---
 title: Technology Stack
 focus: tech
-mapped_date: 2026-08-10
-last_mapped_commit: 5687b4641c1d7a36ef4fc99d59fdccf6dc09c5e0
+mapped_date: 2026-08-23
+last_mapped_commit: f55b9b9a7dc73104b490ed76ec38549b242af03e
 ---
 
 # Technology Stack
 
-## Overview
+**Analysis Date:** 2026-08-23
 
-`spm-cache` is a **polyglot CLI tool** that caches Swift Package Manager dependencies as `.xcframework` binaries to accelerate Xcode clean build times. It combines a Ruby gem CLI (the orchestrator/UI) with a Swift executable companion (the proxy-package generator). Distribution: Homebrew tap and RubyGems.
+## Languages
 
-## Languages & Runtimes
+**Primary:**
+- Ruby >= 3.1.0 — CLI gem, build pipeline, installer, config, remote storage, all commands (`lib/spm_cache/`)
 
-- **Ruby (primary CLI)** — `>= 3.0.0` (`spm_cache.gemspec` `spec.required_ruby_version`). ~6,000 LOC in `lib/spm_cache/`.
-- **Swift (companion tool)** — Swift 6.0 tools version (`tools/spm-cache-proxy/Package.swift` `// swift-tools-version: 6.0`), targeting macOS 14+. The companion lives in `tools/spm-cache-proxy/`.
+**Secondary:**
+- Swift 6.0 (swift-tools-version: 6.0) — Companion proxy/umbrella generator binary (`tools/spm-cache-proxy/Sources/`)
+- JavaScript — `cachemap.js.template` for Xcode build-phase cache visualization (`lib/spm_cache/assets/templates/cachemap.js.template`)
 
-## Ruby Dependencies
+## Runtime
 
-Runtime (declared in `spm_cache.gemspec`):
-- `claide` `~> 1.1` — CLI command tree / argument parsing (`lib/spm_cache/command.rb`)
-- `xcodeproj` `>= 1.26.0` — read/edits Xcode `project.pbxproj` (`lib/spm_cache/xcodeproj/`)
-- `parallel` `~> 1.23` — parallel builds (`lib/spm_cache/core/parallel.rb`)
-- `tty-cursor` `~> 0.7`, `tty-screen` `~> 0.8` — terminal UI
-- `CFPropertyList` `~> 3.0` — plist parsing for framework metadata
+**Environment:**
+- Ruby (minimum 3.1.0, tested on 3.1 / 3.2 / 3.3)
+- macOS only (darwin arm64, platform `arm64-darwin-23` in lockfile)
+- Requires Xcode 16+ and Swift 6.0 toolchain for xcframework builds
 
-Development:
-- `bundler` `>= 2.0`, `rspec` `~> 3.12`, `rubocop` `~> 1.50`
+**Package Manager:**
+- Bundler 4.0.13
+- Lockfile: `Gemfile.lock` (present, SHA256 checksums)
+- Swift Package Manager — for `tools/spm-cache-proxy/` (separate `Package.swift`)
 
-## Swift Companion Dependencies
+## Frameworks
 
-Declared in `tools/spm-cache-proxy/Package.swift`:
-- `apple/swift-argument-parser` `from: 1.3.0` — CLI subcommands (`GenProxy`, `GenUmbrella`, `Resolve`)
-- `onevcat/Rainbow` `from: 4.0.1` — colored terminal output (`tools/spm-cache-proxy/Sources/Core/Log/`)
+**Core:**
+- claide 1.1.0 — CLI command dispatch (argument parsing, subcommand routing). Base class `SPMCache::Command` in `lib/spm_cache/command/base.rb`
+- xcodeproj 1.28.1 — Xcode project file manipulation (.pbxprog editing, target/group management). Used via `lib/spm_cache/xcodeproj/`
 
-## Configuration Files
+**Testing:**
+- RSpec 3.13.2 — Ruby test framework (`spec/`)
+- Swift Testing (stdlib) — Proxy tool tests (`tools/spm-cache-proxy/Tests/`)
 
-- `spm_cache.gemspec` — gem metadata, file globs, dependency declarations
-- `Gemfile` / `Gemfile.lock` — bundler dependency resolution
-- `VERSION` — single source of truth for the gem version (read by `lib/spm_cache/version.rb`); currently `0.2.8`
-- `Makefile` — `install`, `format` (rubocop --auto-correct), `test` (rspec), `proxy.build` (`swift build -c release`), `proxy.clean`
-- `.rubocop` — RuboCop lint/style config
-- `.pre-commit-config.yaml` — pre-commit hooks
-- `tools/spm-cache-proxy/Package.swift` — SwiftPM manifest for the companion
-- `tools/spm-cache-proxy/Package.resolved` — Swift dependency lockfile (gitignored, regenerated on build)
-- `CLAUDE.md` — agent guidance (GitHub account must be `phuongddx` for `gh`)
+**Build/Dev:**
+- parallel 1.28.0 — Parallel xcframework building for multiple SDKs
+- tty-cursor 0.7.1 / tty-screen 0.8.2 — Terminal cursor and screen-size detection for spinner/progress UI
+- CFPropertyList 3.0.8 — Apple plist parsing (`.pbxproj` is XML plist)
+- rubocop 1.88.2 — Linting and auto-formatting (dev dependency)
 
-## Build & Dev Tooling
+**Swift Proxy Tool Dependencies:**
+- swift-argument-parser >= 1.3.0 — CLI argument parsing for the Swift binary
+- Rainbow >= 4.0.1 — Terminal color output for the Swift binary
 
-- **Ruby:** `bundle install` (or `make install`), `bundle exec rspec` / `make test`, `bundle exec rubocop` / `make format`
-- **Swift companion:** `make proxy.build` (`swift build -c release` in `tools/spm-cache-proxy/`); `make proxy.clean`
-- **Versioning:** `VERSION` file; CI bumps are coordinated with Homebrew formula updates
+## Key Dependencies
 
-## Packaging & Distribution
+**Critical:**
+- `claide` ~> 1.1 — Every command inherits from `SPMCache::Command < CLAide::Command`. Without it, no CLI works.
+- `xcodeproj` >= 1.26.0 — All `.xcodeproj` manipulation (dependency swapping, build configuration injection, target creation) depends on this.
+- `CFPropertyList` ~> 3.0 — Required by `xcodeproj` for plist serialization.
+- `parallel` ~> 1.23 — Powers multi-SDK parallel builds in `lib/spm_cache/core/parallel.rb`.
 
-- **RubyGems:** published as the `spm-cache` gem; `spec.executables = ["spm-cache"]` (`bin/spm-cache`)
-- **Homebrew:** tap `phuongddx/spm-cache/spm-cache` (documented in `README.md`); formula updated automatically by CI
-- **CI:** `.github/workflows/update-tap.yml` — on `release: published`, computes the tarball sha256 and updates the external Homebrew tap repo, then commits/pushes the formula
-- **Pre-commit:** `.pre-commit-config.yaml`
+**Infrastructure:**
+- `tty-cursor` ~> 0.7 — Terminal cursor control (spinner animation) in `lib/spm_cache/live_log.rb`
+- `tty-screen` ~> 0.8 — Terminal width detection for status output
 
-## Runtime Artefacts (generated, gitignored)
+## Configuration
 
-- `spm-cache/` sandbox dir, `spm-cache.lock` (lockfile), `spm-cache.yml` (config) — all in `.gitignore`
-- `~/.spm-cache` global cache dir (`lib/spm_cache/core/config.rb` `CACHE_DIR`)
-- `tools/spm-cache-proxy/.build/`, `.swiftpm/`, `Package.resolved` — Swift build artefacts (gitignored)
+**Environment:**
+- CLI config file: `spm-cache.yml` per-project (YAML). Schema defined in `lib/spm_cache/core/config.rb` (`DEFAULT_CONFIG` hash).
+- Global cache directory: `~/.spm-cache/` (hardcoded in `lib/spm_cache/core/config.rb` as `CACHE_DIR`)
+- Project-local sandbox: `<project>/spm-cache/` (hardcoded as `SANDBOX_DIR`)
+- Lockfile: `spm-cache.lock` per-project (YAML, enriched Package.resolved metadata)
+- No `.env` file required; remote backend credentials passed via `--creds` flag (JSON file path) or shell env vars set by GitHub Action.
+
+**Build:**
+- `Makefile` — Four targets: `install`, `format`, `test`, `proxy.build`, `proxy.clean`
+- `spm_cache.gemspec` — Ruby gem packaging. Files: `{lib,bin,assets,tools}/**/*`, `Gemfile`, `LICENSE.txt`, `README.md`, `VERSION`, `Makefile`, `*.gemspec`
+- `tools/spm-cache-proxy/Package.swift` — Swift Package Manager manifest for companion binary
+- `.pre-commit-config.yaml` — Pre-commit hook running `rubocop --auto-correct`
+- VERSION — Single-line `0.3.0` read at gem load via `lib/spm_cache/version.rb`
+
+## Platform Requirements
+
+**Development:**
+- macOS 14+ (Sonoma) for Swift proxy tool (`.macOS(.v14)` in `Package.swift`)
+- Xcode 16+ with Swift 6.0 toolchain
+- Ruby >= 3.1.0 with Bundler
+- `aws` CLI (optional, for S3 remote backend)
+
+**Production (end-user):**
+- macOS with Xcode 16+
+- Ruby >= 3.1.0 (or use the GitHub Action which installs via `gem install`)
+- Git (for git remote backend)
+- AWS CLI (for S3 remote backend)
+
+---
+
+*Stack analysis: 2026-08-23*
+<!-- refreshed: 2026-08-23 -->

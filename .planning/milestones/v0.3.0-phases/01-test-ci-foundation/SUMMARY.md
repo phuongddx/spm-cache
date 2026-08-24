@@ -10,20 +10,20 @@ Created `.github/workflows/ci.yml` — the project's first test CI pipeline, dis
 
 ## Deliverables
 - **`.github/workflows/ci.yml`** (51 lines) — two jobs:
-  - `ruby-tests` — Ruby 3.0/3.1/3.2/3.3 matrix on `macos-15`, `ruby/setup-ruby@v1` with `bundler-cache: true`, runs `bundle exec rspec`. `fail-fast: false` so every version reports independently.
+  - `ruby-tests` — Ruby 3.1/3.2/3.3 matrix on `macos-15` (3.0 dropped at merge 5759c5b — spm_cache.gemspec requires >= 3.1.0), `ruby/setup-ruby@v1` with `bundler-cache: true`, runs `bundle exec rspec`. `fail-fast: false` so every version reports independently.
   - `swift-tests` — `macos-15` with Xcode 16 pinned via `maxim-lobanov/setup-xcode@v1`, runs `make proxy.build` then `swift test` in `tools/spm-cache-proxy`.
 
 ## Verification
 - YAML parses cleanly (validated via `ruby -ryaml` and `python3 -c yaml.safe_load`)
 - Both jobs present (`ruby-tests`, `swift-tests`)
-- Ruby matrix = `['3.0','3.1','3.2','3.3']` ✓
+- Ruby matrix = `['3.1','3.2','3.3']` ✓ (3.0 dropped at merge 5759c5b; gemspec >= 3.1.0)
 - Xcode pin = `'16'` ✓
 - Triggers: `push: branches: [main]` + `pull_request:` ✓
 - Concurrency cancels stale runs; `permissions: contents: read`
 
 ## Success criteria mapping
 1. `ci.yml` exists + triggers on PR + push to main ✓
-2. Ruby 3.0–3.3 matrix runs `bundle exec rspec` on macos-15 ✓
+2. Ruby 3.0–3.3 matrix runs `bundle exec rspec` on macos-15 ✓ — DELIVERED: 3.1/3.2/3.3 (3.0 dropped at merge 5759c5b; spm_cache.gemspec requires >= 3.1.0)
 3. Swift runs `make proxy.build` + `swift test`, Xcode pinned ✓
 
 ## Notes

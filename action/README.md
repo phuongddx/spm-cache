@@ -44,6 +44,13 @@ jobs:
 | `config` | Build configuration (`debug`/`release`) | no | `debug` |
 | `creds` | S3 credentials JSON file path (s3 only) | no | — |
 
+
+## Caveats
+
+- **Requires an `.xcodeproj` at the repository root.** `spm-cache init` auto-detects in the working directory only, and the init step is tolerant (`|| true`) — nested-project repos (or a missing project) seed nothing while the workflow still shows green.
+- **Misconfiguration currently exits green with warnings.** An unsupported or omitted `backend-url` leaves no remote configured; `remote pull`/`push` then warn ("No remote cache configured. Skipping pull/push." / "Configure remote cache in spm-cache.yml to enable.") and exit 0. Check the logs for those warnings instead of trusting the green checkmark — `required: true` on `backend-url` is not enforced by GitHub runners.
+- **[ASSUMED] Git-backend pushes need cache-repo credentials.** The default `actions/checkout` token is scoped to the workflow repository; pushing to a separate git cache repo likely requires a PAT or deploy key configured by the user.
+
 ## Design
 
 This action is deliberately thin: `setup-ruby` → `gem install spm-cache` → `spm-cache init` (configure backend) → `spm-cache remote pull/push`. No caching logic is duplicated here — the gem owns all storage and proxy-generation logic. This keeps the action maintenance surface minimal and ensures it never drifts from the gem's behavior.

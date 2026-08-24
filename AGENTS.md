@@ -13,7 +13,7 @@
 - **Tech stack**: Ruby gem (>= 3.0) + Swift 6.0 companion tool; macOS-only (Xcode toolchain) — `core/sh.rb` shells out to swift/xcodebuild
 - **Distribution**: Homebrew tap (`phuongddx/spm-cache`) + RubyGems; GitHub account `phuongddx` for releases
 - **Architecture**: proxy-package swap at the SPM manifest level; lockfile (`spm-cache.lock`) + config (`spm-cache.yml`) as the state surface
-- **Compatibility**: no new runtime gem dependencies without justification (watch uses native FSEvents to avoid `listen`)
+- **Compatibility**: no new runtime gem dependencies without justification (watch uses stdlib mtime polling to avoid `listen`)
 - **GitHub Action**: must live in a separate repo per `uses:` resolution rules
 
 <!-- GSD:project-end -->

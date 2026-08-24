@@ -23,11 +23,19 @@ jobs:
     steps:
       - uses: actions/checkout@v5
 
+      - name: Select Xcode 16
+        uses: maxim-lobanov/setup-xcode@v1
+        with:
+          xcode-version: '16'
+
       - name: Set up Ruby
         uses: ruby/setup-ruby@v1
         with:
           ruby-version: ${{ matrix.ruby }}
           bundler-cache: true
+
+      - name: Build proxy (release)
+        run: make proxy.build
 
       - name: RSpec
         run: bundle exec rspec
@@ -42,9 +50,6 @@ jobs:
         uses: maxim-lobanov/setup-xcode@v1
         with:
           xcode-version: '16'
-
-      - name: Build proxy (release)
-        run: make proxy.build
 
       - name: Test proxy
         working-directory: tools/spm-cache-proxy

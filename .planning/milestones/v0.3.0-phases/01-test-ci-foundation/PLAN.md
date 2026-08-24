@@ -71,7 +71,7 @@ Since CI won't actually run until pushed to GitHub, note in the final summary th
 
 ## Success Criteria Mapping
 1. `ci.yml` exists + triggers on PR + push to main → Tasks 1–2
-2. Ruby 3.0–3.3 matrix runs `bundle exec rspec` on macos-15 → Task 1 (`ruby-tests` job)
+2. Ruby 3.0–3.3 matrix runs `bundle exec rspec` on macos-15 → Task 1 (`ruby-tests` job) — DELIVERED: 3.1/3.2/3.3 (3.0 dropped at merge 5759c5b; spm_cache.gemspec requires >= 3.1.0)
 3. Swift runs `make proxy.build` + `swift test`, Xcode pinned → Task 1 (`swift-tests` job)
 
 ## Verification (inline plan-check — degraded path)

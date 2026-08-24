@@ -28,14 +28,16 @@ Reduce Xcode clean build times by serving prebuilt SPM dependency binaries trans
 - ✓ Interactive cachemap visualization (HTML dependency graph) — v0.1.0
 - ✓ Auto-sync diff detection (DiffDetector reads Package.resolved + pbxproj) — v0.2.0
 - ✓ Plugin-only / transitive-only / binary-target package edge-case handling — v0.2.0–v0.2.8
+- ✓ Test CI pipeline (`ci.yml`) — full RSpec + swift-test suite on every PR/push, proxy binary built on every ruby-tests leg — Phase 1 (v0.3.0)
+- ✓ `spm-cache doctor` — 7-check data-driven registry, marker report + fix hints, `--json`, hermetic Core::Sh-seam specs, companion `--version` probe working (0.3.0) — Phase 2 (v0.3.0)
+- ✓ `spm-cache init` — 7-flag bootstrap wizard, TTY-conditional prompts, idempotent yml diff-merge, canonical lockfile seeding (init→use fast path proven) — Phase 3 (v0.3.0)
+- ✓ GitHub Action (`action/` → `phuongddx/spm-cache-action`) — 6-input thin composite, `--default-config` wiring fixed, 12-example structural spec; publication is a release-checklist item — Phase 4 (v0.3.0)
+- ✓ `spm-cache watch` — mtime+size polling (user-accepted 2026-08-24, supersedes FSEvents design), debounce 2s, `--once`, signal-safe flush (INT/TERM masked during flush), self-trigger guard — Phase 5 (v0.3.0)
 
 ### Active
 
-- [ ] `spm-cache watch` — filesystem-watch mode that auto-regenerates the proxy package when the Xcode SPM graph changes (v0.3.0 moat feature)
-- [ ] `spm-cache init` — interactive project bootstrap wizard generating `spm-cache.yml` + seeded lockfile (v0.3.0 adoption feature)
-- [ ] GitHub Action (`phuongddx/spm-cache-action`) — thin CI wrapper for cache restore/save (v0.3.0 adoption feature)
-- [ ] `spm-cache doctor` — environment diagnostics with green/yellow/red report + `--json` output (v0.3.0 reliability feature)
-- [ ] Test CI pipeline (`.github/workflows/ci.yml`) — runs RSpec + `swift test` on every PR (v0.3.0 reliability feature)
+(none — v0.3.0 shipped; next milestone not yet planned. Candidates recorded in Out of Scope / retrospective.)
+
 
 ### Out of Scope
 
@@ -48,30 +50,31 @@ Reduce Xcode clean build times by serving prebuilt SPM dependency binaries trans
 
 ## Context
 
-`spm-cache` is at v0.2.8, mature and field-tested (59–70 package real-project runs). The v0.2.x line was a series of field-bugfix releases (identity collisions, wrong product names, plugin-only packages, version drift, stale metadata). The competitive landscape (`competitive-analysis-2026-07.html`) shows two direct SPM competitors: Scipio (544★, Swift-native, requires a separate hand-written manifest) and xccache (71★, Ruby gem, shares the proxy-package architecture). spm-cache's structural moat is that it reads the Xcode project directly and integrates transparently — Scipio cannot match this without rearchitecting. The v0.3.0 cycle deepens that moat (`watch`), removes adoption friction (`init` + Action), and hardens reliability (`doctor` + test CI). The design spec is at `docs/superpowers/specs/2026-08-10-v0.3.0-watch-init-doctor-design.md`.
+`spm-cache` is at v0.3.0 (code complete, pending release). The v0.2.x line was a series of field-bugfix releases (identity collisions, wrong product names, plugin-only packages, version drift, stale metadata), mature and field-tested on 59–70 package real-project runs. The v0.3.0 Mixed cycle deepened the moat (`watch` auto-sync), removed adoption friction (`init` + GitHub Action), and hardened reliability (`doctor` + full-suite test CI); all five phases verified 2026-08-24 with 258-example CI-green coverage. The competitive landscape (`competitive-analysis-2026-07.html`) still shows two direct SPM competitors: Scipio (544★, Swift-native, requires a separate hand-written manifest) and xccache (71★, Ruby gem, shares the proxy-package architecture). spm-cache's structural moat — reads the Xcode project directly, integrates transparently, now auto-syncs — remains unmatched without rearchitecting.
 
-Known gaps from the codebase map: no CI runs the test suite today (only the release Homebrew-tap updater); `build_pipeline.rb` (919 LOC) and `installer.rb` (578 LOC) are complexity hotspots; shell-string interpolation in `core/git.rb` is a low-but-present injection surface; Ruby↔Swift companion version drift has no explicit handshake.
+Known state after v0.3.0: test CI runs the full suite on every PR/push (was: none); `build_pipeline.rb` and `installer.rb` remain complexity hotspots; shell-string interpolation in `core/git.rb` is still a low-but-present injection surface; Ruby↔Swift version drift is now VISIBLE via `doctor`'s companion_binary check (`--version` probe) though not compared. Release checklist outstanding: gemspec homepage placeholder, `gem push` 0.3.0, publish `phuongddx/spm-cache-action`, tag v1, action-repo smoke CI.
 
 ## Constraints
 
 - **Tech stack**: Ruby gem (>= 3.0) + Swift 6.0 companion tool; macOS-only (Xcode toolchain) — `core/sh.rb` shells out to swift/xcodebuild
 - **Distribution**: Homebrew tap (`phuongddx/spm-cache`) + RubyGems; GitHub account `phuongddx` for releases
 - **Architecture**: proxy-package swap at the SPM manifest level; lockfile (`spm-cache.lock`) + config (`spm-cache.yml`) as the state surface
-- **Compatibility**: no new runtime gem dependencies without justification (watch uses native FSEvents to avoid `listen`)
+- **Compatibility**: no new runtime gem dependencies without justification (watch uses stdlib mtime polling to avoid `listen`)
 - **GitHub Action**: must live in a separate repo per `uses:` resolution rules
 
 ## Key Decisions
 
 | Decision | Rationale | Outcome |
 |----------|-----------|---------|
-| v0.3.0 direction = Mixed (features + hardening) | User chose balanced cycle — moat + adoption + reliability | — Pending |
-| `watch` uses native FSEvents via Fiddle, not `listen` gem | macOS-only tool; avoids new dependency; ~80-line binding | — Pending |
-| `watch` watches only Package.resolved + project.pbxproj | Whole .xcodeproj bundle is too noisy (Xcode rewrites many files) | — Pending |
-| `init` re-runs are idempotent diff-merge | Mirrors `use` diff philosophy; prevents data loss | — Pending |
-| `doctor` uses data-driven check registry | Checks addable/removable via config; no command edits | — Pending |
-| Test CI is a separate `ci.yml` from release `update-tap.yml` | Release workflow stays focused; test pipeline runs on every PR | — Pending |
-| GitHub Action is a separate thin repo shelling out to the gem | GitHub `uses:` requirement; logic stays in the gem | — Pending |
-| Content-addressed cache deferred to v0.5 | HIGH effort; current lockfile-based key is adequate for v0.3 | — Pending |
+| v0.3.0 direction = Mixed (features + hardening) | User chose balanced cycle — moat + adoption + reliability | ✓ Shipped — 5/5 phases verified 2026-08-24 |
+| `watch` uses stdlib mtime+size polling, not `listen` gem | zero native binding, portable, avoids new dependency; binding design superseded 2026-08-24 (05-CONTEXT) | ✓ Shipped Phase 5 — stdlib polling (amended 2026-08-24) |
+| `watch` watches only Package.resolved + project.pbxproj | Whole .xcodeproj bundle is too noisy (Xcode rewrites many files) | ✓ Shipped Phase 5 |
+| `init` re-runs are idempotent diff-merge | Mirrors `use` diff philosophy; prevents data loss | ✓ Shipped Phase 3 — byte-stable double-run proven |
+| init seeds spm-cache.lock in canonical consumer shape | Pins byte-copy crashed `use` (TypeError, diff_detector.rb:103); canonical shape reuses installer mapping | ✓ Phase 3 — DiffDetector consumes seeded lock: "No changes detected" |
+| companion CLI exposes `--version` (CommandConfiguration version:) | Makes Ruby↔Swift drift visible in `doctor`; honors accepted 2026-08-24 decision | ✓ Phase 2 — `spm-cache-proxy --version` → 0.3.0, exit 0 |
+| Action shells out thin: setup-ruby → gem install → init → remote | Zero logic duplication; `uses:` resolution requires the separate repo | ✓ Shipped in-repo Phase 4 (d9a4c4e flag fix); publish + own-repo CI smoke = release checklist |
+| ruby-tests builds the proxy binary before RSpec; Ruby matrix is 3.1–3.3 | Binary-gated gen_proxy specs (23/218) silently skipped without the build; 3.0 dropped at merge 5759c5b (gemspec >= 3.1.0) | ✓ Proven 2026-08-24: 218 examples, 0 failures, 0 pending |
+| Content-addressed cache deferred to v0.5 | HIGH effort; current lockfile-based key is adequate for v0.3 | — Pending (carried) |
 
 ## Evolution
 
@@ -91,4 +94,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-08-10 after initialization*
+*Last updated: 2026-08-24 after v0.3.0 milestone*

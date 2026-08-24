@@ -1,64 +1,149 @@
 ---
 title: External Integrations
 focus: tech
-mapped_date: 2026-08-10
-last_mapped_commit: 5687b4641c1d7a36ef4fc99d59fdccf6dc09c5e0
+mapped_date: 2026-08-23
+last_mapped_commit: f55b9b9a7dc73104b490ed76ec38549b242af03e
 ---
 
 # External Integrations
 
-`spm-cache` is a build-time tool that orchestrates several external systems. It does **not** ship its own server or database; integration is via shell-out to developer toolchains, git, cloud storage, and the `xcodeproj` Ruby library.
+**Analysis Date:** 2026-08-23
 
-## Swift / Xcode Toolchain (shell-out)
+## APIs & External Services
 
-All external command execution is centralized in `lib/spm_cache/core/sh.rb` (`Core::Sh.run` → `Open3.popen3` / `Open3.capture3`). It shells out to:
-- `swift package` / `swift build` / `swiftc` — SPM resolution and source compilation (`lib/spm_cache/spm/build.rb`, `lib/spm_cache/swift/swiftc.rb`)
-- `xcodebuild` — builds `.xcframework` slices per destination; the build pipeline runs this per SDK/arch (`lib/spm_cache/spm/build_pipeline.rb`)
-- `xcrun` / SDK resolution (`lib/spm_cache/swift/sdk.rb`)
+**Xcode Toolchain (required):**
+- `xcodebuild` — Invoked for building Swift packages into xcframeworks. Shell-outs in `lib/spm_cache/spm/build.rb` and `lib/spm_cache/spm/build_pipeline.rb`.
+- `swift` CLI — Used for package resolution, build, and version detection. See `lib/spm_cache/core/diagnostics.rb` for version check.
+- Xcode project manipulation via `xcodeproj` gem — edits `.pbxproj` files to swap SPM dependencies with local proxy packages. Implemented in `lib/spm_cache/xcodeproj/`.
 
-`Core::Sh.run` raises `Core::GeneralError` on non-zero exit, including the tail of stdout+stderr (`failure_detail`, last 60 lines) since tools like `xcodebuild` report real errors to stdout.
+**AWS S3 (optional remote backend):**
+- SDK/Client: None (no AWS Ruby SDK). Uses `aws s3 sync` CLI via shell-out.
+- Implementation: `lib/spm_cache/storage/s3.rb`
+- Auth: JSON credentials file path passed via `--creds` flag or `creds:` key in `spm-cache.yml`. File contains `access_key_id` and `secret_access_key`.
+- Environment vars injected at runtime: `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY` (set from credentials file, not env directly).
+- Requires external `aws` CLI installed (`pip install awscli`).
 
-## Xcode Project Manipulation
+**Git (remote backend):**
+- SDK/Client: Ruby stdlib + `lib/spm_cache/core/git.rb` wrapper around `git` CLI.
+- Implementation: `lib/spm_cache/storage/git.rb`
+- Auth: Depends on Git's own credential handling (SSH keys, HTTPS tokens, etc.). No explicit auth config from spm-cache.
+- Operations: `init`, `fetch --depth=1`, `checkout FETCH_HEAD`, `clean -f`, `add .`, `commit`, `push`.
 
-- `xcodeproj` gem (>= 1.26) — reads and edits `project.pbxproj` directly
-- Extension layer in `lib/spm_cache/xcodeproj/` (`project.rb`, `pkg.rb`, `pkg_product_dependency.rb`, `target.rb`, `group.rb`, `build_configuration.rb`) augments Xcodeproj objects to integrate/remove the proxy package and rewire `XCSwiftPackageProductDependency` refs
+## Data Storage
 
-## SPM Package Resolution & Metadata
+**Local Cache (primary):**
+- Directory: `~/.spm-cache/` — Global binary artifact store.
+- Implementation: `lib/spm_cache/core/config.rb` (`CACHE_DIR = File.expand_path("~/.spm-cache")`)
+- Structure: Subdirectories per build configuration (e.g., `~/.spm-cache/debug/`, `~/.spm-cache/release/`). Contains prebuilt `.xcframework` bundles.
+- Metadata: `spm-cache.lock` per-project — YAML file with enriched Package.resolved data. Managed by `lib/spm_cache/core/lockfile.rb`.
 
-- Parses `Package.resolved` and `project.pbxproj` SPM references into `Core::Lockfile` (`lib/spm_cache/core/lockfile.rb`)
-- `lib/spm_cache/spm/desc/` — parses `swift package describe --type json` output into `Desc::Target`, `Desc::Product`, `Desc::Dep` models
-- `lib/spm_cache/spm/checkout_resolver.rb` — resolves package checkout directories
-- `lib/spm_cache/core/diff_detector.rb` — compares lockfile snapshot vs live project SPM graph to detect added/removed/updated packages
+**Project Sandbox (local, per-project):**
+- Directory: `<project>/spm-cache/`
+- Implementation: `lib/spm_cache/core/config.rb` (`SANDBOX_DIR = "spm-cache"`)
+- Subdirectories: `packages/proxy/` (generated proxy packages), `packages/umbrella/` (umbrella packages), `metadata/`, `xcconfigs/`, `local-packages/`.
+- Git-ignored: Ensured by `spm-cache init` via `lib/spm_cache/command/init.rb` (`ensure_gitignore`).
 
-## Swift Companion Tool (process boundary)
+**Remote Cache (optional):**
+- Git backend: Any Git remote URL. Shallow clone of a single branch. See `lib/spm_cache/storage/git.rb`.
+- S3 backend: Any S3 URI (`s3://bucket/path/`). Synced via AWS CLI. See `lib/spm_cache/storage/s3.rb`.
+- Storage base class: `lib/spm_cache/storage/base.rb` (no-op defaults with warnings).
+- Routing: `lib/spm_cache/storage.rb` selects `GitStorage`, `S3Storage`, or `Base` based on config.
 
-Ruby invokes the prebuilt Swift binary `tools/spm-cache-proxy/.build/release/spm-cache-proxy` via `Core::Sh`:
-- `gen-proxy` — generates the proxy `Package.swift` (`tools/spm-cache-proxy/Sources/CLI/GenProxy.swift`)
-- `gen-umbrella` — generates umbrella modules (`Sources/CLI/GenUmbrella.swift`)
-- `resolve` — SPM resolution helper (`Sources/CLI/Resolve.swift`)
+**File Storage:**
+- Local filesystem only — no cloud file storage. All artifacts stored in `~/.spm-cache/`.
 
-This is the Ruby→Swift boundary; passing a stale or unbuilt binary degrades gracefully (regression specs skip if the binary is absent).
+**Caching:**
+- None (no Redis, Memcached, etc.). The entire tool IS a caching system for SPM dependencies.
 
-## Remote Cache Backends
+## Authentication & Identity
 
-Pluggable storage in `lib/spm_cache/storage/`, both subclass `Storage::Base` (`lib/spm_cache/storage/base.rb`):
-- **Git** (`lib/spm_cache/storage/git.rb`) — `GitStorage` clones/fetches/pushes the cache to a git remote branch via `Core::Git` (`lib/spm_cache/core/git.rb`); uses shallow fetches (`--depth 1`) and force-clean
-- **S3** (`lib/spm_cache/storage/s3.rb`) — `S3Storage` runs `aws s3 sync` (requires local `awscli`); AWS credentials are read from a JSON file pointed to by `--creds` and injected as env vars (`AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`) — never written to disk or logs
+**Auth Provider:**
+- None. No user authentication system.
+- Remote backend auth is delegated: Git uses native Git credentials; S3 uses AWS credential file.
 
-Commands `spm-cache remote push` / `remote pull` (`lib/spm_cache/command/remote/`) drive these.
+**GitHub Action Auth:**
+- `secrets.TAP_REPO_TOKEN` — Personal access token for pushing to the Homebrew tap repository. See `.github/workflows/update-tap.yml`.
 
-## Terminal UI
+## Monitoring & Observability
 
-- `tty-cursor` + `tty-screen` — progress/section rendering (`lib/spm_cache/core/ui.rb` via `Core::UI.info` / `section`)
-- `lib/spm_cache/core/live_log.rb` — streams subprocess stdout/stderr line-by-line to the terminal during builds
-- `Core::Log` (`lib/spm_cache/core/log.rb`) — structured logging to optional log dir
+**Error Tracking:**
+- None. No Sentry, Rollbar, or similar.
 
-## CI / Release Publishing
+**Logs:**
+- Terminal output via `Core::UI` module (`lib/spm_cache/core/log.rb`).
+- Live log with spinner: `lib/spm_cache/live_log.rb`.
+- Build-phase cache visualization: `cachemap.js.template` + `cachemap.html.template` + `cachemap.style.css.template` in `lib/spm_cache/assets/templates/`.
+- Doctor command diagnostics: `lib/spm_cache/command/doctor.rb` with `--json` flag for CI-consumable output.
 
-- `.github/workflows/update-tap.yml` — GitHub Actions; on release publish updates the Homebrew tap
-- GitHub CLI (`gh`) — release/PR operations; `CLAUDE.md` notes the active account must be switched to `phuongddx` first (`gh auth switch --user phuongddx`)
+## CI/CD & Deployment
 
-## Property-List & Metadata Parsing
+**Hosting (gem):**
+- RubyGems.org — `gem install spm-cache --no-document`. Published as a standard Ruby gem.
 
-- `CFPropertyList` (~> 3.0) — reads `.plist` files inside `.xcframework` slices and built products (`lib/spm_cache/spm/xcframework/metadata.rb`, `slice.rb`)
-- `lib/spm_cache/core/syntax/plist.rb` — plist serialization mixin
+**Homebrew Tap:**
+- Tap repository: `phuongddx/homebrew-spm-cache`.
+- Formula: `Formula/spm-cache.rb` (auto-updated on release).
+- Automation: `.github/workflows/update-tap.yml` triggers on GitHub release, computes SHA256 of release tarball, `sed`-updates the formula, commits and pushes.
+
+**GitHub Action:**
+- Composite action: `action/action.yml`.
+- Name: `spm-cache-action`.
+- Published as a GitHub Action for CI integration.
+- Wraps the gem: installs via `gem install spm-cache --no-document`, runs `spm-cache init` + `spm-cache remote pull/push`; `sync` is pull+push composed by the action.
+- Inputs: `command` (pull/push/sync), `backend` (git/s3), `backend-url`, `branch`, `config`, `creds`.
+
+**CI Pipeline:**
+- GitHub Actions — `.github/workflows/ci.yml`.
+- Triggers: push to `main`, pull requests.
+- Jobs:
+  1. `ruby-tests` — Matrix: Ruby 3.1 / 3.2 / 3.3 on `macos-15`. Runs `bundle exec rspec`.
+  2. `swift-tests` — Builds proxy tool (`make proxy.build`), runs `swift test` in `tools/spm-cache-proxy/`.
+- Uses `actions/checkout@v5`, `ruby/setup-ruby@v1`, `maxim-lobanov/setup-xcode@v1`.
+
+**Release Flow:**
+ 1. Tag release on GitHub (e.g., `v0.3.0`).
+ 2. Build and publish gem to RubyGems.org (manual or external automation).
+ 3. `.github/workflows/update-tap.yml` auto-updates Homebrew tap formula.
+
+## Environment Configuration
+
+**Required env vars:**
+- None at runtime (all config via `spm-cache.yml` and CLI flags).
+
+**Optional env vars (S3 backend):**
+- `AWS_ACCESS_KEY_ID` — Set dynamically from `--creds` file by `lib/spm_cache/storage/s3.rb`, not from env.
+- `AWS_SECRET_ACCESS_KEY` — Same as above.
+
+**GitHub Actions secrets:**
+- `TAP_REPO_TOKEN` — PAT for Homebrew tap push (used in `update-tap.yml`).
+
+**Secrets location:**
+- S3 credentials: JSON file on disk, path passed via `--creds` flag.
+- Git credentials: Native Git credential store.
+- CI secrets: GitHub repository secrets.
+
+## Webhooks & Callbacks
+
+**Incoming:**
+- None.
+
+**Outgoing:**
+- None (no webhook calls). Remote operations are push/pull via Git or S3 sync.
+
+## External Tool Dependencies
+
+**Required:**
+- `xcodebuild` — Xcode build tool (ships with Xcode).
+- `swift` — Swift compiler (ships with Xcode).
+- `git` — Version control (for git remote backend and general VCS).
+
+**Optional:**
+- `aws` CLI — AWS command-line tool (for S3 remote backend only). Validated at runtime in `lib/spm_cache/storage/s3.rb`.
+
+**Watch command specifics:**
+- `watch` uses Ruby stdlib mtime+size polling (no `listen` gem, no FSEvents bindings). See `lib/spm_cache/core/watcher.rb`. Debounce interval: 2 seconds. Watches `Package.resolved` and `project.pbxproj` only.
+
+---
+
+*Integration audit: 2026-08-23*
+<!-- refreshed: 2026-08-23 -->

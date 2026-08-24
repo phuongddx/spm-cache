@@ -60,7 +60,7 @@ See `docs/system-architecture.md` for the corrected pipeline order and schema. E
 
 - [ ] Progress indicators during long builds (tty-spinner)
 - [ ] Verbose/quiet log levels
-- [ ] `spm-cache doctor` command (diagnose environment, toolchain)
+- [x] `spm-cache doctor` command (diagnose environment, toolchain) — shipped in v0.3.0
 - [ ] `spm-cache cachemap --open` (open visualization in browser)
 - [ ] Checksum validation on cache load
 - [ ] Incremental cache updates (only build changed dependencies)
