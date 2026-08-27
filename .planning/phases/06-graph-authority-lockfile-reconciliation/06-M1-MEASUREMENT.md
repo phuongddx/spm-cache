@@ -306,4 +306,111 @@ see `## Step 4`.
 
 ## Step 4 — Release build reproduction
 
-Pending — Task 2
+### Scheme confirmed (A4 holds)
+
+`xcodebuild -list -project StressMonitor.xcodeproj` (read-only, no checkout) reports:
+
+```
+Schemes:
+    StressMonitor
+    StressMonitorWatch Watch App
+    StressMonitorWidgetExtension
+```
+
+Research assumption A4 holds — the scheme is named `StressMonitor` as assumed. The command the
+research method specifies is therefore, verbatim:
+
+```bash
+xcodebuild -project /Users/ddphuong/.../StressMonitor/StressMonitor.xcodeproj \
+  -scheme StressMonitor -configuration Release \
+  -destination 'generic/platform=iOS Simulator' build
+```
+
+### Exit status: not run — deliberately
+
+**This command was not executed. Neither reachable variant of it is both probative and
+non-destructive, and running the non-probative one would have spent the evidence for nothing.**
+
+| Build target state | Probative for the stale-transitive symptom? | Safe to run? |
+|---|---|---|
+| Current working tree (`main`, as checked out) | **No** — `XCLocalSwiftPackageReference` is empty, so spm-cache is not wired into the project at all; the graph is the 17-pin firebase graph and no exyte package is present. A green or red build here says nothing about the 8 packages under attribution. | Yes |
+| `1b511d1` / `0a73df7` (2026-08-09, exyte state + spm-cache wired) | **Yes** | **No** — two independent blockers, below |
+
+The two blockers on the probative variant:
+
+1. **A3 failed, so the state is only reachable detached.** `feature/spm-cache-integration`'s tip no
+   longer holds the exyte state (`fb8e773` removed it and is an ancestor of the tip). Reaching it means
+   a detached checkout of `1b511d1`. The reference working tree carries **3 modified tracked files and
+   `stash@{0}`** (Step 0), so a checkout there risks the user's uncommitted work in a repository this
+   phase does not own. Recorded as out of bounds rather than attempted.
+2. **The build would overwrite the very artifacts being measured.** At `1b511d1` spm-cache *is* wired
+   in, so a build regenerates `spm-cache.lock`, `umbrella/Package.swift`, and
+   `umbrella/Package.resolved` — the three pre-fix artifacts this plan exists to capture. Per the plan
+   objective, the read-only half of M1 "is the only chance to observe pre-fix behavior."
+
+Artifact integrity was verified after all measurement: `spm-cache.lock` is byte-identical to the copy
+preserved before any command ran, all five artifact mtimes are unchanged from the Step 0 inventory,
+and the reference project is still on `main` with its original dirty state intact.
+
+### Per-package linked version vs host pin
+
+The linked version is nonetheless established, from stronger evidence than a build log: the realized
+checkout HEADs under `umbrella/.build/checkouts` (Step 3) **are** the sources the compiler read. Each
+was verified by `git -C <checkout> rev-parse HEAD` and `describe --tags`. `H` is the contemporaneous
+canonical host pin at `0a73df7` (2026-08-09), the same day the lock was written.
+
+| package | linked (realized checkout HEAD) | host pin (H) | relation |
+|---|---|---|---|
+| ActivityIndicatorView | 1.2.1 / `36140867802a` | 1.2.1 / `36140867802a` | equal |
+| **AnchoredPopup** | **1.1.3 / `2fb9d1ac101b`** | **1.2.1 / `dfa61fd6e4e4`** | **OLDER than host** |
+| Chat | 3.0.2 / `2ea8fc57f719` | (rev) `2ea8fc57f719` | equal |
+| giphy-ios-sdk | 2.2.16 / `37f5b1ff6cf8` | 2.2.16 / `37f5b1ff6cf8` | equal |
+| **Kingfisher** | **8.8.1 / `c152c1915f60`** | **8.11.0 / `410984bf301f`** | **OLDER than host** |
+| **libwebp-Xcode** | **1.5.0 / `0d60654eeefd`** | **1.6.0 / `2b5256c29ff4`** | **OLDER than host** |
+| **MediaPicker** | **3.3.2 / `ce2eda630033`** | **3.4.2 / `07fa01cdf084`** | **OLDER than host** |
+| SwiftUICharts | 2.10.4 / `c16f47217d1e` | (rev) `c16f47217d1e` | equal |
+
+The 17 Group-B packages linked nothing through spm-cache — the umbrella never declared them.
+
+### Did the motivating symptom reproduce?
+
+**Yes.** A linked transitive version strictly older than the host pin reproduced for four packages —
+AnchoredPopup 1.1.3 vs host 1.2.1, Kingfisher 8.8.1 vs 8.11.0, libwebp-Xcode 1.5.0 vs 1.6.0, and
+MediaPicker 3.3.2 vs 3.4.2 — established from realized on-disk checkouts and committed host graphs
+rather than from a live `xcodebuild` run, which was withheld for the reasons above.
+
+---
+
+## M1 verdict
+
+**The dominant mechanism is H-wrongfile, and it is the only mechanism observed in the field case.**
+The locator's `Dir.glob(...).find` returns a nested, git-ignored, 2026-07-12 `Package.resolved` that has
+been frozen since July while the real Xcode-written graph moved twice. Every downstream component then
+agreed with each other perfectly — lock, emitted umbrella requirement, umbrella resolved pin, and
+realized checkout are byte-identical for all 8 packages — while collectively describing a graph the host
+project does not have. Four packages linked strictly older than the host pin; the other 17 packages of
+the real graph were never declared at all.
+
+**Per-verdict counts:** H-wrongfile **25** · H-lock **0** · H-float **0** · both **0**.
+
+H-float is excluded by construction, not by weight of evidence: all 8 packages were emitted as exact
+`revision:` pins, which per `Lockfile.swift:115-117` have no range to float within, and `U == L` holds
+byte-for-byte. H-lock is excluded by provenance: the lock's contents match the wrongly-picked file
+exactly (8/8) and the canonical file not at all (0/17), and no committed revision of the canonical file
+ever held the pins the lock carries.
+
+**Implication for Phase 7 (D-14): Phase 7 proceeds.** Its target — the `from:` upward-drift mechanism —
+was independently reproduced during research (swift-argument-parser 1.2.0 → 1.8.2, exit 0, no warning),
+so it is a real defect regardless of M1. But M1 observed **zero** instances of it in the field case, so
+the concrete re-scope is:
+
+1. **Phase 7 is demoted from "the fix for the field bug" to "hardening against a mechanism not yet seen
+   in the field."** The motivating release-build failure is not a drift bug and Phase 7 would not have
+   prevented it. Phase 7 should be sequenced and sized accordingly rather than treated as urgent.
+2. **Candidate disambiguation is promoted into Phase 6 / FID-01 as blocking.** This is the load-bearing
+   consequence. Reconciling `version`/`revision` from `find_package_resolved`'s current answer writes the
+   phantom graph back onto itself, and success criterion 1 ("re-running `DiffDetector` returns an empty
+   diff") would then be satisfied by two components agreeing on the wrong file. Reconciliation without
+   a locator fix is not merely incomplete — it converts a visible non-empty diff into a false green.
+3. **DIAG-01's set-membership requirement is confirmed by measurement.** A version-only check over the
+   intersection reports "0 drifted" on a lock that shares zero packages with the host graph.
