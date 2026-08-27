@@ -118,6 +118,17 @@ Research flags: **Phase 7** and **Phase 9** need `--research-phase` during plann
 
 v0.3.0 phase history archived to `.planning/milestones/v0.3.0-phases/`.
 
+## Milestone Re-scope Decision (2026-08-27, post-M1)
+
+**User decision:** finish Phase 6 (the actual fix) and verify it closes the field failure, THEN re-plan
+Phases 7–9 with M1's evidence in hand. Rationale: M1 observed Phase 7's target mechanism (isolated
+upward re-resolution) **zero times** in the field, and Phases 8–9 largely exist to support Phase 7.
+Phase 9's cache invalidation is still required regardless — without it, even the FID-06 fix reaches zero
+existing users, since `Cache.swift:19-22` `hit(module:)` is a bare name + `fileExists` check.
+
+Do NOT execute Phases 7–9 against the current roadmap text. Re-plan them after Phase 6 verification.
+Phase 11 (release automation) is unaffected — it is fully independent.
+
 ## Open Measurements (block design decisions)
 
 | # | Measurement | Runs in | Blocks |
