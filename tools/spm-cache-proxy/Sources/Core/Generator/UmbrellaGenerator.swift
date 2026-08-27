@@ -55,12 +55,20 @@ struct UmbrellaGenerator {
             // enriched with product metadata yet — both cases fall back to
             // today's pin-everything behavior rather than guessing.
             // A transitive-only package is still declared when we hold its exact
-            // revision: a revision pin reproduces the host's resolved graph
-            // (Package.resolved is consistent, so the commit satisfies every
-            // parent's range by construction) and stops the isolated resolve from
-            // floating it to a newer release. Skip only when there's no revision
-            // to pin -- the float-pin conflict that motivated skipping arose with
-            // open-ended `from:` pins, which a parent's own range can disagree with.
+            // revision: a revision pin reproduces the host's resolved graph and
+            // stops the isolated resolve from floating it to a newer release.
+            // That reproduction holds only on two conditions, both of them
+            // properties of the lockfile handed to this generator, not of
+            // Package.resolved's own internal consistency: the pin must have
+            // been reconciled from the host's Package.resolved on this run (a
+            // lock frozen at first creation carries a commit that no longer
+            // satisfies any parent's range), and the file reconciliation read
+            // must have been the canonical
+            // project.xcworkspace/xcshareddata/swiftpm/Package.resolved rather
+            // than whichever copy a recursive search answered with first.
+            // Skip only when there's no revision to pin -- the float-pin
+            // conflict that motivated skipping arose with open-ended `from:`
+            // pins, which a parent's own range can disagree with.
             if pkg.isTransitiveOnly(consumedProducts: consumedProducts),
                pkg.revision == nil || pkg.repositoryURL == nil {
                 continue
