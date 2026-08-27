@@ -2,6 +2,8 @@
 
 require 'json'
 
+require 'spm_cache/core/config'
+
 module SPMCache
   module Core
     # Single locator and parser for the host project's `Package.resolved`.
@@ -27,17 +29,29 @@ module SPMCache
           canonical = File.join(project_path, CANONICAL_RELATIVE_PATH)
           return canonical if File.exist?(canonical)
 
-          under_root = recursive_candidates(project_path).first
+          workspace = workspace_candidates(project_path).first
+          return workspace if workspace
+
+          under_root = newest(recursive_candidates(project_path, exclude_xcodeproj: true))
           return under_root if under_root
           return nil unless parent_fallback
 
-          recursive_candidates(File.dirname(project_path)).first
+          # A sibling or parent project's own canonical file legitimately sits
+          # under an `.xcodeproj` component relative to this root, so that
+          # exclusion cannot apply here -- excluding candidates under
+          # `project_path` instead is what keeps the project's own nested stale
+          # copy from re-entering through the parent.
+          newest(recursive_candidates(File.dirname(project_path), exclude_xcodeproj: false,
+                                                                  exclude_under: project_path))
         end
 
         # Strict: propagates JSON::ParserError / TypeError so a caller that
         # must fail loudly on a malformed host graph still does.
         def pins(path)
-          JSON.parse(File.read(path)).fetch('pins', [])
+          value = JSON.parse(File.read(path)).fetch('pins', [])
+          raise TypeError, "Package.resolved 'pins' is not an array (got #{value.class})" unless value.is_a?(Array)
+
+          value
         end
 
         # Tolerant: nil means absent, unreadable, or structurally wrong; [] means
@@ -49,15 +63,58 @@ module SPMCache
           data = JSON.parse(File.read(path))
           return nil unless data.is_a?(Hash)
 
-          data['pins'] || []
+          value = data['pins'] || []
+          return nil unless value.is_a?(Array)
+
+          value.select { |pin| pin.is_a?(Hash) }
         rescue JSON::ParserError, TypeError
           nil
         end
 
         private
 
-        def recursive_candidates(root)
-          Dir.glob(File.join(root, '**', 'Package.resolved')).select { |f| File.exist?(f) }
+        def workspace_candidates(project_path)
+          Dir.glob(File.join(File.dirname(project_path), '*.xcworkspace', 'xcshareddata', 'swiftpm',
+                             'Package.resolved')).sort.select { |f| File.exist?(f) }
+        end
+
+        def recursive_candidates(root, exclude_xcodeproj:, exclude_under: nil)
+          Dir.glob(File.join(root, '**', 'Package.resolved')).select do |candidate|
+            next false unless File.exist?(candidate)
+            next false if sandboxed?(candidate, root)
+            next false if exclude_xcodeproj && nested_xcodeproj?(candidate, root)
+            next false if exclude_under && under?(candidate, exclude_under)
+
+            true
+          end
+        end
+
+        # mtime is only ever a tie-break inside a tier: on a fresh checkout or
+        # in CI every file carries the same clone-time stamp, so it cannot carry
+        # the preference itself.
+        def newest(candidates)
+          candidates.max_by { |candidate| File.mtime(candidate) }
+        end
+
+        def sandboxed?(candidate, root)
+          relative_components(candidate, root).include?(Config::SANDBOX_DIR)
+        end
+
+        def nested_xcodeproj?(candidate, root)
+          relative_components(candidate, root)[0..-2].any? { |part| part.end_with?('.xcodeproj') }
+        end
+
+        def under?(candidate, root)
+          root_components = path_components(root)
+          path_components(candidate).first(root_components.length) == root_components
+        end
+
+        def relative_components(candidate, root)
+          path_components(candidate).drop(path_components(root).length)
+        end
+
+        def path_components(path)
+          path.split(File::SEPARATOR).reject { |part| part.empty? || part == '.' }
         end
       end
     end
