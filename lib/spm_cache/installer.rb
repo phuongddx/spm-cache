@@ -6,6 +6,7 @@ require "xcodeproj"
 require "spm_cache/core/config"
 require "spm_cache/core/lockfile"
 require "spm_cache/core/log"
+require "spm_cache/core/package_resolved"
 require "spm_cache/spm/pkg/proxy"
 require "spm_cache/spm/checkout_resolver"
 require "spm_cache/spm/desc/desc"
@@ -131,7 +132,51 @@ module SPMCache
 
       @lockfile = Core::Lockfile.new(lockfile_path)
       @lockfile.load(lockfile_path) if File.exist?(lockfile_path)
+      reconcile_lockfile_from_host_graph
       refresh_consumed_dependencies
+    end
+
+    # Field bug: `generate_lockfile_from_resolved` writes only when no lockfile
+    # exists yet, so every package's `version`/`revision` stayed frozen at
+    # first creation and the umbrella pinned an abandoned snapshot forever --
+    # on the reference project, four packages linked strictly older than the
+    # host's own contemporaneous pin. This refreshes those two fields in place
+    # from the host's canonical Package.resolved and touches nothing else, so
+    # enriched `products[]` and every identity field survive intact.
+    #
+    # Membership is decided against DiffDetector's live set (resolved pins
+    # UNION project.pbxproj refs), not the pins alone: Package.resolved never
+    # lists local/path packages, so a pins-only basis would misread every
+    # local package as absent from the graph.
+    def reconcile_lockfile_from_host_graph
+      return unless @lockfile
+      return unless @diff && !@diff.empty?
+
+      resolved = Core::PackageResolved.locate(@project_path)
+      return unless resolved
+      # nil here means absent or unreadable, which is NOT "the host has no
+      # packages" -- leave the lock exactly as it is.
+      return if Core::PackageResolved.pins_or_nil(resolved).nil?
+
+      proj_data = @lockfile.projects[File.basename(@project_path)]
+      return unless proj_data
+
+      require "spm_cache/core/diff_detector"
+      live = Core::DiffDetector.new(project_path: @project_path,
+                                    lockfile_path: @config.lockfile_path).live_packages
+
+      (proj_data["packages"] || []).each do |pkg|
+        key = Core::DiffDetector.identity_key(pkg["repositoryURL"], pkg["path_from_root"] || pkg["path"], pkg["name"])
+        live_pkg = live[key]
+        next unless live_pkg
+
+        pkg["version"] = live_pkg["version"]
+        # A transitive-only package can legitimately hold no revision; nilling
+        # an existing one out would make the umbrella generator skip it.
+        pkg["revision"] = live_pkg["revision"] if live_pkg["revision"]
+      end
+
+      @lockfile.save
     end
 
     # Records, per target, the product names the Xcode project directly
