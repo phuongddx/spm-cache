@@ -269,4 +269,108 @@ RSpec.describe SPMCache::Installer::Use, '#sync_lockfile reconciliation' do
       expect(locked_packages.first['revision']).to eq('rev-new')
     end
   end
+
+  describe 'preservation and safe degradation' do
+    it 'preserves products' do
+      write_canonical_pins([{ identity: 'alpha', url: alpha_url, version: '2.0.0', revision: 'rev-new' }])
+      write_lock([{ 'repositoryURL' => alpha_url, 'name' => 'alpha', 'version' => '1.0.0',
+                    'revision' => 'rev-old', 'products' => alpha_products }])
+
+      run_sync
+
+      expect(locked_packages.first['products']).to eq(alpha_products)
+      expect(locked_packages.first['version']).to eq('2.0.0')
+    end
+
+    it 'leaves dependencies platforms and version stamp untouched' do
+      write_canonical_pins([{ identity: 'alpha', url: alpha_url, version: '2.0.0', revision: 'rev-new' }])
+      write_lock([{ 'repositoryURL' => alpha_url, 'name' => 'alpha', 'version' => '1.0.0',
+                    'revision' => 'rev-old', 'branch' => 'main' }],
+                 extra: { 'dependencies' => { 'MyApp' => ['Alpha'] }, 'spm_cache_version' => '0.0.1-frozen' })
+
+      run_reconcile_only
+
+      proj = locked_project
+      expect(proj['dependencies']).to eq({ 'MyApp' => ['Alpha'] })
+      expect(proj['platforms']).to eq({ 'ios' => '16.0' })
+      expect(proj['spm_cache_version']).to eq('0.0.1-frozen')
+      expect(proj['packages'].first['branch']).to eq('main')
+      expect(proj['packages'].first['version']).to eq('2.0.0')
+    end
+
+    it 'leaves the lock untouched when Package.resolved is unreadable' do
+      write_canonical_raw('{"version": 3, "pins": [')
+      write_lock([{ 'repositoryURL' => alpha_url, 'name' => 'alpha', 'version' => '1.0.0',
+                    'revision' => 'rev-old' }])
+      before_bytes = File.binread(lockfile_path)
+
+      expect(SPMCache::Core::UI).to receive(:warn).once
+      run_reconcile_only(diff: non_empty_diff)
+
+      expect(File.binread(lockfile_path)).to eq(before_bytes)
+    end
+
+    it 'leaves the lock untouched when Package.resolved is missing' do
+      write_lock([{ 'repositoryURL' => alpha_url, 'name' => 'alpha', 'version' => '1.0.0',
+                    'revision' => 'rev-old' }])
+      before_bytes = File.binread(lockfile_path)
+
+      expect(SPMCache::Core::UI).to receive(:warn).once
+      run_reconcile_only
+
+      expect(File.binread(lockfile_path)).to eq(before_bytes)
+    end
+
+    it 'does not clear an existing revision when the host pin has none' do
+      write_canonical_pins([{ identity: 'alpha', url: alpha_url, version: '2.0.0' }])
+      write_lock([{ 'repositoryURL' => alpha_url, 'name' => 'alpha', 'version' => '1.0.0',
+                    'revision' => 'rev-old' }])
+
+      run_sync
+
+      expect(locked_packages.first['version']).to eq('2.0.0')
+      expect(locked_packages.first['revision']).to eq('rev-old')
+    end
+
+    it 'does not write when the diff is empty' do
+      write_canonical_pins([{ identity: 'alpha', url: alpha_url, version: '1.0.0', revision: 'rev-old' }])
+      write_lock([{ 'repositoryURL' => alpha_url, 'name' => 'alpha', 'version' => '1.0.0',
+                    'revision' => 'rev-old' }])
+      before_bytes = File.binread(lockfile_path)
+      before_mtime = File.mtime(lockfile_path)
+
+      installer = run_reconcile_only
+
+      expect(installer.diff).to be_empty
+      expect(File.binread(lockfile_path)).to eq(before_bytes)
+      expect(File.mtime(lockfile_path)).to eq(before_mtime)
+    end
+
+    it 'reconciles a project whose lock key differs from the project basename' do
+      write_canonical_pins([{ identity: 'alpha', url: alpha_url, version: '2.0.0', revision: 'rev-new' }])
+      write_lock([{ 'repositoryURL' => alpha_url, 'name' => 'alpha', 'version' => '1.0.0',
+                    'revision' => 'rev-old' }],
+                 project_key: 'Fake')
+
+      run_sync
+
+      expect(locked_packages('Fake').first['version']).to eq('2.0.0')
+      expect(locked_packages('Fake').first['revision']).to eq('rev-new')
+    end
+
+    it 'skips the drop pass when the host graph has zero pins but the lock has remote entries' do
+      write_canonical_raw(JSON.generate('object' => { 'pins' => [{ 'package' => 'Alpha' }] }))
+      write_lock([
+                   { 'repositoryURL' => alpha_url, 'name' => 'alpha', 'version' => '1.0.0',
+                     'revision' => 'rev-old' },
+                   { 'repositoryURL' => gamma_url, 'name' => 'gamma', 'version' => '3.0.0',
+                     'revision' => 'rev-gamma' }
+                 ])
+
+      expect(SPMCache::Core::UI).to receive(:warn).once
+      run_reconcile_only
+
+      expect(locked_names).to contain_exactly('alpha', 'gamma')
+    end
+  end
 end
