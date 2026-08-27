@@ -8,6 +8,15 @@
 
 Reduce Xcode clean build times by serving prebuilt SPM dependency binaries transparently, with automatic fallback to source compilation on cache miss — so a cache hit never breaks a build.
 
+## Current Milestone: v0.4.0 Build Fidelity & Release Automation
+
+**Goal:** Make cached builds faithful to the host app's resolved dependency graph, and repair the Homebrew release path so shipping stops requiring manual steps.
+
+**Target features:**
+- Package builds resolve transitive dependencies from the host project's resolved graph, not each package's own committed `Package.resolved`
+- Regression coverage proving transitive-version drift cannot silently return
+- `TAP_REPO_TOKEN` repaired so `update-tap.yml` publishes the Homebrew formula without manual intervention
+
 ## Requirements
 
 ### Validated
@@ -36,8 +45,9 @@ Reduce Xcode clean build times by serving prebuilt SPM dependency binaries trans
 
 ### Active
 
-(none — v0.3.0 shipped; next milestone not yet planned. Candidates recorded in Out of Scope / retrospective.)
-
+- [ ] Package builds resolve transitive dependencies from the host project's resolved graph (fixes release-config cache builds linking stale transitive versions) — v0.4.0
+- [ ] Regression coverage proving transitive-version drift cannot silently return — v0.4.0
+- [ ] `update-tap.yml` publishes the Homebrew formula unattended (`TAP_REPO_TOKEN` valid) — v0.4.0
 
 ### Out of Scope
 
@@ -47,6 +57,9 @@ Reduce Xcode clean build times by serving prebuilt SPM dependency binaries trans
 - Selective/partial caching (only changed deps) — deferred to v0.3.x/v0.4
 - Mergeable libraries support — parity feature, deferred to v0.4
 - Non-macOS platforms — the tool relies on the macOS/Xcode toolchain
+- RubyGems publication (`gem push`) — deferred by user decision 2026-08-27; Homebrew remains the working distribution channel
+- `gem install spm-cache` verification — depends on RubyGems publication; deferred with it
+- GitHub Action + its own-repo smoke CI — the action's `gem install spm-cache` step cannot succeed while the gem is unpublished, so the action stays published-but-non-functional; broken-window #2 waived rather than closed
 
 ## Context
 
@@ -75,6 +88,8 @@ Known state after v0.3.0: test CI runs the full suite on every PR/push (was: non
 | Action shells out thin: setup-ruby → gem install → init → remote | Zero logic duplication; `uses:` resolution requires the separate repo | ✓ Shipped in-repo Phase 4 (d9a4c4e flag fix); publish + own-repo CI smoke = release checklist |
 | ruby-tests builds the proxy binary before RSpec; Ruby matrix is 3.1–3.3 | Binary-gated gen_proxy specs (23/218) silently skipped without the build; 3.0 dropped at merge 5759c5b (gemspec >= 3.1.0) | ✓ Proven 2026-08-24: 218 examples, 0 failures, 0 pending |
 | Content-addressed cache deferred to v0.5 | HIGH effort; current lockfile-based key is adequate for v0.3 | — Pending (carried) |
+| v0.4.0 direction = build fidelity + release automation | Only known correctness failure (release-config builds link stale transitive versions) strikes the core value directly; Homebrew automation is small and independent | — Pending |
+| RubyGems publication deferred out of v0.4.0 | User decision 2026-08-27; Homebrew builds from the GitHub release tarball and needs no gem on RubyGems | — Pending |
 
 ## Evolution
 
@@ -94,4 +109,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-08-24 after v0.3.0 milestone*
+*Last updated: 2026-08-27 after starting milestone v0.4.0*

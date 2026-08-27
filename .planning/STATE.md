@@ -1,36 +1,30 @@
 ---
 gsd_state_version: 1.0
-milestone: v0.3.0
-current_phase: —
-status: Awaiting next milestone
-stopped_at: Milestone v0.3.0 complete and archived (verified closeout)
-last_updated: "2026-08-24T09:23:14.568Z"
-last_activity: 2026-08-24
-last_activity_desc: Milestone v0.3.0 completed and archived
-state_head: d41e1925de50cbbcbf983f33eec08ea6547a746d
+milestone: v0.4.0
+milestone_name: Build Fidelity & Release Automation
+status: planning
+last_updated: "2026-08-27T04:40:40.904Z"
+last_activity: 2026-08-27
 progress:
-  total_phases: 5
-  completed_phases: 5
-  total_plans: 6
-  completed_plans: 6
-  percent: 100
-total_plans_in_phase: 0
-current_phase_name: —
-current_plan: —
+  total_phases: 0
+  completed_phases: 0
+  total_plans: 0
+  completed_plans: 0
+  percent: 0
 ---
 
 # Project State: spm-cache
 
 **Initialized:** 2026-08-10
-**Current Phase:** — (v0.3.0 shipped 2026-08-24; awaiting next milestone)
+**Current Phase:** — (v0.4.0 starting; defining requirements)
 **Project Mode:** Horizontal Layers
-**Direction:** v0.3.0 Mixed cycle (moat + adoption + reliability)
+**Direction:** v0.4.0 Build fidelity (correctness) + release automation
 
 ## Project Memory
 
 ### What this project is
 
-`spm-cache` (v0.2.8) caches Swift Package Manager dependencies as `.xcframework` binaries via a proxy-package architecture. Ruby gem CLI + Swift companion binary; macOS-only; distributed via Homebrew + RubyGems. The v0.3.0 cycle adds `watch` (auto-sync moat), `init` (onboarding), `doctor` (reliability), plus the first-ever test CI pipeline.
+`spm-cache` (v0.3.0) caches Swift Package Manager dependencies as `.xcframework` binaries via a proxy-package architecture. Ruby gem CLI + Swift companion binary; macOS-only. Distribution today is Homebrew only — the gem is not published on RubyGems (deferred 2026-08-27), which also leaves the GitHub Action non-functional. The v0.4.0 cycle fixes transitive dependency-version drift in cached builds and repairs the Homebrew release automation.
 
 ### Key artifacts
 
@@ -40,38 +34,30 @@ current_plan: —
 - Roadmap history: `docs/project-roadmap.md`
 - Competitive analysis: `competitive-analysis-2026-07.html`, `scipio-deepdive-features-2026-07.html`
 
-### Phase order rationale
+### v0.4.0 problem statement (verified in code 2026-08-27)
 
-1. Test CI (REL-01) — foundation; no test pipeline exists today
-2. doctor (REL-02/03) — self-contained, de-risks via `companion_binary` check
-3. init (ONBD-01/02/03) — touches Config/Lockfile, enables the Action
-4. GitHub Action (ONBD-04) — separate repo, depends on `init`
-5. watch (AUTO-01–05) — highest integration surface; lands last with foundations in place
+Cached builds can link transitive dependency versions the host app never resolved. `Installer::Build#build_single_target` (lib/spm_cache/installer/build.rb:120) passes each package's own checkout dir to `SPM::BuildPipeline.run` (lib/spm_cache/spm/build_pipeline.rb:33), which shells out to `xcodebuild -scheme` inside it. The umbrella's `swift package resolve` (lib/spm_cache/spm/checkout_resolver.rb) produces one unified resolution and materializes checkouts at those versions — but the per-package `xcodebuild` re-resolves from that *package's* committed `Package.resolved`, ignoring the umbrella/host graph. Field symptom (StressMonitor, ~2026-08-09, needs re-reproduction): `spm-cache build ExyteChat --config=release` fails because Chat pins MediaPicker 3.2.4 while the app locks 3.3.2.
 
-### Locked design decisions
+### Locked scope decisions (2026-08-27)
 
-- watch: stdlib mtime+size polling (no `listen` gem); watches Package.resolved + project.pbxproj only; continue-on-error loop
-- init: idempotent diff-merge on re-run; non-interactive flags for CI
-- doctor: data-driven check registry; `--json` output
-- GitHub Action: separate thin repo, shell-out only
-- Test CI: separate `ci.yml` from release `update-tap.yml`; Ruby 3.0–3.3 × macOS matrix
+- RubyGems publication deferred by user decision — Homebrew stays the only distribution channel
+- GitHub Action out of scope this cycle (its `gem install spm-cache` step needs the unpublished gem); broken-window #2 to be waived, not closed
+- `TAP_REPO_TOKEN` refresh is an operator step (GitHub Settings → Secrets) — autonomous will pause there
 
 ## Phase Status
 
 | Phase | Name | Status | Branch |
 |-------|------|--------|--------|
-| 1 | Test CI Foundation | complete + verified 2026-08-24 | 9f919a9 (gap closure) |
-| 2 | Diagnostics Command | complete + verified 2026-08-24 (9/9) | 789c4e5 (companion --version) |
-| 3 | Project Bootstrap | complete + verified 2026-08-24 (12/12) | 880df4e (canonical lock seeding) |
-| 4 | CI GitHub Action | complete + verified 2026-08-24 (6/6) | d9a4c4e (F1 --default-config fix) |
-| 5 | Auto-Sync Watcher | complete + verified 2026-08-24 (8/8; incl. WR-01 fix 2771a69) | 5be091d (self-trigger guard) |
+| — | (v0.4.0 roadmap not yet created) | — | — |
+
+v0.3.0 phase history archived to `.planning/milestones/v0.3.0-phases/`.
 
 ## Project Reference
 
-See: .planning/PROJECT.md (updated 2026-08-24)
+See: .planning/PROJECT.md (updated 2026-08-27)
 
 **Core value:** Reduce Xcode clean build times by serving prebuilt SPM dependency binaries transparently, with fallback to source on cache miss.
-**Current focus:** Release checklist (gem push 0.3.0 → publish spm-cache-action) or /gsd-new-milestone
+**Current focus:** v0.4.0 — build fidelity (host-graph-faithful transitive resolution) + Homebrew release automation
 
 ## Session Continuity
 
@@ -98,12 +84,12 @@ Resume file: None
 
 ## Current Position
 
-Phase: Milestone v0.3.0 complete
+Phase: Not started (defining requirements)
 Plan: —
-Status: Awaiting next milestone
-Last activity: 2026-08-27 — Release checklist: action repo resynced to F1-fixed commit + v1 retagged; gem publish still pending
+Status: Defining requirements
+Last activity: 2026-08-27 — Milestone v0.4.0 started
 
 ## Operator Next Steps
 
-- Release checklist remaining: `gem signin` → `gem build spm_cache.gemspec && gem push spm-cache-<version>.gem` → verify `gem install spm-cache` on a clean machine → (optional) trigger `spm-cache-action` smoke workflow with a real scratch backend
-- Start the next milestone with /gsd-new-milestone
+- **v0.4.0 blocker:** refresh `TAP_REPO_TOKEN` (repo Settings → Secrets) with a PAT that can push to `phuongddx/homebrew-spm-cache` — the current secret returns "Bad credentials", so `update-tap.yml` fails and formula updates are manual
+- Deferred (not in v0.4.0): `gem signin` → `gem build`/`gem push` → verify `gem install spm-cache`; then the Action + its smoke CI become viable
