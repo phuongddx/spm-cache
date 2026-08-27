@@ -135,7 +135,7 @@ module SPMCache
         File.basename(@project_path)
 
         # 1. Package.resolved -- authoritative resolved graph
-        resolved = find_package_resolved
+        resolved = host_graph_path
         if resolved && File.exist?(resolved)
           data = JSON.parse(File.read(resolved))
           (data['pins'] || []).each do |pin|
@@ -157,6 +157,19 @@ module SPMCache
         merge_project_refs(result)
 
         result
+      end
+
+      # This is the one caller that may reach the parent directory: a
+      # workspace-level project keeps its resolved file beside the .xcodeproj,
+      # not inside it. Public and computed once per instance so the reconciler
+      # that must agree with this detector reads THIS answer rather than
+      # locating the file again -- two independent lookups can land on
+      # different tiers and then disagree permanently. `nil` is a legitimate
+      # answer, so the memo is guarded on definedness, not truthiness.
+      def host_graph_path
+        return @host_graph_path if defined?(@host_graph_path)
+
+        @host_graph_path = PackageResolved.locate(@project_path, parent_fallback: true)
       end
 
       private
@@ -185,13 +198,6 @@ module SPMCache
           end
         end
         result
-      end
-
-      # This is the one caller that may reach the parent directory: a
-      # workspace-level project keeps its resolved file beside the .xcodeproj,
-      # not inside it.
-      def find_package_resolved
-        PackageResolved.locate(@project_path, parent_fallback: true)
       end
 
       def merge_project_refs(result)

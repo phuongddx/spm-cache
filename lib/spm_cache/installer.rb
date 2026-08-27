@@ -27,6 +27,7 @@ module SPMCache
       @proxy_pkg = nil
       @cachemap = nil
       @diff = nil
+      @host_graph_detector = nil
     end
 
     def perform_install
@@ -53,14 +54,25 @@ module SPMCache
     # moat vs Scipio, which requires a separate manifest the user must keep
     # in sync by hand on every dependency change.
     def detect_diff
-      require "spm_cache/core/diff_detector"
-      detector = Core::DiffDetector.new(project_path: @project_path, lockfile_path: @config.lockfile_path)
-      @diff = detector.detect
+      @diff = host_graph_detector.detect
       Core::UI.info @diff.summary
       @diff
     end
 
     private
+
+    # The run's single DiffDetector. Every host-graph consumer reads its located
+    # path, so the pin source and the change detector that must agree with it
+    # cannot answer with different files -- a project whose Package.resolved is
+    # only reachable through the locator's parent tier used to have the detector
+    # report drift the reconciler then declined to close. Lazy rather than built
+    # in `initialize` because a caller can inject @diff and reach
+    # `sync_lockfile` without `detect_diff` ever running.
+    def host_graph_detector
+      require "spm_cache/core/diff_detector"
+      @host_graph_detector ||= Core::DiffDetector.new(project_path: @project_path,
+                                                      lockfile_path: @config.lockfile_path)
+    end
 
     # Field bug: even after fixing #integrate_proxy_into_project to properly
     # purge (rather than merely unlink) newly-discarded refs/deps going
@@ -153,7 +165,7 @@ module SPMCache
       return unless @lockfile
       return unless @diff && !@diff.empty?
 
-      resolved = Core::PackageResolved.locate(@project_path)
+      resolved = host_graph_detector.host_graph_path
       unless resolved
         Core::UI.warn "No Package.resolved found for #{File.basename(@project_path)}; " \
                       "leaving #{Core::Config::LOCKFILE_FILENAME} untouched."
@@ -173,9 +185,7 @@ module SPMCache
       proj_data = lock_project_data
       return unless proj_data
 
-      require "spm_cache/core/diff_detector"
-      live = Core::DiffDetector.new(project_path: @project_path,
-                                    lockfile_path: @config.lockfile_path).live_packages
+      live = host_graph_detector.live_packages
       locked = proj_data["packages"] || []
       drop_missing = drop_pass_allowed?(host_pins, locked, resolved)
 

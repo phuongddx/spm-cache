@@ -373,4 +373,55 @@ RSpec.describe SPMCache::Installer::Use, '#sync_lockfile reconciliation' do
       expect(locked_names).to contain_exactly('alpha', 'gamma')
     end
   end
+
+  # A SwiftPM-rooted directory with a generated Xcode project keeps its resolved
+  # file beside the `.xcodeproj`, so tiers 1-3 all miss and only the locator's
+  # parent-directory tier answers. DiffDetector reached that tier while the
+  # installer did not, so the detector reported drift the reconciler declined to
+  # close -- permanently, on every subsequent run.
+  describe 'parent-directory tier project shape' do
+    def parent_tier_resolved(version:, revision:)
+      write_resolved(File.join(tmpdir, 'Package.resolved'), version: version, revision: revision)
+    end
+
+    def parent_tier_raw(content)
+      path = File.join(tmpdir, 'Package.resolved')
+      File.write(path, content)
+      path
+    end
+
+    def fresh_diff
+      SPMCache::Core::DiffDetector.new(project_path: project_path, lockfile_path: lockfile_path).detect
+    end
+
+    it 'reconciles a project whose host graph is reachable only through the parent-directory tier' do
+      parent_tier_resolved(version: '2.0.0', revision: 'rev-new')
+      write_lock([{ 'repositoryURL' => alpha_url, 'name' => 'alpha', 'version' => '1.0.0',
+                    'revision' => 'rev-old' }])
+
+      expect(SPMCache::Core::UI).not_to receive(:warn)
+      run_sync
+
+      expect(locked_packages.first['version']).to eq('2.0.0')
+      expect(locked_packages.first['revision']).to eq('rev-new')
+      expect(fresh_diff).to be_empty
+    end
+
+    # The structural non-recurrence guard: this fails the moment any consumer
+    # looks the host graph up independently, which is what makes the two sides
+    # unable to diverge again rather than merely agreeing today.
+    it 'resolves the host graph exactly once per run' do
+      write_canonical_pins([{ identity: 'alpha', url: alpha_url, version: '2.0.0', revision: 'rev-new' }])
+      write_lock([{ 'repositoryURL' => alpha_url, 'name' => 'alpha', 'version' => '1.0.0',
+                    'revision' => 'rev-old' }])
+
+      expect(SPMCache::Core::PackageResolved).to receive(:locate).once.and_call_original
+
+      installer = described_class.new(project: project_path)
+      installer.detect_diff
+      installer.send(:sync_lockfile)
+
+      expect(locked_packages.first['version']).to eq('2.0.0')
+    end
+  end
 end
