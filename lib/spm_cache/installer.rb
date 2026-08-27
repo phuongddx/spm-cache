@@ -294,7 +294,7 @@ module SPMCache
       lockfile_path = @config.lockfile_path
       return if File.exist?(lockfile_path)
 
-      resolved = Core::PackageResolved.locate(@project_path)
+      resolved = host_graph_detector.host_graph_path
 
       return unless resolved
 

@@ -423,5 +423,29 @@ RSpec.describe SPMCache::Installer::Use, '#sync_lockfile reconciliation' do
 
       expect(locked_packages.first['version']).to eq('2.0.0')
     end
+
+    # A first run IS a non-fast-path run, so criterion 1 covers the no-lock-yet
+    # half of this shape too: the seeding path used to find nothing and return,
+    # after which the reconciler had no project entry to reconcile.
+    it 'seeds a first-run lock from a host graph reachable only through the parent-directory tier' do
+      parent_tier_resolved(version: '2.0.0', revision: 'rev-new')
+
+      run_sync
+
+      expect(File.exist?(lockfile_path)).to be(true)
+      expect(locked_packages.length).to eq(1)
+      expect(locked_packages.first['name']).to eq('alpha')
+      expect(locked_packages.first['version']).to eq('2.0.0')
+      expect(locked_packages.first['revision']).to eq('rev-new')
+      expect(fresh_diff).to be_empty
+    end
+
+    # The posture pin: widening this site's REACH must not widen its TOLERANCE.
+    # Degrading here would seed a lock claiming the project has no packages.
+    it 'raises rather than seeding an empty lock when a parent-tier host graph is malformed' do
+      parent_tier_raw('{"version": 3, "pins": [')
+
+      expect { run_reconcile_only(diff: non_empty_diff) }.to raise_error(JSON::ParserError)
+    end
   end
 end
