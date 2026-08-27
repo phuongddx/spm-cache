@@ -57,15 +57,16 @@ repair the Homebrew release path so shipping stops requiring manual steps.
 ### Phase 6: Graph Authority — Lockfile Reconciliation
 **Goal**: The lockfile spm-cache builds from always describes the host project's *current* resolved graph, so no later fidelity decision is made against an abandoned first-run snapshot.
 **Depends on**: Nothing (v0.4.0 entry phase; continues from Phase 5)
-**Requirements**: FID-01, DIAG-01
+**Requirements**: FID-01, FID-06, DIAG-01
 **Success Criteria** (what must be TRUE):
   1. After a non-fast-path run on a project whose `Package.resolved` has changed, re-running `DiffDetector` returns an **empty** diff — every package's lock `version`/`revision` equals the host's resolved value.
+  1a. The host `Package.resolved` that reconciliation reads is the **canonical** `project.xcworkspace/xcshareddata/swiftpm/Package.resolved` — proven on a fixture containing a competing nested copy that `Dir.glob` would otherwise return first (amended 2026-08-27: FID-06; without this, criterion 1 passes vacuously with both sides agreeing on a stale file).
   2. Reconciling versions never costs metadata: each package's enriched `products[]` survives the refresh intact, and a project that was working before the run still resolves and builds after it.
   3. `spm-cache doctor` reports whether `spm-cache.lock` agrees with the host `Package.resolved`, naming each drifted package, without running a build.
   4. The motivating stale-transitive release build on the reference 59–70 package project is reproduced, then re-run after reconciliation: either it no longer links a transitive version older than the host's pin, or the residual cause is attributed to isolated re-resolution and recorded.
 **Measurements (blocking)**:
-  - **M1** — reproduce the stale-transitive release build on the real 59–70 package project and attribute the relative contribution of the lockfile chain vs isolated per-package re-resolution. This is the **first work of the phase** and **blocks Phase 7's design lock**.
-**Research**: Not needed — the defect and its fix are source-verified (`installer.rb:165-166` early return → `installer.rb:241` → `Lockfile.swift:118-126` → `UmbrellaGenerator.swift:73`); a mechanical change to a ~30-line method plus `Core::PackageResolved` collapsing five duplicated globs.
+  - **M1** — run read-only steps 0–3 FIRST (under a minute): the wrong-file finding makes "stale locator" the leading hypothesis on `main`, which may change how much of the field failure Phase 6 closes. Then reproduce the stale-transitive release build on the real 59–70 package project and attribute the relative contribution of the lockfile chain vs isolated per-package re-resolution. This is the **first work of the phase** and **blocks Phase 7's design lock**.
+**Research**: Done 2026-08-27 (`06-RESEARCH.md`) — run despite the roadmap's original "not needed" call because `nyquist_validation` derives VALIDATION.md from it. It paid for itself: found the stale-locator defect (FID-06) that would have made criterion 1 vacuous, confirmed `:warn` does not exit 1 (`doctor.rb:42`), and identified local/path packages as the top drop-rule regression risk.
 **Plans**: TBD
 
 ### Phase 7: Host-Faithful Checkout Seeding
