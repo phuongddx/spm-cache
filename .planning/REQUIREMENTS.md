@@ -7,7 +7,7 @@
 
 ### Graph Fidelity
 
-- [ ] **FID-01**: `spm-cache.lock` package `version`/`revision` reconcile from the host project's `Package.resolved` on every non-fast-path run, preserving enriched `products[]`
+- [x] **FID-01**: `spm-cache.lock` package `version`/`revision` reconcile from the host project's `Package.resolved` on every non-fast-path run, preserving enriched `products[]`
 - [ ] **FID-02**: Per-package builds are seeded with the host's resolved graph before the first `swift package describe`, so both metadata and binaries come from the host graph
 - [ ] **FID-03**: Realized dependency versions are read back after resolution and compared against the intended pins; any drift is reported
 - [ ] **FID-04**: A package whose declared requirements genuinely cannot satisfy the host graph falls back to source compilation with a distinct `resolution-incompatible` status — never a hard failure, and never masked by `ignore_build_errors`
@@ -111,7 +111,7 @@ Which phases cover which requirements. Populated during roadmap creation.
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| FID-01 | Phase 6 | Pending |
+| FID-01 | Phase 6 | Complete |
 | FID-02 | Phase 7 | Pending |
 | FID-03 | Phase 8 | Pending |
 | FID-04 | Phase 8 | Pending |
