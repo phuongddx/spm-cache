@@ -95,6 +95,13 @@ module SPMCache
         File.join(sandbox_dir, "packages", "clones")
       end
 
+      # Stable, OUTSIDE sandbox_dir by construction (a project_dir-level
+      # dotfile) so recreate_dirs' rm_rf(sandbox_dir) can never delete the
+      # path a live flock is held on (Pitfall 15).
+      def build_lock_path
+        File.join(project_dir, ".spm-cache-build.lock")
+      end
+
       def local_packages_dir
         File.join(sandbox_dir, "local-packages")
       end

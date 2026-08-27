@@ -21,11 +21,13 @@ module SPMCache
           if fast_path?
             Core::UI.info 'No changes detected. Proxy package up to date.'
           else
-            recreate_dirs
-            ensure_config_file
-            sync_lockfile
-            prepare_proxy
-            yield self if block_given?
+            with_build_lock do
+              recreate_dirs
+              ensure_config_file
+              sync_lockfile
+              prepare_proxy
+              yield self if block_given?
+            end
           end
 
           gen_supporting_files
@@ -35,6 +37,25 @@ module SPMCache
       end
 
       private
+
+      # D-06: blocks on the SAME exclusive flock Installer::Build holds
+      # across its whole build (Config#build_lock_path), acquired immediately
+      # before recreate_dirs so a watch-triggered regenerate defers to an
+      # in-flight build instead of rm_rf-ing its checkouts out from under it
+      # (Pitfall 15). A BLOCKING flock, not a trylock-and-retry -- the OS's
+      # own blocking semantics are the whole mechanism, no polling needed.
+      def with_build_lock
+        path = @config.build_lock_path
+        FileUtils.mkdir_p(File.dirname(path))
+        lock = File.open(path, File::CREAT | File::RDWR)
+        begin
+          lock.flock(File::LOCK_EX)
+          yield
+        ensure
+          lock.flock(File::LOCK_UN)
+          lock.close
+        end
+      end
 
       # The fast path applies only when:
       #   1. A lockfile exists (prior run succeeded), AND
