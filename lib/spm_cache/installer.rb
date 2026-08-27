@@ -210,13 +210,13 @@ module SPMCache
       lockfile_path = @config.lockfile_path
       return if File.exist?(lockfile_path)
 
-      # Search recursively for Package.resolved
-      resolved = Dir.glob(File.join(@project_path, "**/Package.resolved")).find { |f| File.exist?(f) }
+      resolved = Core::PackageResolved.locate(@project_path)
 
       return unless resolved
 
-      resolved_data = JSON.parse(File.read(resolved))
-      pins = resolved_data["pins"] || []
+      # Strict on purpose: a malformed host graph must raise out of `use`
+      # rather than seed a lock that claims the project has no packages.
+      pins = Core::PackageResolved.pins(resolved)
 
       lockfile_data = {
         File.basename(@project_path) => {
