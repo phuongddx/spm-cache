@@ -141,7 +141,8 @@ module SPMCache
     # first creation and the umbrella pinned an abandoned snapshot forever --
     # on the reference project, four packages linked strictly older than the
     # host's own contemporaneous pin. This refreshes those two fields in place
-    # from the host's canonical Package.resolved and touches nothing else, so
+    # from the host's canonical Package.resolved, drops entries the project no
+    # longer depends on and appends ones it newly does, touching nothing else --
     # enriched `products[]` and every identity field survive intact.
     #
     # Membership is decided against DiffDetector's live set (resolved pins
@@ -164,19 +165,49 @@ module SPMCache
       require "spm_cache/core/diff_detector"
       live = Core::DiffDetector.new(project_path: @project_path,
                                     lockfile_path: @config.lockfile_path).live_packages
+      locked = proj_data["packages"] || []
 
-      (proj_data["packages"] || []).each do |pkg|
-        key = Core::DiffDetector.identity_key(pkg["repositoryURL"], pkg["path_from_root"] || pkg["path"], pkg["name"])
-        live_pkg = live[key]
-        next unless live_pkg
+      surviving = locked.select do |pkg|
+        live_pkg = live[lock_identity_key(pkg)]
+        next false unless live_pkg
 
         pkg["version"] = live_pkg["version"]
         # A transitive-only package can legitimately hold no revision; nilling
         # an existing one out would make the umbrella generator skip it.
         pkg["revision"] = live_pkg["revision"] if live_pkg["revision"]
+        true
       end
 
+      proj_data["packages"] = surviving + additions_for(live, locked)
+
       @lockfile.save
+    end
+
+    def lock_identity_key(pkg)
+      Core::DiffDetector.identity_key(pkg["repositoryURL"], pkg["path_from_root"] || pkg["path"], pkg["name"])
+    end
+
+    def additions_for(live, locked)
+      known = locked.map { |pkg| lock_identity_key(pkg) }
+      live.reject { |key, _| known.include?(key) }.map { |_, live_pkg| new_lock_entry(live_pkg) }
+    end
+
+    # The canonical four-field shape `generate_lockfile_from_resolved` writes.
+    # `products` is omitted rather than seeded empty: enrichment guards with
+    # `next if pkg_data["products"]` and `[]` is truthy in Ruby, so a
+    # present-but-empty key would suppress this package's product metadata
+    # permanently.
+    def new_lock_entry(live_pkg)
+      entry = {}
+      if live_pkg["repositoryURL"]
+        entry["repositoryURL"] = live_pkg["repositoryURL"]
+      elsif live_pkg["path"]
+        entry["path_from_root"] = live_pkg["path"]
+      end
+      entry["name"] = live_pkg["name"]
+      entry["version"] = live_pkg["version"]
+      entry["revision"] = live_pkg["revision"]
+      entry
     end
 
     # Records, per target, the product names the Xcode project directly
