@@ -94,14 +94,16 @@ Resume file: None
 - [Phase 04 — CI GitHub Action]: F1 fixed one-line only (--config= → --default-config= at action.yml:55); spec/action_spec.rb slices each command's own options (def self.options → .concat(super)) so inherited base flags can never satisfy the cross-reference
 - [Phase 04 — CI GitHub Action]: criterion 3 recorded as accepted external deviation (gem unpublished — RubyGems 404; action repo unpublished) with 6-item ordered release checklist; gemspec homepage placeholder recorded, not edited
 - [Phase 05 — Auto-Sync Watcher]: 05-01: SIGTERM trap + interrupt flush delivered; self-trigger guard shipped as a real defect fix (A1 probe CONFIRMED); polling deviation + fatal/deletion semantics recorded as dated amendments
+- [Release checklist, post-milestone 2026-08-27]: item 4/5 (publish action repo, tag v1) had been done 2026-08-11 — *before* the F1 fix (2026-08-24), so the published `phuongddx/spm-cache-action@v1` still had the buggy `--config=` flag. Resynced `action.yml`+`README.md` from `action/` and force-moved `v1` to the corrected commit (`7114ba6`). Added `.github/workflows/smoke.yml` (item 6) as `workflow_dispatch`-only — no scratch backend configured yet, and it can't pass until the gem is on RubyGems regardless. Gemspec homepage (item 1) already fixed (`cf384d6`). Items 2/3 (`gem build`/`gem push`, verify install) explicitly deferred — no RubyGems credentials on this machine (`gem signin` needed first).
 
 ## Current Position
 
 Phase: Milestone v0.3.0 complete
 Plan: —
 Status: Awaiting next milestone
-Last activity: 2026-08-24 — Milestone v0.3.0 completed and archived
+Last activity: 2026-08-27 — Release checklist: action repo resynced to F1-fixed commit + v1 retagged; gem publish still pending
 
 ## Operator Next Steps
 
+- Release checklist remaining: `gem signin` → `gem build spm_cache.gemspec && gem push spm-cache-<version>.gem` → verify `gem install spm-cache` on a clean machine → (optional) trigger `spm-cache-action` smoke workflow with a real scratch backend
 - Start the next milestone with /gsd-new-milestone
