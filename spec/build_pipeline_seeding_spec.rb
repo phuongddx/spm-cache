@@ -298,3 +298,70 @@ RSpec.describe SPMCache::Installer::Build, "threading the run's single host-grap
       .with(hash_including(resolved_pins_file: "/host/Package.resolved")).twice
   end
 end
+
+# D-07: with no host graph available anywhere, behavior must be byte-for-byte
+# identical to v0.3.0. Real Buildable/build_command run (only the true shell
+# boundary -- Core::Sh -- is stubbed), so this exercises the actual pre-Phase-7
+# command-assembly code, not a re-description of it.
+RSpec.describe SPMCache::SPM::BuildPipeline, "default (no host graph) path is byte-identical to v0.3.0" do
+  let(:tmpdir) { Dir.mktmpdir }
+  let(:pkg_dir) { File.join(tmpdir, "pkg") }
+  let(:out_dir) { File.join(tmpdir, "out") }
+
+  before do
+    FileUtils.mkdir_p(pkg_dir)
+    FileUtils.mkdir_p(out_dir)
+    fake_desc = instance_double(SPMCache::SPM::Desc::Description)
+    allow(SPMCache::SPM::Desc::Description).to receive(:new).and_return(fake_desc)
+    allow(fake_desc).to receive(:fetch)
+    allow(fake_desc).to receive(:products).and_return(
+      [SPMCache::SPM::Desc::Product.new(raw: { "name" => "Alamofire", "type" => { "library" => ["automatic"] } }, pkg_dir: pkg_dir)],
+    )
+    allow(fake_desc).to receive(:raw).and_return({ "targets" => [] })
+    allow(SPMCache::Core::Sh).to receive(:run)
+    allow(SPMCache::Core::Sh).to receive(:capture_output).and_return("")
+  end
+
+  after { FileUtils.rm_rf(tmpdir) }
+
+  it "never calls ResolvedGraph.seed! or .restore! when resolved_pins_file is nil" do
+    expect(SPMCache::SPM::ResolvedGraph).not_to receive(:seed!)
+    expect(SPMCache::SPM::ResolvedGraph).not_to receive(:restore!)
+
+    expect {
+      described_class.run(
+        name: "Alamofire",
+        pkg_dir: pkg_dir,
+        destinations: ["iphonesimulator"],
+        out_dir: out_dir,
+        resolved_pins_file: nil,
+      )
+    }.to raise_error(/No slices were built successfully/)
+  end
+
+  it "constructs the real Buildable with a build_command byte-identical to the recorded pre-Phase-7 baseline" do
+    captured_buildable = nil
+    allow(SPMCache::SPM::Buildable).to receive(:new).and_wrap_original do |original, **kwargs|
+      captured_buildable = original.call(**kwargs)
+    end
+
+    expect {
+      described_class.run(
+        name: "Alamofire",
+        pkg_dir: pkg_dir,
+        destinations: ["iphonesimulator"],
+        out_dir: out_dir,
+        resolved_pins_file: nil,
+      )
+    }.to raise_error(/No slices were built successfully/)
+
+    expect(captured_buildable).not_to be_nil
+    cmd = captured_buildable.build_command("generic/platform=iOS Simulator", "/dd")
+    expect(cmd).to eq(
+      "xcodebuild build -scheme 'Alamofire' -destination 'generic/platform=iOS Simulator' " \
+      "-derivedDataPath /dd CODE_SIGNING_ALLOWED=NO " \
+      "OTHER_SWIFT_FLAGS='-enable-library-evolution -emit-module-interface -no-verify-emitted-module-interface' " \
+      "BUILD_LIBRARY_FOR_DISTRIBUTION=YES",
+    )
+  end
+end
