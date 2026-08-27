@@ -54,7 +54,7 @@ coverage:
   suite: "289 examples, 0 failures (baseline 275 + 14; no existing spec assertion modified)"
 
 metrics:
-  duration: ~25m
+  duration: ~10m
   completed: 2026-08-27
   tasks: 3
   commits: 5
