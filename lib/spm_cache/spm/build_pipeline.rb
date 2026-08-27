@@ -12,6 +12,7 @@ require "spm_cache/core/config"
 require "spm_cache/spm/build"
 require "spm_cache/spm/desc/desc"
 require "spm_cache/spm/xcframework/xcframework"
+require "spm_cache/spm/resolved_graph"
 
 module SPMCache
   module SPM
@@ -30,11 +31,53 @@ module SPMCache
         # @param destinations [Array<String>] destination keys (see Buildable::DESTINATIONS)
         # @param out_dir [String] directory to write the xcframework into
         # @param library_evolution [Boolean] emit library-evolution Swift flags
-        def run(name:, pkg_dir:, destinations:, out_dir:, library_evolution: true)
+        # @param resolved_pins_file [String, nil] path to the host app's resolved
+        #   graph to seed into `pkg_dir` before any resolution happens (FID-02).
+        #   nil (the default) disables seeding entirely -- byte-identical to
+        #   pre-Phase-7 behavior, so `spm-cache pkg build` (which never passes
+        #   this) is unaffected.
+        def run(name:, pkg_dir:, destinations:, out_dir:, library_evolution: true, resolved_pins_file: nil)
           raise "Target name required" if name.nil? || name.empty?
 
           FileUtils.mkdir_p(out_dir)
 
+          seed_snapshot, seeded = seed_host_graph(name, pkg_dir, resolved_pins_file)
+
+          success = false
+          begin
+            result = perform_build(name: name, pkg_dir: pkg_dir, destinations: destinations,
+                                    out_dir: out_dir, library_evolution: library_evolution)
+            success = true
+            result
+          ensure
+            ResolvedGraph.restore!(pkg_dir, seed_snapshot) if seeded && !success
+          end
+        end
+
+        private
+
+        # Classifies `pkg_dir` before seeding anything (D-04): a vendored
+        # `.xcodeproj` checkout ignores `Package.resolved` entirely (Pitfall
+        # 11), so seeding it would be a silent no-op -- report it as
+        # not-graph-pinned instead and skip the write. Returns
+        # [snapshot_or_nil, seeded_boolean] for `run`'s ensure guard.
+        def seed_host_graph(name, pkg_dir, resolved_pins_file)
+          return [nil, false] unless resolved_pins_file
+
+          if ResolvedGraph.vendored_xcodeproj?(pkg_dir)
+            Core::UI.info "  #{name}: vendored .xcodeproj checkout, not graph-pinned " \
+                          "(Package.resolved not seeded from host graph)"
+            return [nil, false]
+          end
+
+          [ResolvedGraph.seed!(resolved_pins_file, pkg_dir), true]
+        end
+
+        # The actual build: everything that used to live directly in `run`,
+        # extracted so `run` can wrap it in a single success-flag + ensure
+        # region (seeded checkout restored on any failure/interrupt, left in
+        # place on success -- Phase 8's future read-back source).
+        def perform_build(name:, pkg_dir:, destinations:, out_dir:, library_evolution:)
           # Class E: a product whose own declared target is a trivial
           # forwarding wrapper (Google's "SwiftPM-PlatformExclude" convention)
           # terminating in a `.binaryTarget` has no source to build at all --
@@ -120,8 +163,6 @@ module SPMCache
           FileUtils.rm_rf(tmpdir)
           result
         end
-
-        private
 
         def run_with_scheme(name:, scheme:, pkg_dir:, destinations:, out_dir:, library_evolution:)
           header_paths = resolve_public_headers(name, name, pkg_dir)

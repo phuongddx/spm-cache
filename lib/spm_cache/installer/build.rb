@@ -5,6 +5,7 @@ require "fileutils"
 require "spm_cache/installer"
 require "spm_cache/spm/build_pipeline"
 require "spm_cache/spm/checkout_resolver"
+require "spm_cache/spm/resolved_graph"
 
 module SPMCache
   class Installer
@@ -35,11 +36,19 @@ module SPMCache
         end
 
         checkouts = checkout_map
+        # Resolved ONCE per run via the already-memoized `host_graph_detector`
+        # (Phase 6 Plan 05's single per-run answer) -- never a second,
+        # independent locator here, or the pin source and the change
+        # detector could disagree again (06-05-SUMMARY.md).
+        resolved_pins_file = SPM::ResolvedGraph.source_for(
+          umbrella_dir: @config.umbrella_dir,
+          host_graph_path: host_graph_detector.host_graph_path,
+        )
         FileUtils.mkdir_p(cache_out)
 
         Core::UI.info "Building #{missed.size} target(s): #{missed.join(', ')}..."
         missed.each do |target_name|
-          build_single_target(target_name, checkouts, destinations, cache_out)
+          build_single_target(target_name, checkouts, destinations, cache_out, resolved_pins_file)
         end
       end
 
@@ -116,7 +125,7 @@ module SPMCache
         requested.flat_map { |t| identity_to_products[t] || [t] }.uniq
       end
 
-      def build_single_target(target_name, checkouts, destinations, cache_out)
+      def build_single_target(target_name, checkouts, destinations, cache_out, resolved_pins_file)
         pkg_dir = checkouts[target_name]
         unless pkg_dir && File.directory?(pkg_dir)
           Core::UI.warn "checkout not found for '#{target_name}'; skipping"
@@ -131,6 +140,7 @@ module SPMCache
             destinations: destinations,
             out_dir: cache_out,
             library_evolution: true,
+            resolved_pins_file: resolved_pins_file,
           )
           Core::UI.info "  Cached: #{result}"
         rescue => e
