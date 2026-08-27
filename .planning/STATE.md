@@ -2,14 +2,19 @@
 gsd_state_version: 1.0
 milestone: v0.4.0
 milestone_name: Build Fidelity & Release Automation
+current_phase: "Phase 6 — Graph Authority: Lockfile Reconciliation (not started)"
+current_phase_name: "Graph Authority: Lockfile Reconciliation"
 status: roadmapped
-last_updated: "2026-08-27T05:20:00.000Z"
+stopped_at: Completed 06-01-PLAN.md (M1 measurement)
+last_updated: "2026-08-27T06:38:48.780Z"
 last_activity: 2026-08-27
+last_activity_desc: v0.4.0 roadmap created (6 phases, 20/20 requirements mapped)
+state_head: 0cfcd4bd379bf40c6ca27886fb71e74915919924
 progress:
   total_phases: 6
   completed_phases: 0
-  total_plans: 0
-  completed_plans: 0
+  total_plans: 4
+  completed_plans: 1
   percent: 0
 ---
 
@@ -49,6 +54,7 @@ independent drift mechanisms**, not one:
    and `swift package resolve` materializes checkouts at that stale commit. Only this chain explains
    a **downward** pin (older than host). `DiffDetector` detects the change correctly but the diff is
    never applied.
+
 2. **Secondary — fresh upward re-resolution in isolated per-package builds.** No resolved-graph
    parameter exists anywhere in `BuildPipeline.run` → `Buildable#build_command`. Reproduced:
    swift-argument-parser 1.2.0 → 1.8.2, exit 0, no warning.
@@ -110,8 +116,8 @@ See: .planning/PROJECT.md (updated 2026-08-27)
 
 ## Session Continuity
 
-Last session: 2026-08-27
-Stopped at: v0.4.0 roadmap created (Phases 6–11, 20/20 requirements mapped)
+Last session: 2026-08-27T06:38:48.758Z
+Stopped at: Completed 06-01-PLAN.md (M1 measurement)
 Resume file: None
 
 ## Performance Metrics
@@ -121,6 +127,7 @@ Resume file: None
 | Phase 03 P01 | 27min | 3 tasks | 5 files |
 | Phase 04 P01 | 660s | 2 tasks | 7 files |
 | Phase 05 P01 | ~35 min | 3 tasks | 14 files |
+| Phase 06 P01 | 35m | 2 tasks | 2 files |
 
 ## Decisions
 

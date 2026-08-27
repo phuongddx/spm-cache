@@ -22,6 +22,7 @@ file and no state with any of that and can be scheduled anywhere in the cycle.
 ## Phases
 
 **Phase Numbering:**
+
 - Integer phases (6, 7, 8): Planned milestone work
 - Decimal phases (7.1, 7.2): Urgent insertions (marked with INSERTED)
 
@@ -55,90 +56,116 @@ repair the Homebrew release path so shipping stops requiring manual steps.
 ## Phase Details
 
 ### Phase 6: Graph Authority — Lockfile Reconciliation
+
 **Goal**: The lockfile spm-cache builds from always describes the host project's *current* resolved graph, so no later fidelity decision is made against an abandoned first-run snapshot.
 **Depends on**: Nothing (v0.4.0 entry phase; continues from Phase 5)
 **Requirements**: FID-01, FID-06, DIAG-01
 **Success Criteria** (what must be TRUE):
+
   1. After a non-fast-path run on a project whose `Package.resolved` has changed, re-running `DiffDetector` returns an **empty** diff — every package's lock `version`/`revision` equals the host's resolved value.
   1a. The host `Package.resolved` that reconciliation reads is the **canonical** `project.xcworkspace/xcshareddata/swiftpm/Package.resolved` — proven on a fixture containing a competing nested copy that `Dir.glob` would otherwise return first (amended 2026-08-27: FID-06; without this, criterion 1 passes vacuously with both sides agreeing on a stale file).
+
   2. Reconciling versions never costs metadata: each package's enriched `products[]` survives the refresh intact, and a project that was working before the run still resolves and builds after it.
   3. `spm-cache doctor` reports whether `spm-cache.lock` agrees with the host `Package.resolved`, naming each drifted package, without running a build.
   4. The motivating stale-transitive release build on the reference 59–70 package project is reproduced, then re-run after reconciliation: either it no longer links a transitive version older than the host's pin, or the residual cause is attributed to isolated re-resolution and recorded.
+
 **Measurements (blocking)**:
+
   - **M1** — run read-only steps 0–3 FIRST (under a minute): the wrong-file finding makes "stale locator" the leading hypothesis on `main`, which may change how much of the field failure Phase 6 closes. Then reproduce the stale-transitive release build on the real 59–70 package project and attribute the relative contribution of the lockfile chain vs isolated per-package re-resolution. This is the **first work of the phase** and **blocks Phase 7's design lock**.
+
 **Research**: Done 2026-08-27 (`06-RESEARCH.md`) — run despite the roadmap's original "not needed" call because `nyquist_validation` derives VALIDATION.md from it. It paid for itself: found the stale-locator defect (FID-06) that would have made criterion 1 vacuous, confirmed `:warn` does not exit 1 (`doctor.rb:42`), and identified local/path packages as the top drop-rule regression risk.
-**Plans:** 4 plans in 3 waves
-- [ ] 06-01-PLAN.md — M1 reproduction and per-package attribution (blocking, first work of the phase)
+**Plans:** 1/4 plans executed in 3 waves
+
+- [x] 06-01-PLAN.md — M1 reproduction and per-package attribution (blocking, first work of the phase)
 - [ ] 06-02-PLAN.md — FID-06: canonical `Package.resolved` locator, end-to-end reconciliation tracer, five glob sites collapsed
 - [ ] 06-03-PLAN.md — FID-01: full reconciliation semantics (drop / add / preserve / degrade) and success criterion 1
 - [ ] 06-04-PLAN.md — DIAG-01: static `lock_graph_fidelity` doctor check, doctor assertion updates, false-premise comment correction
 
 ### Phase 7: Host-Faithful Checkout Seeding
+
 **Goal**: Every per-package build — the metadata `describe` reads and the binary that gets cached — resolves its transitive dependencies from the host app's resolved graph rather than from that package's own requirements, at no cost to build time or disk.
 **Depends on**: Phase 6 (seeding from a stale source produces a confidently wrong result)
 **Requirements**: FID-02, FID-05, PERF-01
 **Success Criteria** (what must be TRUE):
+
   1. A package built by spm-cache checks out the same transitive versions the host app resolved — both the products/targets reported by `swift package describe` and the versions linked into the resulting `.xcframework` match the host's `Package.resolved`.
   2. Vendored-`.xcodeproj` packages, which ignore `Package.resolved` entirely, appear in output as an explicit *not-graph-pinned* category rather than being silently counted as pinned.
   3. An aborted, failed, or interrupted build leaves no checkout carrying a synthetic resolved file, and a concurrent `watch` cycle cannot delete checkouts out from under an in-flight build.
   4. With seeding disabled (default), behavior is byte-for-byte identical to v0.3.0 — the v0.2.x edge classes build exactly as they did before.
   5. A cached build of the reference project shows **no wall-clock or disk regression** versus v0.3.0; if the verbatim pin superset regresses, the narrowed pin closure is adopted and re-measured until it does not.
+
 **Measurements (blocking)**:
+
   - **M4** — does xcodebuild write back realized versions on the `run_with_scheme` / vendored-`.xcodeproj` path? **Early probe, before the design is locked** — it is the sole falsifier of the no-flag (`-onlyUsePackageVersionsFromResolvedFile`-off) design, and if read-back has no reliable source on a path, that path must be reported as *not graph-pinned*.
   - **M2** — run seeding in **report-only mode** against the real project and count packages reporting `resolution-incompatible`. Produced here, **consumed by Phase 8's policy commitment**; a high count is a rescope trigger (e.g. a dated exclusion of macro packages from graph pinning with a v0.5 follow-up).
   - **M3** — wall-clock and disk delta from pin-list fan-out (verbatim superset vs minimal closure). Gates PERF-01 and the narrowing decision; start verbatim, measure, narrow only if the benchmark demands it.
+
 **Research**: **Needed** — the vendored-`.xcodeproj` classification boundary and the read-back source on `run_with_scheme` are the least-characterized surfaces, and the fan-out trade-off between a verbatim superset and a minimal closure is unresolved.
 **Plans**: TBD
 
 ### Phase 8: Drift Read-Back, Fidelity Status & Provenance
+
 **Goal**: Every cached artifact carries a verifiable record of the graph it was actually built against, and any package whose realized versions differ from the intended pins is reported instead of silently shipped — seeding without this is strictly worse than today.
 **Depends on**: Phase 7 (must ship in the same release as Phase 7)
 **Requirements**: FID-03, FID-04, CACHE-01, DIAG-02
 **Success Criteria** (what must be TRUE):
+
   1. When xcodebuild silently discards a seeded pin and re-resolves, the run **reports the drift** — the comparison is against separately retained intended pins, never against the file spm-cache itself wrote.
   2. A package whose declared requirements genuinely cannot satisfy the host graph builds from source with a distinct `resolution-incompatible` status; the build succeeds, never hard-fails, and `ignore_build_errors` cannot suppress or mask that status.
   3. Each cached `.xcframework` has a provenance sidecar recording the **realized** pins plus spm-cache version, config, and destination set; replacing a prebuilt binary-target artifact removes the stale sidecar rather than leaving it to lie.
   4. `spm-cache build` output and `cache list` name each package's fidelity status (`host-pinned` / `resolution-incompatible` / `not-graph-pinned`) — no package's resolution outcome is unauditable.
+
 **Measurements (blocking)**:
+
   - **M2 (consumed)** — the `resolution-incompatible` count from Phase 7's report-only run gates the policy commitment locked here. Confirm the count before committing; rescope if it is large.
+
 **Research**: Not needed — reuses the established `.shims.json` sidecar pattern and the `Core::Diagnostics` / `GraphEntry.Status` surfaces verbatim.
 **Plans**: TBD
 
 ### Phase 9: Cache Identity & Invalidation
+
 **Goal**: Users on an existing cache actually receive the fidelity fix — an artifact built against a graph that no longer matches the host's is treated as a miss and rebuilt, and two projects on different versions stop sharing one binary.
 **Depends on**: Phase 8 (must ship in the same release as Phases 7–8; without it the fix reaches zero existing users)
 **Requirements**: CACHE-02, CACHE-03
 **Success Criteria** (what must be TRUE):
+
   1. Upgrading from v0.3.0 without clearing `~/.spm-cache` produces a rebuild — an artifact with no provenance is a **miss**, not a hit.
   2. Changing a transitive version in the host `Package.resolved` invalidates only the artifacts whose recorded pins actually disagree; an unrelated bump elsewhere in a 70-package graph does not empty the cache.
   3. Two projects resolving the same package at different versions no longer serve each other's artifact.
   4. `cache clean` leaves no orphaned provenance sidecars behind.
   5. A rebuild triggered by a graph change does not reuse DerivedData modules or resource bundles produced against the previous graph.
+
 **Research**: **Needed** — comparison granularity (intersection-on-identity, keyed on `revision` falling back to `version`) and the DerivedData graph fingerprint interact with the deferred v0.5 content-addressing work; the key *shape* must be forward-compatible.
 **Plans**: TBD
 
 ### Phase 10: Fidelity Regression Coverage
+
 **Goal**: The fidelity contract is pinned by hermetic specs, so transitive-version drift cannot silently return in a later release — the v0.3.0 lesson ("an implemented feature is not a done phase") applied as executable coverage.
 **Depends on**: Phases 7–9 (fixtures can be authored in parallel with them)
 **Requirements**: TEST-01, TEST-02, TEST-03
 **Success Criteria** (what must be TRUE):
+
   1. A regression spec **fails** if an out-of-range pin is silently re-resolved instead of being detected and reported.
   2. A coverage assertion **fails** if any package in `Package.resolved` lands in zero or in more than one bucket (pinned / ignored / excluded / plugin-only / resolution-incompatible / not-graph-pinned) — none may be silently absent.
   3. The v0.2.x edge-class fixture matrix passes unchanged: binary target (Class E), macro with a narrow `swift-syntax` pin, vendored `.xcodeproj`, plugin-only, transitive-only, resource bundle, private Clang shim, and product≠target rename.
   4. The whole suite runs hermetically on the existing `Core::Sh` / `Desc` / `Buildable` seams — no network, no real `xcodebuild` — and is green on every leg of the Ruby 3.1–3.3 CI matrix.
+
 **Research**: Not needed — the spec seams are proven across 258 green examples; do not bolt a networked xcodebuild integration test onto CI.
 **Plans**: TBD
 
 ### Phase 11: Homebrew Release Automation
+
 **Goal**: Publishing a release updates the Homebrew formula unattended and verifiably, and every failure mode in that path is loud rather than green — no human step, no expiring human-owned credential, no silently-published broken formula.
 **Depends on**: Nothing — **fully independent** of Phases 6–10 (no shared files, no shared state, no ordering constraint). Schedulable first, last, or in parallel; highest value-per-hour in the milestone.
 **Requirements**: REL-04, REL-05, REL-06, REL-07, REL-08, REL-09
 **Success Criteria** (what must be TRUE):
+
   1. Publishing a GitHub release updates `phuongddx/homebrew-spm-cache` with no manual intervention and without any human-owned expiring credential in the path.
   2. A tarball that is not yet servable (404 / HTML error page) **fails the workflow** instead of hashing an error page into the formula.
   3. A commit or push failure, a zero-match substitution, or an over-broad substitution **fails the workflow** — no `|| exit 0` path and no unanchored edit can report success.
   4. A post-publish job installs the published formula on macOS and asserts `spm-cache --version` matches the released tag; a failure raises a visible notification rather than passing unnoticed.
   5. `workflow_dispatch` with a `tag` input re-runs the publish for a transient failure, without cutting or re-publishing a release.
+
 **Operator gate**: The durable-token fix requires a one-time human step outside the repo — create a GitHub App owned by `phuongddx` (`Contents: read & write` + `Metadata: read`, installed on `homebrew-spm-cache` **only**, never `workflow` scope) and store its app id + private key as repo secrets. Autonomous execution pauses here. A deploy key with write access is the accepted lower-ceremony substitute.
 **Research**: Not needed — vendor-documented; `actions/create-github-app-token@v3` drops into `actions/checkout`'s `token:` with no other workflow change.
 **Plans**: TBD
@@ -162,7 +189,7 @@ repair the Homebrew release path so shipping stops requiring manual steps.
 | 3. Project Bootstrap | v0.3.0 | 2/2 | Complete | 2026-08-24 |
 | 4. CI GitHub Action | v0.3.0 | 2/2 | Complete | 2026-08-24 |
 | 5. Auto-Sync Watcher | v0.3.0 | 2/2 | Complete | 2026-08-24 |
-| 6. Graph Authority — Lockfile Reconciliation | v0.4.0 | 0/4 | Planned | - |
+| 6. Graph Authority — Lockfile Reconciliation | v0.4.0 | 1/4 | In Progress | - |
 | 7. Host-Faithful Checkout Seeding | v0.4.0 | 0/TBD | Not started | - |
 | 8. Drift Read-Back, Fidelity Status & Provenance | v0.4.0 | 0/TBD | Not started | - |
 | 9. Cache Identity & Invalidation | v0.4.0 | 0/TBD | Not started | - |
