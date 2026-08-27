@@ -2,19 +2,19 @@
 gsd_state_version: 1.0
 milestone: v0.4.0
 milestone_name: Build Fidelity & Release Automation
-current_phase: "Phase 7 — Host-Faithful Checkout Seeding (1/2 plans executed)"
+current_phase: "Phase 7 — Host-Faithful Checkout Seeding (2/2 plans executed)"
 current_phase_name: "Host-Faithful Checkout Seeding"
 status: in-progress
-stopped_at: Completed 07-01-PLAN.md
-last_updated: "2026-08-27T23:59:00.000Z"
+stopped_at: Completed 07-02-PLAN.md
+last_updated: "2026-08-27T17:16:36.000Z"
 last_activity: 2026-08-27
-last_activity_desc: 07-01 shipped SPM::ResolvedGraph + BuildPipeline seed-before-describe wiring + vendored-.xcodeproj not-graph-pinned classification (FID-02, FID-05 complete; 332 examples, 0 failures)
-state_head: c1b2d83
+last_activity_desc: 07-02 shipped shared -clonedSourcePackagesDirPath (clones_dir) + process-level build/watch flock + real PERF-01 benchmark against the reference project (18m15s->10m50s, 4.1G->2.7G, no regression). Phase 7 complete -- FID-02, FID-05, PERF-01 all Complete. 341 examples, 0 failures
+state_head: 1b7b89d
 progress:
   total_phases: 6
   completed_phases: 0
-  total_plans: 5
-  completed_plans: 5
+  total_plans: 6
+  completed_plans: 6
   percent: 0
 ---
 
@@ -122,7 +122,7 @@ MediaPicker 3.2.4 while the app resolves 3.3.2.
 | Phase | Name | Status | Branch |
 |-------|------|--------|--------|
 | 6 | Graph Authority — Lockfile Reconciliation | 4/4 plans executed (pending verification) | gsd/v0.4.0-build-fidelity-release-automation |
-| 7 | Host-Faithful Checkout Seeding | 1/2 plans executed | gsd/v0.4.0-build-fidelity-release-automation |
+| 7 | Host-Faithful Checkout Seeding | 2/2 plans executed | gsd/v0.4.0-build-fidelity-release-automation |
 | 8 | Drift Read-Back, Fidelity Status & Provenance | Not started | — |
 | 9 | Cache Identity & Invalidation | Not started | — |
 | 10 | Fidelity Regression Coverage | Not started | — |
@@ -175,8 +175,8 @@ See: .planning/PROJECT.md (updated 2026-08-27)
 
 ## Session Continuity
 
-Last session: 2026-08-27T23:59:00.000Z
-Stopped at: Completed 07-01-PLAN.md
+Last session: 2026-08-27T17:16:36.000Z
+Stopped at: Completed 07-02-PLAN.md
 Resume file: None
 
 ## Performance Metrics
@@ -192,6 +192,7 @@ Resume file: None
 | Phase 06 P04 | ~6m | 3 tasks | 4 files |
 | Phase 06 P05 | ~12m | 2 tasks | 3 files |
 | Phase 07 P01 | ~55m | 3 tasks | 6 files |
+| Phase 07 P02 | ~2h (incl. ~29min real xcodebuild) | 3 tasks | 9 files |
 
 ## Decisions
 
@@ -215,13 +216,14 @@ Resume file: None
 - [Phase Phase 6 — Graph Authority: Lockfile Reconciliation (4/4 plans executed — pending verification)]: The installer's reach over the locator's parent-directory tier was widened deliberately, bounded by sandboxed? (excludes spm-cache's own generated resolved files) and exclude_under: project_path (keeps the FID-06 nested stale copy closed)
 - [Phase Phase 6 — Graph Authority: Lockfile Reconciliation (4/4 plans executed — pending verification)]: WINDOWS #5 (unguarded host-graph parse in DiffDetector) left open: routing it through the tolerant accessor would flip every detect caller to silently-degrade. Recorded as a decision-fidelity gap against D-04 'never crash', not just robustness — warrants a dedicated follow-up plan
 - [Phase 07 — Host-Faithful Checkout Seeding (1/2 plans)]: 07-01 shipped SPM::ResolvedGraph and wired it into BuildPipeline.run/Installer::Build — FID-02 (seed host graph before first `swift package describe`) and FID-05 (vendored-.xcodeproj packages reported not-graph-pinned, never silently folded into pinned) marked Complete; the run's single pin source is resolved once via the already-memoized `host_graph_detector` (no second locator, per Phase 6 Plan 05's invariant); `run`'s body was extracted into a private `perform_build` so the seed/restore lives in one success-flag + ensure region around it, restoring on StandardError AND Interrupt, never on success; `-onlyUsePackageVersionsFromResolvedFile` deliberately NOT added (D-02). PERF-01 (shared clone dir, watch/build lock, benchmark gate) deferred to 07-02 per ROADMAP's own mapping.
+- [Phase 07 — Host-Faithful Checkout Seeding (2/2 plans — Phase 7 complete)]: 07-02 shipped `Config#clones_dir`/`#build_lock_path`, threaded `clones_dir` through both `Buildable.new` call sites (including `run_with_scheme`'s vendored-.xcodeproj fallback), and a process-level blocking flock shared by `Installer::Build` (held across `super` + the whole build loop) and `Installer::Use`'s non-fast-path branch (blocks before `recreate_dirs`) — closing Pitfall 15. PERF-01 proven by a real cold-cache `spm-cache build --config=release` against the StressMonitor reference project: wall-clock 18m15s→10m50s (-40.6%), `~/.spm-cache` disk 4.1G→2.7G (-34%), no regression on either axis (`07-BENCHMARK.md`). A pre-existing, out-of-scope Class E binaryTarget rename gap (3 Firebase Analytics variant products backed by one differently-named binaryTarget) was discovered live during the benchmark and worked around via the reference project's own gitignored `ignore_build_errors: true` knob (not fixed, logged only — present identically on both before/after commits so it does not bias the comparison). FID-02, FID-05, PERF-01 all Complete — Phase 7 fully done.
 
 ## Current Position
 
-Phase: 7 — Host-Faithful Checkout Seeding (in progress)
-Plan: 07-02 (next) — 1 of 2 plans complete (07-01 SPM::ResolvedGraph + seed-before-describe wiring + vendored classification)
-Status: FID-02 and FID-05 complete in source, hermetically tested, and confirmed byte-identical when seeding is disabled (D-07). PERF-01 (shared clone dir, watch/build lock, benchmark gate) is 07-02's scope, not yet started.
-Last activity: 2026-08-27 — 07-01 shipped SPM::ResolvedGraph (source_for/seed!/restore!/vendored_xcodeproj?), BuildPipeline.run's resolved_pins_file: kwarg with atomic seed-before-describe + restore-on-failure/interrupt, Installer::Build threading one host-graph answer per run; 332 examples, 0 failures; `make proxy.build` clean
+Phase: 7 — Host-Faithful Checkout Seeding (complete)
+Plan: 07-02 — 2 of 2 plans complete (07-01 SPM::ResolvedGraph + seed-before-describe wiring + vendored classification; 07-02 clones_dir + build lock + PERF-01 benchmark)
+Status: FID-02, FID-05, and PERF-01 all Complete in REQUIREMENTS.md. Phase 7 success criteria 1-5 all hold. Ready to proceed to Phase 8 (Drift Read-Back, Fidelity Status & Provenance).
+Last activity: 2026-08-27 — 07-02 shipped Config#clones_dir/#build_lock_path, threaded clones_dir into both BuildPipeline Buildable.new call sites, process-level flock shared by Installer::Build/Installer::Use closing the watch re-entrancy race, and a real cold-cache PERF-01 benchmark against the reference project (18m15s->10m50s wall-clock, 4.1G->2.7G disk, no regression); 341 examples, 0 failures; `make proxy.build` clean
 
 ### Historical position (Phase 6, prior to this update)
 
