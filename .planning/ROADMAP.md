@@ -74,13 +74,13 @@ repair the Homebrew release path so shipping stops requiring manual steps.
   - **M1** — run read-only steps 0–3 FIRST (under a minute): the wrong-file finding makes "stale locator" the leading hypothesis on `main`, which may change how much of the field failure Phase 6 closes. Then reproduce the stale-transitive release build on the real 59–70 package project and attribute the relative contribution of the lockfile chain vs isolated per-package re-resolution. This is the **first work of the phase** and **blocks Phase 7's design lock**.
 
 **Research**: Done 2026-08-27 (`06-RESEARCH.md`) — run despite the roadmap's original "not needed" call because `nyquist_validation` derives VALIDATION.md from it. It paid for itself: found the stale-locator defect (FID-06) that would have made criterion 1 vacuous, confirmed `:warn` does not exit 1 (`doctor.rb:42`), and identified local/path packages as the top drop-rule regression risk.
-**Plans:** 4/5 plans executed — 4 in 3 waves, plus one gap-closure plan in wave 5 (from `06-VERIFICATION.md`)
+**Plans:** 5/5 plans executed — 4 in 3 waves, plus one gap-closure plan in wave 5 (from `06-VERIFICATION.md`)
 
 - [x] 06-01-PLAN.md — M1 reproduction and per-package attribution (blocking, first work of the phase)
 - [x] 06-02-PLAN.md — FID-06: canonical `Package.resolved` locator, end-to-end reconciliation tracer, five glob sites collapsed
 - [x] 06-03-PLAN.md — FID-01: full reconciliation semantics (drop / add / preserve / degrade) and success criterion 1
 - [x] 06-04-PLAN.md — DIAG-01: static `lock_graph_fidelity` doctor check, doctor assertion updates, false-premise comment correction
-- [ ] 06-05-PLAN.md — gap closure: one host-graph resolver per run, so success criterion 1 also holds on the parent-directory-tier project shape
+- [x] 06-05-PLAN.md — gap closure: one host-graph resolver per run, so success criterion 1 also holds on the parent-directory-tier project shape
 
 ### Phase 7: Host-Faithful Checkout Seeding
 
@@ -190,7 +190,7 @@ repair the Homebrew release path so shipping stops requiring manual steps.
 | 3. Project Bootstrap | v0.3.0 | 2/2 | Complete | 2026-08-24 |
 | 4. CI GitHub Action | v0.3.0 | 2/2 | Complete | 2026-08-24 |
 | 5. Auto-Sync Watcher | v0.3.0 | 2/2 | Complete | 2026-08-24 |
-| 6. Graph Authority — Lockfile Reconciliation | v0.4.0 | 4/4 | In Progress|  |
+| 6. Graph Authority — Lockfile Reconciliation | v0.4.0 | 5/5 | In Progress|  |
 | 7. Host-Faithful Checkout Seeding | v0.4.0 | 0/TBD | Not started | - |
 | 8. Drift Read-Back, Fidelity Status & Provenance | v0.4.0 | 0/TBD | Not started | - |
 | 9. Cache Identity & Invalidation | v0.4.0 | 0/TBD | Not started | - |

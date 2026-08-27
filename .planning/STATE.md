@@ -5,16 +5,16 @@ milestone_name: Build Fidelity & Release Automation
 current_phase: "Phase 6 — Graph Authority: Lockfile Reconciliation (4/4 plans executed — pending verification)"
 current_phase_name: "Graph Authority: Lockfile Reconciliation"
 status: in-progress
-stopped_at: Completed 06-04-PLAN.md
-last_updated: "2026-08-27T08:23:43.135Z"
+stopped_at: Completed 06-05-PLAN.md
+last_updated: "2026-08-27T09:15:11.467Z"
 last_activity: 2026-08-27
 last_activity_desc: 06-04 shipped DIAG-01 lock_graph_fidelity doctor check + UmbrellaGenerator false-premise correction (303 examples, 0 failures) — phase 6 fully executed
-state_head: 6a4fcf1fb0ba33e4cfbfb4f6ec0e8227e0dbbd4f
+state_head: fb1fcb8dd251a13d6da5cee0b521957012aaec1b
 progress:
   total_phases: 6
   completed_phases: 0
-  total_plans: 4
-  completed_plans: 4
+  total_plans: 5
+  completed_plans: 5
   percent: 0
 ---
 
@@ -60,8 +60,6 @@ progress:
 > H-lock/H-wrongfile split, so that decision stands. Phase 6 fixed BOTH candidate mechanisms (FID-06
 > canonical locator + FID-01 reconciliation), so there is no code consequence — only this record.
 > Evidence: `.planning/phases/06-graph-authority-lockfile-reconciliation/06-VERIFICATION.md`.
-
-
 
 **M1 verdict: H-wrongfile 25 · H-lock 0 · H-float 0.** The dominant cause is the **stale-locator
 selection** (FID-06), not the never-refreshed lockfile. `Dir.glob(File.join(root,"**/Package.resolved")).find`
@@ -166,8 +164,8 @@ See: .planning/PROJECT.md (updated 2026-08-27)
 
 ## Session Continuity
 
-Last session: 2026-08-27T08:23:43.119Z
-Stopped at: Completed 06-04-PLAN.md
+Last session: 2026-08-27T09:15:11.451Z
+Stopped at: Completed 06-05-PLAN.md
 Resume file: None
 
 ## Performance Metrics
@@ -181,6 +179,7 @@ Resume file: None
 | Phase 06 P02 | ~25m | 3 tasks | 8 files |
 | Phase 6 P03 | ~25m | 3 tasks | 3 files |
 | Phase 06 P04 | ~6m | 3 tasks | 4 files |
+| Phase 06 P05 | ~12m | 2 tasks | 3 files |
 
 ## Decisions
 
@@ -200,6 +199,9 @@ Resume file: None
 - [Phase Phase 6 — Graph Authority: Lockfile Reconciliation (in progress — 2/4 plans)]: The lockfile reconciler resolves its project entry extension-insensitively (Fake matches Fake.xcodeproj) — narrow on purpose, and what makes its own save observably load-bearing since refresh_consumed_dependencies matches the basename strictly (2026-08-27)
 - [Phase Phase 6 — Graph Authority: Lockfile Reconciliation (in progress — 2/4 plans)]: DIAG-01 lock_graph_fidelity excludes lock entries with no repositoryURL from the drift comparison (lock side only) — Package.resolved structurally never lists local/path_from_root packages, so including them would warn forever on any project with a local package; only_in_host is still computed unconditionally
 - [Phase Phase 6 — Graph Authority: Lockfile Reconciliation (in progress — 2/4 plans)]: Drift is a :warn, never a :fail — the remedy is automatic on the next non-fast-path spm-cache use, so a :fail would redden CI before a first run; asserted by a command-level not_to receive(:exit) example rather than inferred from doctor.rb
+- [Phase Phase 6 — Graph Authority: Lockfile Reconciliation (4/4 plans executed — pending verification)]: Phase 6 gap closure: chose structural agreement (one memoized host-graph resolution per run, shared by DiffDetector and both installer consumers) over aligning three independent resolvers' postures — divergence now costs a test failure, not a code review
+- [Phase Phase 6 — Graph Authority: Lockfile Reconciliation (4/4 plans executed — pending verification)]: The installer's reach over the locator's parent-directory tier was widened deliberately, bounded by sandboxed? (excludes spm-cache's own generated resolved files) and exclude_under: project_path (keeps the FID-06 nested stale copy closed)
+- [Phase Phase 6 — Graph Authority: Lockfile Reconciliation (4/4 plans executed — pending verification)]: WINDOWS #5 (unguarded host-graph parse in DiffDetector) left open: routing it through the tolerant accessor would flip every detect caller to silently-degrade. Recorded as a decision-fidelity gap against D-04 'never crash', not just robustness — warrants a dedicated follow-up plan
 
 ## Current Position
 
