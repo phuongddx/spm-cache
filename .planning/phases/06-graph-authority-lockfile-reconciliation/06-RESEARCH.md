@@ -686,7 +686,7 @@ Pre-recorded `main` evidence (this session, already measured — see Finding A):
 | A3 | The reference project's `feature/spm-cache-integration` branch still contains the ExyteChat/MediaPicker state described in CONTEXT.md | Q7 | Medium — M1 method would need re-scoping; step 0 of the M1 commands checks this before anything else, so it fails fast |
 | A4 | `xcodebuild -scheme StressMonitor` is the correct scheme name for the M1 release build | Q7 | Low — `xcodebuild -list` corrects it in seconds |
 
-## Open Questions
+## Open Questions (RESOLVED)
 
 1. **Is the locator preference change inside "Claude's Discretion"?**
    - What we know: CONTEXT.md grants discretion over "internal structure of `Core::PackageResolved`". Finding A shows a naive collapse leaves FID-01 ineffective on the reference project.
