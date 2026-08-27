@@ -42,7 +42,27 @@ progress:
 - Roadmap history: `docs/project-roadmap.md`
 - Competitive analysis: `competitive-analysis-2026-07.html`, `scipio-deepdive-features-2026-07.html`
 
-### v0.4.0 root-cause model (research-verified 2026-08-27 — supersedes the earlier problem statement)
+### v0.4.0 root-cause model — CORRECTED BY M1 FIELD MEASUREMENT (2026-08-27)
+
+**M1 verdict: H-wrongfile 25 · H-lock 0 · H-float 0.** The dominant cause is the **stale-locator
+selection** (FID-06), not the never-refreshed lockfile. `Dir.glob(File.join(root,"**/Package.resolved")).find`
+returns a git-ignored nested copy (`<root>/X.xcodeproj/X.xcodeproj/...`, 8 pins, 2026-07-12) instead of the
+canonical `project.xcworkspace/xcshareddata/swiftpm/Package.resolved` (17 pins, 2026-08-13), because
+`S`(0x53) sorts before `p`(0x70). Set arithmetic: lock ∩ picked = 8/8, lock ∩ canonical = 0/17.
+
+H-lock excluded by provenance: the lock holds AnchoredPopup `1.1.3/2fb9d1ac101b`, which appears in **none**
+of the 9 committed revisions of the canonical file — so the lock is not a frozen read of the host graph,
+it is a faithful read of the wrong file. H-float excluded by construction: all 8 packages are emitted as
+exact `revision:` pins, leaving no range to float within.
+
+**FID-01 without FID-06 is actively harmful** — reconciling from the current locator's answer writes the
+phantom graph back onto itself, converting a visible non-empty diff into a false green.
+
+Symptom reproduced: 4 packages linked strictly older than host pin (AnchoredPopup 1.1.3<1.2.1,
+Kingfisher 8.8.1<8.11.0, libwebp-Xcode 1.5.0<1.6.0, MediaPicker 3.3.2<3.4.2).
+Evidence: `.planning/phases/06-graph-authority-lockfile-reconciliation/06-M1-MEASUREMENT.md`
+
+### v0.4.0 root-cause model (as originally researched — superseded by the M1 verdict above)
 
 Cached builds can link transitive dependency versions the host app never resolved. This is **two
 independent drift mechanisms**, not one:

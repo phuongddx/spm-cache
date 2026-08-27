@@ -16,7 +16,25 @@ The two dominant risks are both about the fix being invisible or actively worse.
 
 ## Key Findings
 
-### The Root-Cause Model (authoritative — supersedes any contradicting inference in the four research files)
+### ⚠ SUPERSEDED BY FIELD MEASUREMENT (M1, 2026-08-27)
+
+**The ranking below is FALSIFIED.** Phase 6's M1 measurement scored **H-wrongfile 25 · H-lock 0 · H-float 0**.
+Surface #1 ("never-refreshed lockfile") was ranked DOMINANT here and is now excluded by provenance: the
+reference project's lock holds AnchoredPopup `1.1.3/2fb9d1ac101b`, a value that appears in **none** of the
+9 committed revisions of the canonical `Package.resolved` — so the lock is not a frozen read of the host
+graph at all. It is a *faithful* read of the WRONG file. The locator (`Dir.glob(...).find`) selects a stale
+git-ignored nested copy (8 pins, 2026-07-12) over the canonical file (17 pins, 2026-08-13). Surface #2
+(fresh upward re-resolution) was observed **zero** times in the field — all 8 packages are emitted as exact
+`revision:` pins, leaving no range to float within.
+
+**Corrected ranking:** (1) stale-locator selection [FID-06] — DOMINANT, sole field cause;
+(2) never-refreshed lockfile [FID-01] — real mechanism, hardening, and *actively harmful without FID-06*
+(reconciling from the wrong file writes the phantom graph back onto itself, converting a visible diff into
+a false green); (3) fresh upward re-resolution [Phase 7] — real in isolation, unobserved in the field.
+
+See `.planning/phases/06-graph-authority-lockfile-reconciliation/06-M1-MEASUREMENT.md`.
+
+### The Root-Cause Model (as originally researched — see the correction above before relying on this ranking)
 
 Contributing surfaces, **ranked by dominance**:
 
