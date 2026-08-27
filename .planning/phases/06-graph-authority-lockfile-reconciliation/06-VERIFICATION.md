@@ -1,11 +1,12 @@
 ---
 phase: 06-graph-authority-lockfile-reconciliation
 verified: 2026-08-27T16:05:00Z
-status: gaps_found
+status: passed
 score: 2/5 success criteria verified (1a, 3) · 3 partial (1, 2, 4)
 behavior_unverified: 1
 overrides_applied: 0
 gaps:
+
   - truth: "Criterion 4 — the residual cause is attributed and recorded"
     status: failed
     reason: >-
@@ -20,13 +21,17 @@ gaps:
       separate H-lock from H-wrongfile, because the wrongly-picked file IS an old canonical
       snapshot. The published counts H-wrongfile 25 · H-lock 0 are unsupported.
     artifacts:
+
       - path: ".planning/phases/06-graph-authority-lockfile-reconciliation/06-M1-MEASUREMENT.md"
         issue: "Falsifier 2 (lines 260-269) and falsifier 3 (lines 271-275) rest on a false premise; per-verdict counts (line 240, 394) overstate H-wrongfile and understate H-lock"
+
       - path: ".planning/phases/06-graph-authority-lockfile-reconciliation/06-01-SUMMARY.md"
         issue: "Repeats 'No committed revision of the canonical file ever held 1.1.3'"
+
       - path: ".planning/STATE.md"
         issue: "Propagates the false claim into project memory as the corrected v0.4.0 root-cause model"
     missing:
+
       - "Correct the falsifier: state that the nested file is byte-identical to canonical@9075971, so H-lock and H-wrongfile are observationally indistinguishable for Group A"
       - "Revise the per-verdict counts to reflect that Group A is jointly attributable (both mechanisms present, both fixed in Phase 6)"
       - "Preserve the two conclusions that ARE supported: H-float = 0 (exact revision: pins, no range to float — this is what Phase 7's rescope rests on) and the live locator defect (positively reproduced)"
@@ -45,16 +50,21 @@ gaps:
       is never reconciled. This is the exact class of disagreement the phase's five-glob
       collapse existed to eliminate.
     artifacts:
+
       - path: "lib/spm_cache/installer.rb"
         issue: "Line 156: `Core::PackageResolved.locate(@project_path)` — no parent_fallback, while lib/spm_cache/core/diff_detector.rb:194 passes parent_fallback: true"
     missing:
+
       - "Either pass parent_fallback: true from the reconciler so it agrees with the detector, or derive host_pins from DiffDetector#live_packages (which already located the file) instead of re-locating"
       - "A spec covering the parent-fallback-only project shape end to end (present specs cover the locator tier in isolation, never the reconciliation consequence)"
+
 deferred:
+
   - truth: "DiffCollector#live_packages aborts `use` on a truncated host Package.resolved before the reconciler's D-04 warn-and-degrade guard is reachable"
     addressed_in: "Already logged, in scope confirmation only"
     evidence: "deferred-items.md records it with file, cause, suggested fix and deferral rationale; diff_detector.rb:140 confirmed unguarded. Pre-existing, not caused by this phase. Guard itself exists and is spec-covered."
 behavior_unverified_items:
+
   - truth: "Criterion 2 — a project that was working before the run still resolves and builds after it"
     test: >-
       On a project wired to spm-cache with a drifted Package.resolved, capture the pre-run
@@ -67,16 +77,19 @@ behavior_unverified_items:
       dirty with a stash, so it is out of bounds. No hermetic substitute exists — the
       products[] half is proven, the resolve/build half is not.
 human_verification:
+
   - test: >-
       Decide how to correct the M1 attribution record (06-M1-MEASUREMENT.md falsifiers 2-3,
       06-01-SUMMARY.md, STATE.md) now that the decisive observation is falsified.
     expected: "Corrected record; Phase 7's rescope re-confirmed against the surviving H-float = 0 finding"
     why_human: "A published root-cause model and a project-memory entry that gate Phase 7's sizing"
+
   - test: >-
       Decide whether the parent-fallback-only project shape is in scope for Phase 6 or an
       accepted limitation to record.
     expected: "Either the reconciler/detector locator asymmetry is closed, or the limitation is recorded with its user-visible warning as the mitigation"
     why_human: "Scope decision — the plan deliberately withheld parent_fallback from the four non-detector sites without analysing this consequence"
+
   - test: "Criterion 2 build half — see behavior_unverified_items"
     expected: "Project still resolves and builds after reconciliation"
     why_human: "Requires an Xcode toolchain and a wired project"
@@ -266,10 +279,12 @@ What survives unaffected:
   confirms `revision:` wins whenever held, and the comment at 105-117 confirms a `revision:` pin has no
   range to float within. `U == L == realized HEAD` for all 8, verified. This is the finding Phase 7's
   rescope actually rests on, so **the Phase 7 demotion decision is not undermined**.
+
 - **The locator defect is positively confirmed, not inferred.** I reproduced it live: the locator
   returns the 8-pin Jul-12 nested file while the canonical holds 17 pins. The forward-looking
   conclusion — reconciliation without a locator fix converts a visible non-empty diff into a false
   green — is correct and load-bearing, and it is what FID-06 fixes.
+
 - **Remediation is unaffected.** Both H-lock (the `installer.rb` early-return freeze) and H-wrongfile
   (the glob) were fixed in this phase. The defect is in the *record*, which STATE.md has promoted to
   project memory.
@@ -409,3 +424,19 @@ human with a toolchain.
 
 *Verified: 2026-08-27*
 *Verifier: Claude (gsd-verifier)*
+
+## User Override (2026-08-27, post-report)
+
+The verdict above (`gaps_found`) predates two events:
+1. **Gap closure (06-05)** — the tier-4-only asymmetry this report flagged was fixed and
+   independently re-verified (gate greps flipped, 307 examples green, 0 spec lines edited).
+2. **M1 correction** — the report's criterion-4 concern (falsified attribution) was corrected
+   in `STATE.md`/`research/SUMMARY.md`; `H-float=0` (what the Phase 7 rescope rests on) was
+   unaffected.
+
+What remains genuinely unverified: **criterion 2's live build half** (a real `spm-cache use`
++ build against the reference project) — needs a toolchain run the user has not performed.
+
+Status set to `passed` by **explicit user decision** to proceed to autonomous execution of
+Phases 7-11 without completing that live-build check. This is a recorded risk acceptance, not
+a claim that criterion 2 was verified. See `06-UAT.md` Test 3 (skipped, same reason).

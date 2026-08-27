@@ -135,6 +135,17 @@ Research flags: **Phase 7** and **Phase 9** need `--research-phase` during plann
 
 v0.3.0 phase history archived to `.planning/milestones/v0.3.0-phases/`.
 
+## Milestone Re-scope Decision (2026-08-27, post-M1) -- OVERRIDDEN same day
+
+**Override (2026-08-27, later same day):** user explicitly chose, after being asked twice
+with the tradeoff stated plainly, to skip the remainder of Phase 6 UAT and run
+`/gsd-autonomous` across Phases 6-11 directly against the CURRENT roadmap text --
+superseding the "re-plan 7-9 first" instruction below. Phase 6's VERIFICATION.md status was
+set to `passed` by this same override (see its `## User Override` section); the live-build
+half of criterion 2 remains genuinely unverified. This is a recorded risk acceptance, not a
+retraction of the M1 analysis -- H-float=0 and the rationale for demoting Phase 7 still hold;
+the user chose to proceed without re-planning around them first.
+
 ## Milestone Re-scope Decision (2026-08-27, post-M1)
 
 **User decision:** finish Phase 6 (the actual fix) and verify it closes the field failure, THEN re-plan
