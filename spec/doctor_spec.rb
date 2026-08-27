@@ -174,13 +174,14 @@ RSpec.describe SPMCache::Core::Diagnostics, 'hermetic per-check paths (injected 
   it 'registers the built-in checks in registration (report) order' do
     expect(SPMCache::Core::Diagnostics.registry.map(&:name)).to eq(
       %w[xcode_version swift_version toolchain_path cache_dir_health
-         library_evolution_compatibility remote_backend_connectivity companion_binary]
+         library_evolution_compatibility remote_backend_connectivity companion_binary
+         lock_graph_fidelity]
     )
   end
 end
 
 RSpec.describe 'spm-cache doctor with a fully absent toolchain' do
-  it 'renders all 7 checks, marks the three toolchain probes failed, and exits 1' do
+  it 'renders all 8 checks, marks the three toolchain probes failed, and exits 1' do
     require 'spm_cache/command/doctor'
     allow(SPMCache::Core::Sh).to receive(:capture_output)
       .and_raise(SPMCache::Core::GeneralError.new('Command failed (exit 1): not installed'))
@@ -196,7 +197,7 @@ RSpec.describe 'spm-cache doctor with a fully absent toolchain' do
       $stdout = original_stdout
     end
     marker_lines = out.string.lines.map(&:strip).select { |l| l.match?(/\A[✓!✗] /) }
-    expect(marker_lines.length).to eq(7) # none dropped, none extra — report completed
+    expect(marker_lines.length).to eq(8) # none dropped, none extra — report completed
     %w[xcode_version swift_version toolchain_path].each do |name|
       expect(marker_lines).to include(a_string_starting_with("✗ #{name}:"))
     end
@@ -245,7 +246,7 @@ RSpec.describe 'spm-cache doctor --json' do
     end
     parsed = JSON.parse(out.string)
     names = parsed['checks'].map { |c| c['name'] }
-    expect(parsed['checks'].length).to eq(8)
+    expect(parsed['checks'].length).to eq(9)
     %w[xcode_version swift_version toolchain_path cache_dir_health
        library_evolution_compatibility remote_backend_connectivity companion_binary].each do |name|
       expect(names).to include(name)

@@ -5,6 +5,8 @@ require 'json'
 require 'spm_cache/core/sh'
 require 'spm_cache/core/config'
 require 'spm_cache/core/system'
+require 'spm_cache/core/package_resolved'
+require 'spm_cache/core/diff_detector'
 
 module SPMCache
   module Core
@@ -54,6 +56,138 @@ module SPMCache
             message: "Check raised an error: #{e.message}",
             fix_hint: check.fix_hint
           )
+        end
+
+        # Every input path below returns a status instead of raising: a raise is
+        # captured as a :fail above, and `doctor` exits 1 on any :fail, so a
+        # truncated file in a user's repo would break their CI.
+        def lock_graph_fidelity(cfg)
+          # An injected config that cannot report project paths cannot answer
+          # this question, and a MockExpectationError here is not a StandardError
+          # so it would escape run_check's capture entirely.
+          unless cfg.respond_to?(:lockfile_path) && cfg.respond_to?(:project_dir)
+            return [:ok, 'No project context available — skipping lock/host graph comparison']
+          end
+
+          lock_path = cfg.lockfile_path
+          unless lock_path && File.exist?(lock_path)
+            return [:ok, 'No spm-cache.lock yet — a fresh project cannot be drifted']
+          end
+
+          project_path = Dir.glob(File.join(cfg.project_dir, '*.xcodeproj')).sort.first
+          return [:ok, 'No .xcodeproj in this directory — no host graph to compare the lock against'] unless project_path
+
+          # The same locator the reconciler uses: a parallel lookup here would
+          # let `doctor` report agreement on one file while `use` reconciles
+          # against another.
+          resolved_path = PackageResolved.locate(project_path)
+          return [:ok, 'Host Package.resolved could not be located — nothing to compare the lock against'] unless resolved_path
+
+          host_pins = PackageResolved.pins_or_nil(resolved_path)
+          return [:ok, "Host #{resolved_path} is unreadable — cannot compare"] if host_pins.nil?
+
+          locked = lock_remote_packages(lock_path)
+          return [:ok, 'spm-cache.lock is unreadable — cannot compare'] if locked.nil?
+
+          compare_lock_to_host(locked, host_pin_map(host_pins))
+        end
+
+        # Entries with no repositoryURL are excluded: SwiftPM never lists a
+        # local/path package in Package.resolved, so counting one as missing
+        # from the host graph would warn forever on any project with a local
+        # package. That is a category difference, not staleness.
+        def lock_remote_packages(path)
+          content = File.read(path)
+          return {} if content.strip.empty?
+
+          data = JSON.parse(content)
+          return {} unless data.is_a?(Hash)
+
+          data.each_value.with_object({}) do |project, result|
+            next unless project.is_a?(Hash)
+
+            (project['packages'] || []).each do |pkg|
+              next unless pkg.is_a?(Hash)
+              next if pkg['repositoryURL'].to_s.empty?
+
+              key = DiffDetector.identity_key(pkg['repositoryURL'], pkg['path_from_root'] || pkg['path'], pkg['name'])
+              result[key] = pkg
+            end
+          end
+        rescue JSON::ParserError, TypeError
+          nil
+        end
+
+        def host_pin_map(pins)
+          pins.each_with_object({}) do |pin, result|
+            result[DiffDetector.identity_key(pin['location'], nil, pin['identity'])] = pin
+          end
+        end
+
+        def compare_lock_to_host(locked, host)
+          # A pre-v2 (`object.pins`) resolved file parses to zero pins, which
+          # would otherwise read as 100% drift.
+          if host.empty? && !locked.empty?
+            return [:warn, "Host Package.resolved parsed to zero pins while spm-cache.lock holds " \
+                           "#{locked.size} remote package(s) — suspected Package.resolved schema mismatch, not drift"]
+          end
+
+          only_in_lock = locked.keys.reject { |key| host.key?(key) }
+          only_in_host = host.keys.reject { |key| locked.key?(key) }
+          value_drift = locked.keys.select do |key|
+            host.key?(key) && lock_pin_value(locked[key]) != host_pin_value(host[key])
+          end
+
+          if only_in_lock.empty? && only_in_host.empty? && value_drift.empty?
+            return [:ok, "spm-cache.lock agrees with the host Package.resolved (#{locked.size} package(s))"]
+          end
+
+          parts = [
+            drift_part('only in the lock', only_in_lock.map { |key| lock_label(locked[key]) }),
+            drift_part('only in the host graph', only_in_host.map { |key| host_label(host[key]) }),
+            drift_part('at a different revision/version', value_drift.map { |key| lock_label(locked[key]) })
+          ]
+          [:warn, "spm-cache.lock disagrees with the host Package.resolved: #{parts.join(', ')}"]
+        end
+
+        # Mirrors the umbrella generator's own precedence, so the check compares
+        # what actually gets pinned rather than a parallel notion of equality.
+        def lock_pin_value(pkg)
+          revision = pkg['revision']
+          revision.to_s.empty? ? pkg['version'] : revision
+        end
+
+        def host_pin_value(pin)
+          state = pin['state'] || {}
+          revision = state['revision']
+          revision.to_s.empty? ? state['version'] : revision
+        end
+
+        def drift_part(caption, labels)
+          return "#{labels.size} #{caption}" if labels.empty?
+
+          "#{labels.size} #{caption} (#{summarize_labels(labels)})"
+        end
+
+        def summarize_labels(labels, cap: 5)
+          shown = labels.first(cap)
+          remainder = labels.size - shown.size
+          remainder.positive? ? "#{shown.join(', ')} and #{remainder} more" : shown.join(', ')
+        end
+
+        def lock_label(pkg)
+          pkg['name'] || basename_of(pkg['repositoryURL']) || basename_of(pkg['path_from_root'] || pkg['path']) ||
+            'unknown'
+        end
+
+        def host_label(pin)
+          pin['identity'] || basename_of(pin['location']) || 'unknown'
+        end
+
+        def basename_of(value)
+          return nil if value.to_s.empty?
+
+          File.basename(value, '.git')
         end
       end
 
@@ -150,6 +284,17 @@ module SPMCache
         else
           [:warn, "Companion binary not built (#{bin}) — proxy generation specs will skip"]
         end
+      end
+
+      register('lock_graph_fidelity',
+               fix_hint: 'Run `spm-cache use` to reconcile spm-cache.lock with the host Package.resolved') do |config:|
+        cfg = config || Config.instance
+        begin
+          cfg.load
+        rescue StandardError
+          nil
+        end
+        lock_graph_fidelity(cfg)
       end
     end
   end
