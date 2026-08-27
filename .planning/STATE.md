@@ -2,26 +2,26 @@
 gsd_state_version: 1.0
 milestone: v0.4.0
 milestone_name: Build Fidelity & Release Automation
-current_phase: "Phase 6 — Graph Authority: Lockfile Reconciliation (in progress — 2/4 plans)"
+current_phase: "Phase 6 — Graph Authority: Lockfile Reconciliation (4/4 plans executed — pending verification)"
 current_phase_name: "Graph Authority: Lockfile Reconciliation"
 status: in-progress
-stopped_at: Completed 06-03-PLAN.md
-last_updated: "2026-08-27T08:11:29.520Z"
+stopped_at: Completed 06-04-PLAN.md
+last_updated: "2026-08-27T08:23:43.135Z"
 last_activity: 2026-08-27
-last_activity_desc: 06-02 shipped FID-06 canonical Package.resolved locator + lockfile reconciliation (275 examples, 0 failures)
-state_head: c55099070be999b87ee016dca8a32bbd067e2961
+last_activity_desc: 06-04 shipped DIAG-01 lock_graph_fidelity doctor check + UmbrellaGenerator false-premise correction (303 examples, 0 failures) — phase 6 fully executed
+state_head: 6a4fcf1fb0ba33e4cfbfb4f6ec0e8227e0dbbd4f
 progress:
   total_phases: 6
   completed_phases: 0
   total_plans: 4
-  completed_plans: 3
+  completed_plans: 4
   percent: 0
 ---
 
 # Project State: spm-cache
 
 **Initialized:** 2026-08-10
-**Current Phase:** Phase 6 — Graph Authority: Lockfile Reconciliation (in progress — 2/4 plans)
+**Current Phase:** Phase 6 — Graph Authority: Lockfile Reconciliation (4/4 plans executed — pending verification)
 **Project Mode:** Horizontal Layers
 **Direction:** v0.4.0 Build fidelity (correctness) + release automation
 
@@ -104,7 +104,7 @@ MediaPicker 3.2.4 while the app resolves 3.3.2.
 
 | Phase | Name | Status | Branch |
 |-------|------|--------|--------|
-| 6 | Graph Authority — Lockfile Reconciliation | In progress (2/4 plans) | gsd/v0.4.0-build-fidelity-release-automation |
+| 6 | Graph Authority — Lockfile Reconciliation | 4/4 plans executed (pending verification) | gsd/v0.4.0-build-fidelity-release-automation |
 | 7 | Host-Faithful Checkout Seeding | Not started | — |
 | 8 | Drift Read-Back, Fidelity Status & Provenance | Not started | — |
 | 9 | Cache Identity & Invalidation | Not started | — |
@@ -147,8 +147,8 @@ See: .planning/PROJECT.md (updated 2026-08-27)
 
 ## Session Continuity
 
-Last session: 2026-08-27T08:11:29.502Z
-Stopped at: Completed 06-03-PLAN.md
+Last session: 2026-08-27T08:23:43.119Z
+Stopped at: Completed 06-04-PLAN.md
 Resume file: None
 
 ## Performance Metrics
@@ -161,6 +161,7 @@ Resume file: None
 | Phase 06 P01 | 35m | 2 tasks | 2 files |
 | Phase 06 P02 | ~25m | 3 tasks | 8 files |
 | Phase 6 P03 | ~25m | 3 tasks | 3 files |
+| Phase 06 P04 | ~6m | 3 tasks | 4 files |
 
 ## Decisions
 
@@ -178,6 +179,8 @@ Resume file: None
 - [Phase 06 — 02, 2026-08-27]: FID-01 left Pending, not marked Complete. Version/revision reconciliation runs on every non-fast-path run (Installer#reconcile_lockfile_from_host_graph, self-gated on a non-empty diff per D-03, keyed on DiffDetector#live_packages' resolved-union-pbxproj set, saving independently of refresh_consumed_dependencies) and provably preserves enriched products[]; but the D-01 drop rule, the D-02 add rule and the D-04 warn-once on an unreadable host graph are Plan 03's scope. Marking FID-01 Complete now would assert the lock describes the current graph while the 8 phantom reference-project packages would still persist in it.
 - [Phase Phase 6 — Graph Authority: Lockfile Reconciliation (in progress — 2/4 plans)]: FID-01 D-02 realized as OMISSION of the products key on added packages, not products: [] — enrichment guards with 'next if pkg_data["products"]' and [] is truthy in Ruby, so a present-but-empty key would suppress product metadata permanently (2026-08-27)
 - [Phase Phase 6 — Graph Authority: Lockfile Reconciliation (in progress — 2/4 plans)]: The lockfile reconciler resolves its project entry extension-insensitively (Fake matches Fake.xcodeproj) — narrow on purpose, and what makes its own save observably load-bearing since refresh_consumed_dependencies matches the basename strictly (2026-08-27)
+- [Phase Phase 6 — Graph Authority: Lockfile Reconciliation (in progress — 2/4 plans)]: DIAG-01 lock_graph_fidelity excludes lock entries with no repositoryURL from the drift comparison (lock side only) — Package.resolved structurally never lists local/path_from_root packages, so including them would warn forever on any project with a local package; only_in_host is still computed unconditionally
+- [Phase Phase 6 — Graph Authority: Lockfile Reconciliation (in progress — 2/4 plans)]: Drift is a :warn, never a :fail — the remedy is automatic on the next non-fast-path spm-cache use, so a :fail would redden CI before a first run; asserted by a command-level not_to receive(:exit) example rather than inferred from doctor.rb
 
 ## Current Position
 

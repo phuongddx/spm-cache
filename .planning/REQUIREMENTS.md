@@ -22,7 +22,7 @@
 
 ### Diagnostics
 
-- [ ] **DIAG-01**: A `doctor` check compares `spm-cache.lock` against the host `Package.resolved` statically, requiring no build
+- [x] **DIAG-01**: A `doctor` check compares `spm-cache.lock` against the host `Package.resolved` statically, requiring no build
 - [ ] **DIAG-02**: Per-package fidelity status (`host-pinned` / `resolution-incompatible` / `not-graph-pinned`) is surfaced in build output and `cache list`
 
 ### Regression Coverage
@@ -120,7 +120,7 @@ Which phases cover which requirements. Populated during roadmap creation.
 | CACHE-01 | Phase 8 | Pending |
 | CACHE-02 | Phase 9 | Pending |
 | CACHE-03 | Phase 9 | Pending |
-| DIAG-01 | Phase 6 | Pending |
+| DIAG-01 | Phase 6 | Complete |
 | DIAG-02 | Phase 8 | Pending |
 | TEST-01 | Phase 10 | Pending |
 | TEST-02 | Phase 10 | Pending |
