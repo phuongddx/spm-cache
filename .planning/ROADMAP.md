@@ -101,8 +101,11 @@ repair the Homebrew release path so shipping stops requiring manual steps.
   - **M2** — run seeding in **report-only mode** against the real project and count packages reporting `resolution-incompatible`. Produced here, **consumed by Phase 8's policy commitment**; a high count is a rescope trigger (e.g. a dated exclusion of macro packages from graph pinning with a v0.5 follow-up).
   - **M3** — wall-clock and disk delta from pin-list fan-out (verbatim superset vs minimal closure). Gates PERF-01 and the narrowing decision; start verbatim, measure, narrow only if the benchmark demands it.
 
-**Research**: **Needed** — the vendored-`.xcodeproj` classification boundary and the read-back source on `run_with_scheme` are the least-characterized surfaces, and the fan-out trade-off between a verbatim superset and a minimal closure is unresolved.
-**Plans**: TBD
+**Research**: Done 2026-08-27 (compressed into `07-CONTEXT.md` from milestone-level `research/ARCHITECTURE.md` §1-3,9 and `research/PITFALLS.md` Pitfall 6/9/11/15, both empirically verified on Xcode 26.3 — see 07-CONTEXT.md header for why no fresh phase-level research was spawned).
+**Plans**: 2 plans across 2 waves
+
+- [ ] 07-01-PLAN.md — SPM::ResolvedGraph (source_for/seed!/restore!) + BuildPipeline seed-before-describe wiring + vendored-.xcodeproj classification (FID-02, FID-05)
+- [ ] 07-02-PLAN.md — shared -clonedSourcePackagesDirPath + process-level watch/build lock + PERF-01 benchmark gate
 
 ### Phase 8: Drift Read-Back, Fidelity Status & Provenance
 
