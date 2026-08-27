@@ -69,6 +69,61 @@ RSpec.describe SPMCache::Core::PackageResolved do
       expect(described_class.locate(project_path)).to be_nil
       expect(described_class.locate(project_path, parent_fallback: true)).to eq(parent_copy)
     end
+
+    # spm-cache writes these itself, one level above the .xcodeproj -- directly
+    # inside the parent-fallback search space. Adopting its own generated
+    # artifact as the host graph makes the tool authoritative over its input.
+    it 'never returns a sandbox Package.resolved' do
+      FileUtils.mkdir_p(project_path)
+      sandbox = File.join(tmpdir, SPMCache::Core::Config::SANDBOX_DIR, 'packages')
+      write_resolved(File.join(sandbox, 'umbrella', 'Package.resolved'), ['alpha'])
+      write_resolved(File.join(sandbox, 'proxy', 'Package.resolved'), ['beta'])
+
+      expect(described_class.locate(project_path, parent_fallback: true)).to be_nil
+    end
+
+    it 'excludes a candidate nested under a second .xcodeproj component' do
+      write_resolved(nested_path, ['beta'])
+
+      expect(legacy_glob(project_path)).to eq(nested_path)
+      expect(described_class.locate(project_path)).to be_nil
+    end
+
+    # Scoping the .xcodeproj exclusion to the recursive-under-root tier must not
+    # hand the project's own nested copy a second entrance via the parent.
+    it "does not re-adopt the project's own nested copy via the parent fallback" do
+      write_resolved(nested_path, ['beta'])
+
+      expect(described_class.locate(project_path, parent_fallback: true)).to be_nil
+    end
+
+    it 'prefers a sibling xcworkspace resolved file over a recursive match' do
+      workspace_copy = write_resolved(
+        File.join(tmpdir, 'App.xcworkspace', 'xcshareddata', 'swiftpm', 'Package.resolved'), ['alpha']
+      )
+      write_resolved(File.join(project_path, 'deep', 'nest', 'Package.resolved'), ['beta'])
+
+      expect(described_class.locate(project_path)).to eq(workspace_copy)
+    end
+
+    it 'breaks ties on newest mtime within the recursive tier' do
+      older = write_resolved(File.join(project_path, 'a', 'Package.resolved'), ['alpha'])
+      newer = write_resolved(File.join(project_path, 'b', 'deeper', 'Package.resolved'), ['beta'])
+      File.utime(Time.now - 600, Time.now - 600, older)
+
+      expect(described_class.locate(project_path)).to eq(newer)
+    end
+
+    # command/use.rb passes a relative root, prints the located path, and keys
+    # its watch signature on it.
+    it 'returns a path shaped like the root it was given' do
+      write_resolved(canonical_path, ['alpha'])
+
+      located = Dir.chdir(tmpdir) { described_class.locate('Fake.xcodeproj') }
+
+      expect(located).to eq(File.join('Fake.xcodeproj', described_class::CANONICAL_RELATIVE_PATH))
+      expect(located).not_to start_with('/')
+    end
   end
 
   describe '.pins / .pins_or_nil' do
@@ -89,6 +144,28 @@ RSpec.describe SPMCache::Core::PackageResolved do
 
       expect(described_class.pins_or_nil(readable_empty)).to eq([])
       expect(described_class.pins_or_nil(absent)).to be_nil
+    end
+
+    it 'rejects a resolved file whose pins are not an array' do
+      wrong_shape = File.join(tmpdir, 'WrongShape.json')
+      FileUtils.mkdir_p(tmpdir)
+      File.write(wrong_shape, JSON.generate('version' => 3, 'pins' => 'nope'))
+
+      expect(described_class.pins_or_nil(wrong_shape)).to be_nil
+    end
+
+    it 'skips a pin that is not an object' do
+      mixed = File.join(tmpdir, 'Mixed.json')
+      FileUtils.mkdir_p(tmpdir)
+      valid_pin = {
+        'identity' => 'alpha',
+        'kind' => 'remoteSourceControl',
+        'location' => 'https://github.com/example/alpha.git',
+        'state' => { 'revision' => 'rev-alpha', 'version' => '1.0.0' }
+      }
+      File.write(mixed, JSON.generate('version' => 3, 'pins' => [valid_pin, 'not-a-pin']))
+
+      expect(described_class.pins_or_nil(mixed)).to eq([valid_pin])
     end
   end
 end
