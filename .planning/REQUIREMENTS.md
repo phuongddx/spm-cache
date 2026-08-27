@@ -95,12 +95,12 @@ Explicitly excluded from v0.4.0. Documented to prevent scope creep.
 
 These block design decisions inside phases and must be measured, not assumed.
 
-| # | Measurement | Blocks |
-|---|-------------|--------|
-| M1 | Reproduce the stale-transitive release build on the real 59–70 package project; attribute relative contribution of the lockfile chain vs isolated re-resolution | Phase 2 design lock |
-| M2 | Report-only pinning run: count packages reporting `resolution-incompatible` | Policy commitment; rescope trigger if high |
-| M3 | Wall-clock and disk delta from pin-list fan-out (verbatim superset vs minimal closure) | PERF-01; narrowing decision |
-| M4 | Does xcodebuild write back realized versions on the `run_with_scheme` / vendored-`.xcodeproj` path? | Sole falsifier of the no-flag design |
+| # | Measurement | Runs in | Blocks |
+|---|-------------|---------|--------|
+| M1 | Reproduce the stale-transitive release build on the real 59–70 package project; attribute relative contribution of the lockfile chain vs isolated re-resolution | Phase 6 (first work) | Phase 7 design lock |
+| M2 | Report-only pinning run: count packages reporting `resolution-incompatible` | Phase 7 (produced) | Phase 8 policy commitment; rescope trigger if high |
+| M3 | Wall-clock and disk delta from pin-list fan-out (verbatim superset vs minimal closure) | Phase 7 | PERF-01; verbatim-vs-closure narrowing decision |
+| M4 | Does xcodebuild write back realized versions on the `run_with_scheme` / vendored-`.xcodeproj` path? | Phase 7 (early probe) | Sole falsifier of the no-flag design |
 
 ## Traceability
 
@@ -108,32 +108,41 @@ Which phases cover which requirements. Populated during roadmap creation.
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| FID-01 | TBD | Pending |
-| FID-02 | TBD | Pending |
-| FID-03 | TBD | Pending |
-| FID-04 | TBD | Pending |
-| FID-05 | TBD | Pending |
-| CACHE-01 | TBD | Pending |
-| CACHE-02 | TBD | Pending |
-| CACHE-03 | TBD | Pending |
-| DIAG-01 | TBD | Pending |
-| DIAG-02 | TBD | Pending |
-| TEST-01 | TBD | Pending |
-| TEST-02 | TBD | Pending |
-| TEST-03 | TBD | Pending |
-| PERF-01 | TBD | Pending |
-| REL-04 | TBD | Pending |
-| REL-05 | TBD | Pending |
-| REL-06 | TBD | Pending |
-| REL-07 | TBD | Pending |
-| REL-08 | TBD | Pending |
-| REL-09 | TBD | Pending |
+| FID-01 | Phase 6 | Pending |
+| FID-02 | Phase 7 | Pending |
+| FID-03 | Phase 8 | Pending |
+| FID-04 | Phase 8 | Pending |
+| FID-05 | Phase 7 | Pending |
+| CACHE-01 | Phase 8 | Pending |
+| CACHE-02 | Phase 9 | Pending |
+| CACHE-03 | Phase 9 | Pending |
+| DIAG-01 | Phase 6 | Pending |
+| DIAG-02 | Phase 8 | Pending |
+| TEST-01 | Phase 10 | Pending |
+| TEST-02 | Phase 10 | Pending |
+| TEST-03 | Phase 10 | Pending |
+| PERF-01 | Phase 7 | Pending |
+| REL-04 | Phase 11 | Pending |
+| REL-05 | Phase 11 | Pending |
+| REL-06 | Phase 11 | Pending |
+| REL-07 | Phase 11 | Pending |
+| REL-08 | Phase 11 | Pending |
+| REL-09 | Phase 11 | Pending |
 
 **Coverage:**
 - v0.4.0 requirements: 20 total
-- Mapped to phases: 0
-- Unmapped: 20 ⚠️ (roadmap not yet created)
+- Mapped to phases: 20 ✓
+- Unmapped: 0 — every requirement maps to exactly one phase (no orphans, no duplicates)
+
+| Phase | Requirements | Count |
+|-------|--------------|-------|
+| Phase 6 — Graph Authority: Lockfile Reconciliation | FID-01, DIAG-01 | 2 |
+| Phase 7 — Host-Faithful Checkout Seeding | FID-02, FID-05, PERF-01 | 3 |
+| Phase 8 — Drift Read-Back, Fidelity Status & Provenance | FID-03, FID-04, CACHE-01, DIAG-02 | 4 |
+| Phase 9 — Cache Identity & Invalidation | CACHE-02, CACHE-03 | 2 |
+| Phase 10 — Fidelity Regression Coverage | TEST-01, TEST-02, TEST-03 | 3 |
+| Phase 11 — Homebrew Release Automation | REL-04..REL-09 | 6 |
 
 ---
 *Requirements defined: 2026-08-27*
-*Last updated: 2026-08-27 after initial definition*
+*Last updated: 2026-08-27 after roadmap creation (Phases 6–11)*

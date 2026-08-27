@@ -2,11 +2,11 @@
 gsd_state_version: 1.0
 milestone: v0.4.0
 milestone_name: Build Fidelity & Release Automation
-status: planning
-last_updated: "2026-08-27T04:40:40.904Z"
+status: roadmapped
+last_updated: "2026-08-27T05:20:00.000Z"
 last_activity: 2026-08-27
 progress:
-  total_phases: 0
+  total_phases: 6
   completed_phases: 0
   total_plans: 0
   completed_plans: 0
@@ -16,7 +16,7 @@ progress:
 # Project State: spm-cache
 
 **Initialized:** 2026-08-10
-**Current Phase:** — (v0.4.0 starting; defining requirements)
+**Current Phase:** Phase 6 — Graph Authority: Lockfile Reconciliation (not started)
 **Project Mode:** Horizontal Layers
 **Direction:** v0.4.0 Build fidelity (correctness) + release automation
 
@@ -28,29 +28,78 @@ progress:
 
 ### Key artifacts
 
+- Roadmap: `.planning/ROADMAP.md` (v0.4.0 Phases 6–11, created 2026-08-27)
+- Requirements: `.planning/REQUIREMENTS.md` (20 v0.4.0 REQ-IDs, 20/20 mapped)
+- Research: `.planning/research/SUMMARY.md` (root-cause model, HIGH confidence)
 - Codebase map: `.planning/codebase/` (7 docs, 2026-08-10)
 - Design spec: `docs/superpowers/specs/2026-08-10-v0.3.0-watch-init-doctor-design.md` (approved)
 - PDR: `docs/project-overview-pdr.md`
 - Roadmap history: `docs/project-roadmap.md`
 - Competitive analysis: `competitive-analysis-2026-07.html`, `scipio-deepdive-features-2026-07.html`
 
-### v0.4.0 problem statement (verified in code 2026-08-27)
+### v0.4.0 root-cause model (research-verified 2026-08-27 — supersedes the earlier problem statement)
 
-Cached builds can link transitive dependency versions the host app never resolved. `Installer::Build#build_single_target` (lib/spm_cache/installer/build.rb:120) passes each package's own checkout dir to `SPM::BuildPipeline.run` (lib/spm_cache/spm/build_pipeline.rb:33), which shells out to `xcodebuild -scheme` inside it. The umbrella's `swift package resolve` (lib/spm_cache/spm/checkout_resolver.rb) produces one unified resolution and materializes checkouts at those versions — but the per-package `xcodebuild` re-resolves from that *package's* committed `Package.resolved`, ignoring the umbrella/host graph. Field symptom (StressMonitor, ~2026-08-09, needs re-reproduction): `spm-cache build ExyteChat --config=release` fails because Chat pins MediaPicker 3.2.4 while the app locks 3.3.2.
+Cached builds can link transitive dependency versions the host app never resolved. This is **two
+independent drift mechanisms**, not one:
+
+1. **DOMINANT — never-refreshed lockfile.** `installer.rb:165-166` early-returns whenever
+   `spm-cache.lock` exists, so every package's `version`/`revision` is frozen at first run forever.
+   The umbrella is generated from that lockfile (`installer.rb:241`), `Lockfile.swift:118-126`
+   converts a held revision into an exact `revision:` pin, `UmbrellaGenerator.swift:73` emits it,
+   and `swift package resolve` materializes checkouts at that stale commit. Only this chain explains
+   a **downward** pin (older than host). `DiffDetector` detects the change correctly but the diff is
+   never applied.
+2. **Secondary — fresh upward re-resolution in isolated per-package builds.** No resolved-graph
+   parameter exists anywhere in `BuildPipeline.run` → `Buildable#build_command`. Reproduced:
+   swift-argument-parser 1.2.0 → 1.8.2, exit 0, no warning.
+
+The original hypothesis ("the isolated build resolves from the package's own committed
+`Package.resolved`") is **falsified** — `exyte/Chat` commits no such file (HTTP 404 both canonical
+paths), and 0 of 24 surveyed upstream packages commit one.
+
+**Delivery blocker:** `Cache.swift:19-22` `hit(module:)` is a bare name + `fileExists` check against
+the global `~/.spm-cache`. Without invalidation, a perfectly correct fix reaches **zero existing
+users**. Phases 7, 8 and 9 must ship in the same release.
+
+Field symptom (StressMonitor, ~2026-08-09): `spm-cache build ExyteChat --config=release` links
+MediaPicker 3.2.4 while the app resolves 3.3.2.
 
 ### Locked scope decisions (2026-08-27)
 
+- Fidelity violation → warn + source fallback, **never hard-fail** (Core Value; all four comparable tools degrade to source)
+- Missing provenance ⇒ cache miss (one-time full rebuild) — the only option that delivers the fix to existing users
+- `-onlyUsePackageVersionsFromResolvedFile` **not** enabled by default — missing-pin hard failure is structural and broad (test-only deps); opt-in strict mode only
+- `~/.spm-cache` partitioning + content-addressed keys stay v0.5; provenance detection is the v0.4.0 floor
 - RubyGems publication deferred by user decision — Homebrew stays the only distribution channel
-- GitHub Action out of scope this cycle (its `gem install spm-cache` step needs the unpublished gem); broken-window #2 to be waived, not closed
-- `TAP_REPO_TOKEN` refresh is an operator step (GitHub Settings → Secrets) — autonomous will pause there
+- GitHub Action out of scope this cycle (its `gem install spm-cache` step needs the unpublished gem); broken-window #2 waived, not closed
+- Tap token: GitHub App installation token (`actions/create-github-app-token@v3`); classic PAT re-mint rejected — creating/installing the App is an **operator step**, autonomous will pause at Phase 11
 
 ## Phase Status
 
 | Phase | Name | Status | Branch |
 |-------|------|--------|--------|
-| — | (v0.4.0 roadmap not yet created) | — | — |
+| 6 | Graph Authority — Lockfile Reconciliation | Not started | — |
+| 7 | Host-Faithful Checkout Seeding | Not started | — |
+| 8 | Drift Read-Back, Fidelity Status & Provenance | Not started | — |
+| 9 | Cache Identity & Invalidation | Not started | — |
+| 10 | Fidelity Regression Coverage | Not started | — |
+| 11 | Homebrew Release Automation | Not started | — |
+
+Hard chain: 6 → 7 → 8 → 9. Phase 10 depends on 7–9 (fixtures authorable in parallel). Phase 11 is
+fully independent and schedulable anywhere.
+
+Research flags: **Phase 7** and **Phase 9** need `--research-phase` during planning; 6, 8, 10, 11 reuse established patterns.
 
 v0.3.0 phase history archived to `.planning/milestones/v0.3.0-phases/`.
+
+## Open Measurements (block design decisions)
+
+| # | Measurement | Runs in | Blocks |
+|---|-------------|---------|--------|
+| M1 | Reproduce + attribute the stale-transitive release build on the real 59–70 package project | Phase 6 (first work) | Phase 7 design lock |
+| M2 | Report-only pinning run: count `resolution-incompatible` packages | Phase 7 (produced) | Phase 8 policy commitment; rescope trigger if high |
+| M3 | Wall-clock / disk delta from pin-list fan-out (verbatim superset vs minimal closure) | Phase 7 | PERF-01; narrowing decision |
+| M4 | Does xcodebuild write back realized versions on the `run_with_scheme` / vendored-`.xcodeproj` path? | Phase 7 (early probe) | Sole falsifier of the no-flag design |
 
 ## Project Reference
 
@@ -61,8 +110,8 @@ See: .planning/PROJECT.md (updated 2026-08-27)
 
 ## Session Continuity
 
-Last session: 2026-08-24T08:11:57.526Z
-Stopped at: Milestone v0.3.0 complete and archived 2026-08-24
+Last session: 2026-08-27
+Stopped at: v0.4.0 roadmap created (Phases 6–11, 20/20 requirements mapped)
 Resume file: None
 
 ## Performance Metrics
@@ -81,15 +130,19 @@ Resume file: None
 - [Phase 04 — CI GitHub Action]: criterion 3 recorded as accepted external deviation (gem unpublished — RubyGems 404; action repo unpublished) with 6-item ordered release checklist; gemspec homepage placeholder recorded, not edited
 - [Phase 05 — Auto-Sync Watcher]: 05-01: SIGTERM trap + interrupt flush delivered; self-trigger guard shipped as a real defect fix (A1 probe CONFIRMED); polling deviation + fatal/deletion semantics recorded as dated amendments
 - [Release checklist, post-milestone 2026-08-27]: item 4/5 (publish action repo, tag v1) had been done 2026-08-11 — *before* the F1 fix (2026-08-24), so the published `phuongddx/spm-cache-action@v1` still had the buggy `--config=` flag. Resynced `action.yml`+`README.md` from `action/` and force-moved `v1` to the corrected commit (`7114ba6`). Added `.github/workflows/smoke.yml` (item 6) as `workflow_dispatch`-only — no scratch backend configured yet, and it can't pass until the gem is on RubyGems regardless. Gemspec homepage (item 1) already fixed (`cf384d6`). Items 2/3 (`gem build`/`gem push`, verify install) explicitly deferred — no RubyGems credentials on this machine (`gem signin` needed first).
+- [Roadmap, 2026-08-27]: v0.4.0 numbered Phases 6–11 (continues v0.3.0, does not restart). Lockfile reconciliation ordered FIRST because research overrode ARCHITECTURE.md's "out of milestone" classification — it is the dominant root cause and every later phase is unverifiable against a stale graph.
+- [Roadmap, 2026-08-27]: DIAG-01 (static lock-vs-`Package.resolved` doctor check) mapped to Phase 6 rather than the diagnostics phase — it is the user-observable assertion of the invariant Phase 6 establishes, and needs no build.
+- [Roadmap, 2026-08-27]: PERF-01 mapped to Phase 7 — pin fan-out is created there and mitigated there (shared `-clonedSourcePackagesDirPath`, gated on M3). A wall-clock regression is a milestone blocker, not a follow-up.
 
 ## Current Position
 
-Phase: Not started (defining requirements)
+Phase: 6 — Graph Authority: Lockfile Reconciliation (not started)
 Plan: —
-Status: Defining requirements
-Last activity: 2026-08-27 — Milestone v0.4.0 started
+Status: Roadmap created, awaiting phase planning
+Last activity: 2026-08-27 — v0.4.0 roadmap created (6 phases, 20/20 requirements mapped)
 
 ## Operator Next Steps
 
-- **v0.4.0 blocker:** refresh `TAP_REPO_TOKEN` (repo Settings → Secrets) with a PAT that can push to `phuongddx/homebrew-spm-cache` — the current secret returns "Bad credentials", so `update-tap.yml` fails and formula updates are manual
-- Deferred (not in v0.4.0): `gem signin` → `gem build`/`gem push` → verify `gem install spm-cache`; then the Action + its smoke CI become viable
+- **Phase 11 gate:** create a GitHub App owned by `phuongddx` (`Contents: read & write` + `Metadata: read`, installed on `homebrew-spm-cache` only, never `workflow` scope) and store its app id + private key as repo secrets. This replaces the dead `TAP_REPO_TOKEN` (classic PAT, auto-deleted after a year unused). A write-access deploy key is the accepted lower-ceremony substitute.
+- **Phase 6 first work (M1):** reproduce the stale-transitive release build on the real 59–70 package reference project and attribute the cause before Phase 7's design is locked.
+- Deferred (not in v0.4.0): `gem signin` → `gem build`/`gem push` → verify `gem install spm-cache`; then the Action + its smoke CI become viable.
