@@ -458,6 +458,26 @@ RSpec.describe SPMCache::SPM::Buildable do
     end
   end
 
+  # D-03: a shared -clonedSourcePackagesDirPath collapses the N-packages x
+  # whole-host-graph clone fan-out (Pitfall 9). Gated on presence so the
+  # default (nil, no clones_dir passed anywhere) stays byte-identical to
+  # pre-Plan-07-02 output -- see build_pipeline_seeding_spec.rb's own
+  # recorded baseline string, which this must not disturb.
+  describe "#build_command -clonedSourcePackagesDirPath" do
+    it "omits the flag entirely when clones_dir is nil (default, byte-identical to pre-Plan-07-02 output)" do
+      b = described_class.new(name: "Alamofire", pkg_dir: "/tmp")
+      cmd = b.build_command("platform=iOS Simulator,name=iPhone 17", "/dd")
+      expect(cmd).not_to include("-clonedSourcePackagesDirPath")
+    end
+
+    it "appends a single-quoted -clonedSourcePackagesDirPath flag when clones_dir is present" do
+      b = described_class.new(name: "Alamofire", pkg_dir: "/tmp",
+                               clones_dir: "/tmp/spm-cache/packages/clones")
+      cmd = b.build_command("platform=iOS Simulator,name=iPhone 17", "/dd")
+      expect(cmd).to include("-clonedSourcePackagesDirPath '/tmp/spm-cache/packages/clones'")
+    end
+  end
+
   describe "#build_command library evolution flags" do
     it "forces BUILD_LIBRARY_FOR_DISTRIBUTION=YES alongside OTHER_SWIFT_FLAGS when enabled" do
       b = described_class.new(name: "AEXML", pkg_dir: "/tmp", library_evolution: true)

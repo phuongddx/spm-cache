@@ -85,6 +85,16 @@ module SPMCache
         File.join(sandbox_dir, "packages", "proxy", ".build", "artifacts")
       end
 
+      # A dedicated sibling of umbrella_dir/proxy_dir -- never a path under
+      # umbrella_dir or its .build, which #locate_prebuilt_xcframework reads
+      # Class-E binaryTarget artifacts from (BuildPipeline). Shared across
+      # every xcodebuild invocation via -clonedSourcePackagesDirPath so N
+      # per-package builds don't each independently clone the whole host
+      # graph (Pitfall 9).
+      def clones_dir
+        File.join(sandbox_dir, "packages", "clones")
+      end
+
       def local_packages_dir
         File.join(sandbox_dir, "local-packages")
       end

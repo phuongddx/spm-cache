@@ -173,6 +173,69 @@ RSpec.describe SPMCache::SPM::BuildPipeline do
     expect(File.exist?(File.join(out_dir, "Alamofire.xcframework.shims.json"))).to be false
   end
 
+  # D-03: a shared -clonedSourcePackagesDirPath collapses the N-packages x
+  # whole-host-graph clone fan-out (Pitfall 9). Must reach BOTH Buildable.new
+  # call sites -- the primary one here, and run_with_scheme's fallback below
+  # (the path a vendored-.xcodeproj package actually takes, Pitfall 11).
+  describe "clones_dir threading (D-03)" do
+    it "threads clones_dir into the primary Buildable.new call site" do
+      fake_buildable = instance_double(SPMCache::SPM::Buildable)
+      artifacts = {
+        derived_data: "/dd", object_file: "/dd/Alamofire.o",
+        swiftmodule: "/dd/Alamofire.swiftmodule", swiftdoc: nil, swiftsourceinfo: nil, swiftinterface: nil,
+      }
+      allow(fake_buildable).to receive(:build_for_destination).and_return(artifacts)
+      allow(fake_buildable).to receive(:create_framework) do |_arts, subdir|
+        fw = File.join(subdir, "Alamofire.framework")
+        FileUtils.mkdir_p(fw)
+        fw
+      end
+
+      expect(SPMCache::SPM::Buildable).to receive(:new)
+        .with(hash_including(clones_dir: "/tmp/spm-cache/packages/clones"))
+        .and_return(fake_buildable)
+
+      described_class.run(
+        name: "Alamofire",
+        pkg_dir: pkg_dir,
+        destinations: ["iphonesimulator"],
+        out_dir: out_dir,
+        clones_dir: "/tmp/spm-cache/packages/clones",
+      )
+    end
+
+    it "threads clones_dir into the run_with_scheme fallback's own xcodebuild command" do
+      # No .o/.framework produced on the primary path -- forces the scheme
+      # fallback branch (framework_paths.empty? -> resolve_scheme_fallback ->
+      # run_with_scheme) exactly, the path a vendored-.xcodeproj package
+      # actually takes.
+      no_artifact = { object_file: nil, framework: nil }
+      captured_buildables = []
+      allow(SPMCache::SPM::Buildable).to receive(:new).and_wrap_original do |original, **kwargs|
+        b = original.call(**kwargs)
+        captured_buildables << b
+        b
+      end
+      allow_any_instance_of(SPMCache::SPM::Buildable).to receive(:build_for_destination).and_return(no_artifact)
+      allow(SPMCache::Core::Sh).to receive(:capture_output).and_return("Schemes:\nAlamofireAlt")
+
+      expect {
+        described_class.run(
+          name: "Alamofire",
+          pkg_dir: pkg_dir,
+          destinations: ["iphonesimulator"],
+          out_dir: out_dir,
+          clones_dir: "/tmp/spm-cache/packages/clones",
+        )
+      }.to raise_error(/No slices were built successfully/)
+
+      expect(captured_buildables.size).to eq(2)
+      fallback_buildable = captured_buildables.last
+      cmd = fallback_buildable.build_command("generic/platform=iOS Simulator", "/dd")
+      expect(cmd).to include("-clonedSourcePackagesDirPath '/tmp/spm-cache/packages/clones'")
+    end
+  end
+
   it "raises when name is empty" do
     expect {
       described_class.run(name: "", pkg_dir: pkg_dir, destinations: [], out_dir: out_dir)

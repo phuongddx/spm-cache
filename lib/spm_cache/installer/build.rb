@@ -48,7 +48,7 @@ module SPMCache
 
         Core::UI.info "Building #{missed.size} target(s): #{missed.join(', ')}..."
         missed.each do |target_name|
-          build_single_target(target_name, checkouts, destinations, cache_out, resolved_pins_file)
+          build_single_target(target_name, checkouts, destinations, cache_out, resolved_pins_file, @config.clones_dir)
         end
       end
 
@@ -125,7 +125,7 @@ module SPMCache
         requested.flat_map { |t| identity_to_products[t] || [t] }.uniq
       end
 
-      def build_single_target(target_name, checkouts, destinations, cache_out, resolved_pins_file)
+      def build_single_target(target_name, checkouts, destinations, cache_out, resolved_pins_file, clones_dir = nil)
         pkg_dir = checkouts[target_name]
         unless pkg_dir && File.directory?(pkg_dir)
           Core::UI.warn "checkout not found for '#{target_name}'; skipping"
@@ -141,6 +141,7 @@ module SPMCache
             out_dir: cache_out,
             library_evolution: true,
             resolved_pins_file: resolved_pins_file,
+            clones_dir: clones_dir,
           )
           Core::UI.info "  Cached: #{result}"
         rescue => e

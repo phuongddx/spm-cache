@@ -36,7 +36,12 @@ module SPMCache
         #   nil (the default) disables seeding entirely -- byte-identical to
         #   pre-Phase-7 behavior, so `spm-cache pkg build` (which never passes
         #   this) is unaffected.
-        def run(name:, pkg_dir:, destinations:, out_dir:, library_evolution: true, resolved_pins_file: nil)
+        # @param clones_dir [String, nil] shared -clonedSourcePackagesDirPath
+        #   passed to every xcodebuild invocation (PERF-01, D-03). nil (the
+        #   default) omits the flag entirely -- byte-identical to
+        #   pre-Plan-07-02 behavior.
+        def run(name:, pkg_dir:, destinations:, out_dir:, library_evolution: true, resolved_pins_file: nil,
+                clones_dir: nil)
           raise "Target name required" if name.nil? || name.empty?
 
           FileUtils.mkdir_p(out_dir)
@@ -46,7 +51,8 @@ module SPMCache
           success = false
           begin
             result = perform_build(name: name, pkg_dir: pkg_dir, destinations: destinations,
-                                    out_dir: out_dir, library_evolution: library_evolution)
+                                    out_dir: out_dir, library_evolution: library_evolution,
+                                    clones_dir: clones_dir)
             success = true
             result
           ensure
@@ -77,7 +83,7 @@ module SPMCache
         # extracted so `run` can wrap it in a single success-flag + ensure
         # region (seeded checkout restored on any failure/interrupt, left in
         # place on success -- Phase 8's future read-back source).
-        def perform_build(name:, pkg_dir:, destinations:, out_dir:, library_evolution:)
+        def perform_build(name:, pkg_dir:, destinations:, out_dir:, library_evolution:, clones_dir: nil)
           # Class E: a product whose own declared target is a trivial
           # forwarding wrapper (Google's "SwiftPM-PlatformExclude" convention)
           # terminating in a `.binaryTarget` has no source to build at all --
@@ -104,6 +110,7 @@ module SPMCache
             library_evolution: library_evolution,
             scheme: scheme,
             header_paths: header_paths,
+            clones_dir: clones_dir,
           )
 
           tmpdir = Dir.mktmpdir
@@ -145,7 +152,7 @@ module SPMCache
               Core::UI.info "  Retrying with scheme '#{alt}'..."
               return run_with_scheme(name: name, scheme: alt, pkg_dir: pkg_dir,
                                      destinations: destinations, out_dir: out_dir,
-                                     library_evolution: library_evolution)
+                                     library_evolution: library_evolution, clones_dir: clones_dir)
             end
             raise "No slices were built successfully for #{name}"
           end
@@ -164,7 +171,7 @@ module SPMCache
           result
         end
 
-        def run_with_scheme(name:, scheme:, pkg_dir:, destinations:, out_dir:, library_evolution:)
+        def run_with_scheme(name:, scheme:, pkg_dir:, destinations:, out_dir:, library_evolution:, clones_dir: nil)
           header_paths = resolve_public_headers(name, name, pkg_dir)
 
           buildable = Buildable.new(
@@ -174,6 +181,7 @@ module SPMCache
             library_evolution: library_evolution,
             scheme: scheme,
             header_paths: header_paths,
+            clones_dir: clones_dir,
           )
 
           tmpdir = Dir.mktmpdir
