@@ -2,6 +2,8 @@
 
 require 'spec_helper'
 require 'json'
+require 'tmpdir'
+require 'xcodeproj'
 require 'spm_cache/core/diagnostics'
 
 # Two-layer doctor coverage:
@@ -202,6 +204,60 @@ RSpec.describe 'spm-cache doctor with a fully absent toolchain' do
       expect(marker_lines).to include(a_string_starting_with("✗ #{name}:"))
     end
     expect(out.string).to match(/Summary: \d+ ok, \d+ warnings?, 3 failures/)
+  end
+end
+
+RSpec.describe 'spm-cache doctor with a drifted lock' do
+  # DIAG-01's exit contract: drift is a :warn because the remedy is automatic on
+  # the next non-fast-path `use`, so a :fail would redden CI before a first run.
+  it 'reports the drift, renders the fix hint, and never reaches the exit branch' do
+    require 'spm_cache/command/doctor'
+    diagnostics = SPMCache::Core::Diagnostics
+    saved = diagnostics.registry.dup
+    config = SPMCache::Core::Config.instance
+    original_project_dir = config.project_dir
+    tmpdir = Dir.mktmpdir
+    project_path = File.join(tmpdir, 'Drifted.xcodeproj')
+    project = Xcodeproj::Project.new(project_path)
+    project.new_target(:application, 'MyApp', :ios)
+    project.save
+    resolved = File.join(project_path, SPMCache::Core::PackageResolved::CANONICAL_RELATIVE_PATH)
+    FileUtils.mkdir_p(File.dirname(resolved))
+    File.write(resolved, JSON.generate(
+                           'version' => 3,
+                           'pins' => [{ 'identity' => 'hosted', 'kind' => 'remoteSourceControl',
+                                        'location' => 'https://github.com/example/hosted.git',
+                                        'state' => { 'version' => '2.0.0' } }]
+                         ))
+    File.write(File.join(tmpdir, 'spm-cache.lock'), JSON.generate(
+                                                     'Drifted.xcodeproj' => {
+                                                       'packages' => [{
+                                                         'name' => 'stale',
+                                                         'repositoryURL' => 'https://github.com/example/stale.git',
+                                                         'version' => '1.0.0'
+                                                       }],
+                                                       'dependencies' => {}, 'platforms' => {}
+                                                     }
+                                                   ))
+    out = StringIO.new
+    original_stdout = $stdout
+    $stdout = out
+    begin
+      diagnostics.instance_variable_set(:@registry, saved.select { |c| c.name == 'lock_graph_fidelity' })
+      config.project_dir = tmpdir
+      expect_any_instance_of(SPMCache::Command::Doctor).not_to receive(:exit)
+      SPMCache::Command.parse(['doctor']).run
+    ensure
+      $stdout = original_stdout
+      diagnostics.instance_variable_set(:@registry, saved)
+      config.project_dir = original_project_dir
+      FileUtils.rm_rf(tmpdir)
+    end
+    expect(out.string).to match(/^! lock_graph_fidelity: /)
+    expect(out.string).to include('stale')
+    expect(out.string).to include('hosted')
+    expect(out.string).to include('↳ Run `spm-cache use` to reconcile')
+    expect(out.string).to match(/Summary: 0 ok, 1 warning, 0 failures/)
   end
 end
 
