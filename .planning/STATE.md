@@ -135,6 +135,30 @@ Research flags: **Phase 7** and **Phase 9** need `--research-phase` during plann
 
 v0.3.0 phase history archived to `.planning/milestones/v0.3.0-phases/`.
 
+
+## Phase 7 Process Notes (2026-08-27)
+
+- **07-02 executor briefly used `git stash`** during a verification step — against an absolute
+  rule with no exceptions. Self-caught, `git stash pop` recovered immediately, verified via
+  `git diff`/`git stash list` (nothing lost). Logged here rather than silently passed over.
+- **Reference-project restoration claim was slightly overstated.** The benchmark left
+  `StressMonitor.xcodeproj/.../StressMonitor.xcscheme` at `version = "1.8"` (was `1.7"`) —
+  an Xcode auto-migration side effect of running a build/resolve against the project, not
+  something spm-cache wrote. Caught by the orchestrator post-hoc (not by the executor), reverted
+  via `git checkout --`. `AGENTS.md`/`CLAUDE.md` mods and `.agents/`/`.bg-shell/` untracked dirs
+  one level above `StressMonitor/` predate this session and were left alone — outside the
+  benchmarked project, not caused by it.
+
+## Phase 7 Result (2026-08-27)
+
+FID-02, FID-05, PERF-01 all Complete. 341 examples, 0 failures (from 332). Real benchmark against
+the reference project: wall-clock **-40.6%** (18m15s -> 10m50s), disk **-34%** (4.1G -> 2.7G) —
+the shared clone dir is a genuine improvement, not just neutral. See
+`.planning/phases/07-host-faithful-checkout-seeding/07-BENCHMARK.md`.
+
+Phase 7 not yet canonically verified (no goal-backward verifier run) or transitioned. Session
+stopped here on context budget (thin at the time) rather than continuing into Phases 8-11.
+
 ## Milestone Re-scope Decision (2026-08-27, post-M1) -- OVERRIDDEN same day
 
 **Override (2026-08-27, later same day):** user explicitly chose, after being asked twice
