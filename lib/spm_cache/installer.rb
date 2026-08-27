@@ -154,22 +154,34 @@ module SPMCache
       return unless @diff && !@diff.empty?
 
       resolved = Core::PackageResolved.locate(@project_path)
-      return unless resolved
-      # nil here means absent or unreadable, which is NOT "the host has no
-      # packages" -- leave the lock exactly as it is.
-      return if Core::PackageResolved.pins_or_nil(resolved).nil?
+      unless resolved
+        Core::UI.warn "No Package.resolved found for #{File.basename(@project_path)}; " \
+                      "leaving #{Core::Config::LOCKFILE_FILENAME} untouched."
+        return
+      end
 
-      proj_data = @lockfile.projects[File.basename(@project_path)]
+      # nil here means absent or unreadable, which is NOT "the host has no
+      # packages" -- combined with the drop rule below, reading it that way
+      # would erase the whole lock.
+      host_pins = Core::PackageResolved.pins_or_nil(resolved)
+      if host_pins.nil?
+        Core::UI.warn "Package.resolved at #{resolved} is unreadable; " \
+                      "leaving #{Core::Config::LOCKFILE_FILENAME} untouched."
+        return
+      end
+
+      proj_data = lock_project_data
       return unless proj_data
 
       require "spm_cache/core/diff_detector"
       live = Core::DiffDetector.new(project_path: @project_path,
                                     lockfile_path: @config.lockfile_path).live_packages
       locked = proj_data["packages"] || []
+      drop_missing = drop_pass_allowed?(host_pins, locked, resolved)
 
       surviving = locked.select do |pkg|
         live_pkg = live[lock_identity_key(pkg)]
-        next false unless live_pkg
+        next !drop_missing unless live_pkg
 
         pkg["version"] = live_pkg["version"]
         # A transitive-only package can legitimately hold no revision; nilling
@@ -181,6 +193,37 @@ module SPMCache
       proj_data["packages"] = surviving + additions_for(live, locked)
 
       @lockfile.save
+    end
+
+    # A hand-written or workspace-era lock can key the project without its
+    # `.xcodeproj` extension. `refresh_consumed_dependencies` matches the
+    # basename strictly and early-returns on that shape, which is exactly why
+    # reconciliation owns its own save rather than riding that one.
+    def lock_project_data
+      projects = @lockfile.projects
+      key = File.basename(@project_path)
+      return projects[key] if projects.key?(key)
+
+      stem = File.basename(key, ".xcodeproj")
+      match = projects.keys.find { |candidate| File.basename(candidate.to_s, ".xcodeproj") == stem }
+      match && projects[match]
+    end
+
+    # A pre-v2 Package.resolved nests its pins under `object.pins`, so it parses
+    # cleanly with a Hash root and yields zero pins -- indistinguishable from a
+    # host that genuinely resolves nothing from source control. Dropping every
+    # remote entry on that signal is the lock erasure this reconciler exists to
+    # avoid, so retain instead and say so. A real removal of every remote
+    # dependency is retained too; the next run with a non-empty pin list drops
+    # the stale entries normally.
+    def drop_pass_allowed?(host_pins, locked, resolved)
+      return true unless host_pins.empty?
+      return true unless locked.any? { |pkg| pkg["repositoryURL"] }
+
+      Core::UI.warn "Package.resolved at #{resolved} parsed with zero pins while " \
+                    "#{Core::Config::LOCKFILE_FILENAME} still holds remote packages; keeping them and " \
+                    "skipping the removal pass. Re-resolve the project's packages in Xcode."
+      false
     end
 
     def lock_identity_key(pkg)
