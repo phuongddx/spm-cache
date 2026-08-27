@@ -18,6 +18,25 @@ The two dominant risks are both about the fix being invisible or actively worse.
 
 ### ⚠ SUPERSEDED BY FIELD MEASUREMENT (M1, 2026-08-27)
 
+> **⚠ CORRECTION 2026-08-27 (post-verification).** The falsifier below claiming *"no committed revision
+> of the canonical file ever held AnchoredPopup 1.1.3"* is **FALSE**. Four commits hold it —
+> `893fb8b`, `3bf9e91`, `64e960d`, `9075971` — and the nested "wrong file" is **byte-identical** to
+> canonical@`9075971`. The original check produced a false negative: the path was passed without a
+> leading `./`, so `git show` resolved it against the repo root and failed on every revision, and a
+> swallowed exception rendered the failures as "not found".
+>
+> **Consequence:** the wrongly-picked file IS an old canonical snapshot, so *which file the lock matches*
+> cannot distinguish H-lock from H-wrongfile. **The `H-wrongfile 25 · H-lock 0` scoring is unsupported;
+> both mechanisms remain consistent with the evidence.**
+>
+> **What still holds:** `H-float = 0` is sound and independent — every package is emitted as an exact
+> `revision:` pin, leaving no range to float within. The Phase 7 rescope rests on H-float, not on the
+> H-lock/H-wrongfile split, so that decision stands. Phase 6 fixed BOTH candidate mechanisms (FID-06
+> canonical locator + FID-01 reconciliation), so there is no code consequence — only this record.
+> Evidence: `.planning/phases/06-graph-authority-lockfile-reconciliation/06-VERIFICATION.md`.
+
+
+
 **The ranking below is FALSIFIED.** Phase 6's M1 measurement scored **H-wrongfile 25 · H-lock 0 · H-float 0**.
 Surface #1 ("never-refreshed lockfile") was ranked DOMINANT here and is now excluded by provenance: the
 reference project's lock holds AnchoredPopup `1.1.3/2fb9d1ac101b`, a value that appears in **none** of the
