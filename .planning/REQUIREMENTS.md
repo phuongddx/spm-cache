@@ -12,7 +12,7 @@
 - [ ] **FID-03**: Realized dependency versions are read back after resolution and compared against the intended pins; any drift is reported
 - [ ] **FID-04**: A package whose declared requirements genuinely cannot satisfy the host graph falls back to source compilation with a distinct `resolution-incompatible` status — never a hard failure, and never masked by `ignore_build_errors`
 - [ ] **FID-05**: Packages that cannot be graph-pinned (vendored `.xcodeproj` packages, which ignore `Package.resolved` entirely) are reported as an explicit *not-graph-pinned* category rather than counted as successfully pinned
-- [ ] **FID-06**: The host `Package.resolved` locator resolves the *canonical* `project.xcworkspace/xcshareddata/swiftpm/Package.resolved` rather than whichever path `Dir.glob` yields first, so a stale nested copy cannot shadow the real host graph — added 2026-08-27 after Phase 6 research proved the current locator reads a stale nested file on the reference project, making FID-01 a no-op there
+- [x] **FID-06**: The host `Package.resolved` locator resolves the *canonical* `project.xcworkspace/xcshareddata/swiftpm/Package.resolved` rather than whichever path `Dir.glob` yields first, so a stale nested copy cannot shadow the real host graph — added 2026-08-27 after Phase 6 research proved the current locator reads a stale nested file on the reference project, making FID-01 a no-op there
 
 ### Cache Identity
 
@@ -116,7 +116,7 @@ Which phases cover which requirements. Populated during roadmap creation.
 | FID-03 | Phase 8 | Pending |
 | FID-04 | Phase 8 | Pending |
 | FID-05 | Phase 7 | Pending |
-| FID-06 | Phase 6 | Pending |
+| FID-06 | Phase 6 | Complete |
 | CACHE-01 | Phase 8 | Pending |
 | CACHE-02 | Phase 9 | Pending |
 | CACHE-03 | Phase 9 | Pending |
@@ -134,6 +134,7 @@ Which phases cover which requirements. Populated during roadmap creation.
 | REL-09 | Phase 11 | Pending |
 
 **Coverage:**
+
 - v0.4.0 requirements: 21 total
 - Mapped to phases: 21 ✓
 - Unmapped: 0 — every requirement maps to exactly one phase (no orphans, no duplicates)

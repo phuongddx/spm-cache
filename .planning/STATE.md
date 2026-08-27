@@ -2,26 +2,26 @@
 gsd_state_version: 1.0
 milestone: v0.4.0
 milestone_name: Build Fidelity & Release Automation
-current_phase: "Phase 6 — Graph Authority: Lockfile Reconciliation (not started)"
+current_phase: "Phase 6 — Graph Authority: Lockfile Reconciliation (in progress — 2/4 plans)"
 current_phase_name: "Graph Authority: Lockfile Reconciliation"
-status: roadmapped
-stopped_at: Completed 06-01-PLAN.md (M1 measurement)
-last_updated: "2026-08-27T06:38:48.780Z"
+status: in-progress
+stopped_at: Completed 06-02-PLAN.md (FID-06 locator + reconciliation)
+last_updated: "2026-08-27T07:54:58.091Z"
 last_activity: 2026-08-27
-last_activity_desc: v0.4.0 roadmap created (6 phases, 20/20 requirements mapped)
-state_head: 0cfcd4bd379bf40c6ca27886fb71e74915919924
+last_activity_desc: "06-02 shipped FID-06 canonical Package.resolved locator + lockfile reconciliation (275 examples, 0 failures)"
+state_head: 3e3e02f6b3c42e549c7431a066683cd6cfc1c34b
 progress:
   total_phases: 6
   completed_phases: 0
   total_plans: 4
-  completed_plans: 1
+  completed_plans: 2
   percent: 0
 ---
 
 # Project State: spm-cache
 
 **Initialized:** 2026-08-10
-**Current Phase:** Phase 6 — Graph Authority: Lockfile Reconciliation (not started)
+**Current Phase:** Phase 6 — Graph Authority: Lockfile Reconciliation (in progress — 2/4 plans)
 **Project Mode:** Horizontal Layers
 **Direction:** v0.4.0 Build fidelity (correctness) + release automation
 
@@ -104,7 +104,7 @@ MediaPicker 3.2.4 while the app resolves 3.3.2.
 
 | Phase | Name | Status | Branch |
 |-------|------|--------|--------|
-| 6 | Graph Authority — Lockfile Reconciliation | Not started | — |
+| 6 | Graph Authority — Lockfile Reconciliation | In progress (2/4 plans) | gsd/v0.4.0-build-fidelity-release-automation |
 | 7 | Host-Faithful Checkout Seeding | Not started | — |
 | 8 | Drift Read-Back, Fidelity Status & Provenance | Not started | — |
 | 9 | Cache Identity & Invalidation | Not started | — |
@@ -147,8 +147,8 @@ See: .planning/PROJECT.md (updated 2026-08-27)
 
 ## Session Continuity
 
-Last session: 2026-08-27T06:38:48.758Z
-Stopped at: Completed 06-01-PLAN.md (M1 measurement)
+Last session: 2026-08-27T07:54:57.781Z
+Stopped at: Completed 06-02-PLAN.md (FID-06 locator + reconciliation)
 Resume file: None
 
 ## Performance Metrics
@@ -159,6 +159,7 @@ Resume file: None
 | Phase 04 P01 | 660s | 2 tasks | 7 files |
 | Phase 05 P01 | ~35 min | 3 tasks | 14 files |
 | Phase 06 P01 | 35m | 2 tasks | 2 files |
+| Phase 06 P02 | ~25m | 3 tasks | 8 files |
 
 ## Decisions
 
@@ -172,13 +173,15 @@ Resume file: None
 - [Roadmap, 2026-08-27]: DIAG-01 (static lock-vs-`Package.resolved` doctor check) mapped to Phase 6 rather than the diagnostics phase — it is the user-observable assertion of the invariant Phase 6 establishes, and needs no build.
 - [Roadmap, 2026-08-27]: PERF-01 mapped to Phase 7 — pin fan-out is created there and mitigated there (shared `-clonedSourcePackagesDirPath`, gated on M3). A wall-clock regression is a milestone blocker, not a follow-up.
 - [Phase 06 — M1, 2026-08-27]: M1 attributes the field failure to **H-wrongfile** — counts H-wrongfile 25, H-lock 0, H-float 0, both 0 — because the locator picks a nested git-ignored 2026-07-12 `Package.resolved` (8 pins, matching the lock 8/8) over the canonical 2026-08-13 file (17 pins, matching the lock 0/17), so 4 packages linked strictly older than their host pin (AnchoredPopup 1.1.3<1.2.1, Kingfisher 8.8.1<8.11.0, libwebp-Xcode 1.5.0<1.6.0, MediaPicker 3.3.2<3.4.2) while the other 17 were never declared; H-float is excluded because all 8 were emitted as exact `revision:` pins with `U == L` byte-for-byte, so Phase 7 still proceeds (D-14) but is demoted to hardening while candidate disambiguation is promoted into Phase 6/FID-01 as blocking — reconciling against the currently-picked file would write the phantom graph back onto itself and turn success criterion 1 into a false green. Evidence: `.planning/phases/06-graph-authority-lockfile-reconciliation/06-M1-MEASUREMENT.md` (live release build withheld: assumption A3 failed — `fb8e773` removed the exyte state from the feature-branch tip — and building the only probative commit would have overwritten the pre-fix artifacts).
+- [Phase 06 — 02, 2026-08-27]: FID-06 shipped — Core::PackageResolved resolves the canonical project.xcworkspace/xcshareddata/swiftpm/Package.resolved by exact path (tier 1) ahead of a workspace glob (tier 2), a filtered recursive search (tier 3) and a filtered parent search (tier 4, DiffDetector only), so Dir.glob byte order can no longer select the stale nested copy M1 attributed the field failure to. Recorded as an INTENTIONAL observable behavior change at four of five call sites (research Open Question 1), bounded by keeping the legacy unfiltered recursive search as tier 3 so nothing that previously found a file stops finding one. Exclusion scoping is asymmetric on purpose: the .xcodeproj-component rejection is tier 3 ONLY (at tier 4 it would void diff_detector.rb's legitimate parent fallback onto a sibling project's canonical file), while tier 4 instead rejects candidates under project_path (otherwise the project's own nested copy re-enters through the parent root); SANDBOX_DIR is rejected in both recursive tiers so spm-cache's own generated umbrella/proxy resolved files can never stand in for the host graph.
+- [Phase 06 — 02, 2026-08-27]: FID-01 left Pending, not marked Complete. Version/revision reconciliation runs on every non-fast-path run (Installer#reconcile_lockfile_from_host_graph, self-gated on a non-empty diff per D-03, keyed on DiffDetector#live_packages' resolved-union-pbxproj set, saving independently of refresh_consumed_dependencies) and provably preserves enriched products[]; but the D-01 drop rule, the D-02 add rule and the D-04 warn-once on an unreadable host graph are Plan 03's scope. Marking FID-01 Complete now would assert the lock describes the current graph while the 8 phantom reference-project packages would still persist in it.
 
 ## Current Position
 
-Phase: 6 — Graph Authority: Lockfile Reconciliation (not started)
-Plan: —
-Status: Roadmap created, awaiting phase planning
-Last activity: 2026-08-27 — v0.4.0 roadmap created (6 phases, 20/20 requirements mapped)
+Phase: 6 — Graph Authority: Lockfile Reconciliation (in progress)
+Plan: 03 (next) — 2 of 4 plans complete (06-01 M1 measurement, 06-02 FID-06 locator + reconciliation)
+Status: FID-06 complete; FID-01 partially delivered (version/revision reconcile + products preservation), membership rules pending in 06-03
+Last activity: 2026-08-27 — 06-02 shipped Core::PackageResolved, collapsed all five glob sites, 275 examples 0 failures
 
 ## Operator Next Steps
 
