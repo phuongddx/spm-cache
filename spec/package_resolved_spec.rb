@@ -168,4 +168,32 @@ RSpec.describe SPMCache::Core::PackageResolved do
       expect(described_class.pins_or_nil(mixed)).to eq([valid_pin])
     end
   end
+
+  # Each collapsed caller responds to a missing file differently -- silent skip,
+  # omit-from-watchlist, seed-an-empty-lock, warn-and-decline. The locator
+  # centralizes finding the file, never deciding what to do without one, so nil
+  # must come back for every root shape the codebase actually passes.
+  describe 'nil tolerance across caller shapes' do
+    it 'returns nil for a project root with no resolved file, for every caller shape' do
+      FileUtils.mkdir_p(project_path)
+
+      absolute = described_class.locate(project_path)
+      relative = Dir.chdir(tmpdir) { described_class.locate('Fake.xcodeproj') }
+      nonexistent = described_class.locate(File.join(tmpdir, 'Missing.xcodeproj'))
+
+      expect([absolute, relative, nonexistent]).to eq([nil, nil, nil])
+    end
+
+    it 'a tolerant caller sees nil for a truncated file while a strict caller sees the raise' do
+      truncated = File.join(project_path, described_class::CANONICAL_RELATIVE_PATH)
+      FileUtils.mkdir_p(File.dirname(truncated))
+      File.write(truncated, '{"pins": [')
+
+      located = described_class.locate(project_path)
+
+      expect(located).to eq(truncated)
+      expect(described_class.pins_or_nil(located)).to be_nil
+      expect { described_class.pins(located) }.to raise_error(JSON::ParserError)
+    end
+  end
 end
