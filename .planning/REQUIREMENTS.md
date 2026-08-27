@@ -33,7 +33,7 @@
 
 ### Performance
 
-- [ ] **PERF-01**: Cached-build wall-clock and disk usage show no regression versus v0.3.0 on the reference project — pin fan-out is a known risk and a regression is a milestone blocker, not a follow-up
+- [x] **PERF-01**: Cached-build wall-clock and disk usage show no regression versus v0.3.0 on the reference project — pin fan-out is a known risk and a regression is a milestone blocker, not a follow-up
 
 ### Release Automation
 
@@ -125,7 +125,7 @@ Which phases cover which requirements. Populated during roadmap creation.
 | TEST-01 | Phase 10 | Pending |
 | TEST-02 | Phase 10 | Pending |
 | TEST-03 | Phase 10 | Pending |
-| PERF-01 | Phase 7 | Pending |
+| PERF-01 | Phase 7 | Complete |
 | REL-04 | Phase 11 | Pending |
 | REL-05 | Phase 11 | Pending |
 | REL-06 | Phase 11 | Pending |
