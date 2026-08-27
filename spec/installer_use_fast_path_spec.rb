@@ -4,6 +4,7 @@ require 'spec_helper'
 require 'tmpdir'
 require 'json'
 require 'xcodeproj'
+require 'spm_cache/core/diff_detector'
 require 'spm_cache/installer/use'
 
 # Auto-sync fast path: Installer::Use must skip the costly regenerate/resolve
@@ -53,7 +54,7 @@ RSpec.describe SPMCache::Installer::Use, '#perform_install fast path' do
                                     'identity' => p[:identity],
                                     'kind' => 'remoteSourceControl',
                                     'location' => p[:url],
-                                    'state' => { 'revision' => 'rev', 'version' => p[:version] }
+                                    'state' => { 'revision' => p[:revision] || 'rev', 'version' => p[:version] }
                                   }
                                 end
                               ))
@@ -130,5 +131,57 @@ RSpec.describe SPMCache::Installer::Use, '#perform_install fast path' do
 
     expect(installer.diff).not_to be_empty
     expect(installer.diff.added).to include('Alamofire')
+  end
+
+  # ROADMAP success criterion 1, proven the way it is written: after a real
+  # non-fast-path run, a freshly constructed DiffDetector reports nothing to do.
+  # `sync_lockfile` is deliberately NOT stubbed -- reconciliation lives inside it.
+  it 'leaves DiffDetector reporting an empty diff' do
+    drifted_url = 'https://github.com/example/Drifted.git'
+    removed_url = 'https://github.com/example/Removed.git'
+    enriched_url = 'https://github.com/example/Enriched.git'
+    newcomer_url = 'https://github.com/example/Newcomer.git'
+    enriched_products = [{ 'name' => 'Enriched', 'type' => 'library', 'targets' => ['Enriched'] }]
+
+    build_project
+    write_lockfile([
+                     { 'repositoryURL' => drifted_url, 'name' => 'Drifted', 'version' => '1.0.0',
+                       'revision' => 'rev-old' },
+                     { 'repositoryURL' => removed_url, 'name' => 'Removed', 'version' => '9.0.0',
+                       'revision' => 'rev-removed' },
+                     { 'repositoryURL' => enriched_url, 'name' => 'Enriched', 'version' => '2.0.0',
+                       'revision' => 'rev-enriched', 'products' => enriched_products }
+                   ])
+    write_package_resolved([
+                             { identity: 'Drifted', url: drifted_url, version: '3.0.0', revision: 'rev-new' },
+                             { identity: 'Enriched', url: enriched_url, version: '2.0.0',
+                               revision: 'rev-enriched' },
+                             { identity: 'Newcomer', url: newcomer_url, version: '0.5.0',
+                               revision: 'rev-newcomer' }
+                           ])
+    materialize_proxy
+
+    installer = described_class.new(project: project_path)
+    allow(installer).to receive(:recreate_dirs)
+    allow(installer).to receive(:ensure_config_file)
+    allow(installer).to receive(:prepare_proxy)
+    allow(installer).to receive(:gen_supporting_files)
+    allow(installer).to receive(:integrate_proxy_into_project)
+    allow(installer).to receive(:gen_cachemap_viz)
+
+    installer.perform_install
+
+    expect(installer.diff).not_to be_empty
+
+    fresh = SPMCache::Core::DiffDetector.new(project_path: project_path,
+                                             lockfile_path: lockfile_path).detect
+    expect(fresh).to be_empty
+
+    packages = JSON.parse(File.read(lockfile_path))['Fake.xcodeproj']['packages']
+    expect(packages.map { |pkg| pkg['name'] }).to contain_exactly('Drifted', 'Enriched', 'Newcomer')
+    drifted = packages.find { |pkg| pkg['name'] == 'Drifted' }
+    expect(drifted['version']).to eq('3.0.0')
+    expect(drifted['revision']).to eq('rev-new')
+    expect(packages.find { |pkg| pkg['name'] == 'Enriched' }['products']).to eq(enriched_products)
   end
 end
