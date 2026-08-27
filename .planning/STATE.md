@@ -2,14 +2,14 @@
 gsd_state_version: 1.0
 milestone: v0.4.0
 milestone_name: Build Fidelity & Release Automation
-current_phase: "Phase 6 — Graph Authority: Lockfile Reconciliation (4/4 plans executed — pending verification)"
-current_phase_name: "Graph Authority: Lockfile Reconciliation"
+current_phase: "Phase 7 — Host-Faithful Checkout Seeding (1/2 plans executed)"
+current_phase_name: "Host-Faithful Checkout Seeding"
 status: in-progress
-stopped_at: Completed 06-05-PLAN.md
-last_updated: "2026-08-27T09:15:11.467Z"
+stopped_at: Completed 07-01-PLAN.md
+last_updated: "2026-08-27T23:59:00.000Z"
 last_activity: 2026-08-27
-last_activity_desc: 06-04 shipped DIAG-01 lock_graph_fidelity doctor check + UmbrellaGenerator false-premise correction (303 examples, 0 failures) — phase 6 fully executed
-state_head: fb1fcb8dd251a13d6da5cee0b521957012aaec1b
+last_activity_desc: 07-01 shipped SPM::ResolvedGraph + BuildPipeline seed-before-describe wiring + vendored-.xcodeproj not-graph-pinned classification (FID-02, FID-05 complete; 332 examples, 0 failures)
+state_head: c1b2d83
 progress:
   total_phases: 6
   completed_phases: 0
@@ -122,7 +122,7 @@ MediaPicker 3.2.4 while the app resolves 3.3.2.
 | Phase | Name | Status | Branch |
 |-------|------|--------|--------|
 | 6 | Graph Authority — Lockfile Reconciliation | 4/4 plans executed (pending verification) | gsd/v0.4.0-build-fidelity-release-automation |
-| 7 | Host-Faithful Checkout Seeding | Not started | — |
+| 7 | Host-Faithful Checkout Seeding | 1/2 plans executed | gsd/v0.4.0-build-fidelity-release-automation |
 | 8 | Drift Read-Back, Fidelity Status & Provenance | Not started | — |
 | 9 | Cache Identity & Invalidation | Not started | — |
 | 10 | Fidelity Regression Coverage | Not started | — |
@@ -175,8 +175,8 @@ See: .planning/PROJECT.md (updated 2026-08-27)
 
 ## Session Continuity
 
-Last session: 2026-08-27T09:15:11.451Z
-Stopped at: Completed 06-05-PLAN.md
+Last session: 2026-08-27T23:59:00.000Z
+Stopped at: Completed 07-01-PLAN.md
 Resume file: None
 
 ## Performance Metrics
@@ -191,6 +191,7 @@ Resume file: None
 | Phase 6 P03 | ~25m | 3 tasks | 3 files |
 | Phase 06 P04 | ~6m | 3 tasks | 4 files |
 | Phase 06 P05 | ~12m | 2 tasks | 3 files |
+| Phase 07 P01 | ~55m | 3 tasks | 6 files |
 
 ## Decisions
 
@@ -213,8 +214,16 @@ Resume file: None
 - [Phase Phase 6 — Graph Authority: Lockfile Reconciliation (4/4 plans executed — pending verification)]: Phase 6 gap closure: chose structural agreement (one memoized host-graph resolution per run, shared by DiffDetector and both installer consumers) over aligning three independent resolvers' postures — divergence now costs a test failure, not a code review
 - [Phase Phase 6 — Graph Authority: Lockfile Reconciliation (4/4 plans executed — pending verification)]: The installer's reach over the locator's parent-directory tier was widened deliberately, bounded by sandboxed? (excludes spm-cache's own generated resolved files) and exclude_under: project_path (keeps the FID-06 nested stale copy closed)
 - [Phase Phase 6 — Graph Authority: Lockfile Reconciliation (4/4 plans executed — pending verification)]: WINDOWS #5 (unguarded host-graph parse in DiffDetector) left open: routing it through the tolerant accessor would flip every detect caller to silently-degrade. Recorded as a decision-fidelity gap against D-04 'never crash', not just robustness — warrants a dedicated follow-up plan
+- [Phase 07 — Host-Faithful Checkout Seeding (1/2 plans)]: 07-01 shipped SPM::ResolvedGraph and wired it into BuildPipeline.run/Installer::Build — FID-02 (seed host graph before first `swift package describe`) and FID-05 (vendored-.xcodeproj packages reported not-graph-pinned, never silently folded into pinned) marked Complete; the run's single pin source is resolved once via the already-memoized `host_graph_detector` (no second locator, per Phase 6 Plan 05's invariant); `run`'s body was extracted into a private `perform_build` so the seed/restore lives in one success-flag + ensure region around it, restoring on StandardError AND Interrupt, never on success; `-onlyUsePackageVersionsFromResolvedFile` deliberately NOT added (D-02). PERF-01 (shared clone dir, watch/build lock, benchmark gate) deferred to 07-02 per ROADMAP's own mapping.
 
 ## Current Position
+
+Phase: 7 — Host-Faithful Checkout Seeding (in progress)
+Plan: 07-02 (next) — 1 of 2 plans complete (07-01 SPM::ResolvedGraph + seed-before-describe wiring + vendored classification)
+Status: FID-02 and FID-05 complete in source, hermetically tested, and confirmed byte-identical when seeding is disabled (D-07). PERF-01 (shared clone dir, watch/build lock, benchmark gate) is 07-02's scope, not yet started.
+Last activity: 2026-08-27 — 07-01 shipped SPM::ResolvedGraph (source_for/seed!/restore!/vendored_xcodeproj?), BuildPipeline.run's resolved_pins_file: kwarg with atomic seed-before-describe + restore-on-failure/interrupt, Installer::Build threading one host-graph answer per run; 332 examples, 0 failures; `make proxy.build` clean
+
+### Historical position (Phase 6, prior to this update)
 
 Phase: 6 — Graph Authority: Lockfile Reconciliation (in progress)
 Plan: 4 (next) — 2 of 4 plans complete (06-01 M1 measurement, 06-02 FID-06 locator + reconciliation)

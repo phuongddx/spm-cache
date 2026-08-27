@@ -104,7 +104,7 @@ repair the Homebrew release path so shipping stops requiring manual steps.
 **Research**: Done 2026-08-27 (compressed into `07-CONTEXT.md` from milestone-level `research/ARCHITECTURE.md` §1-3,9 and `research/PITFALLS.md` Pitfall 6/9/11/15, both empirically verified on Xcode 26.3 — see 07-CONTEXT.md header for why no fresh phase-level research was spawned).
 **Plans**: 2 plans across 2 waves
 
-- [ ] 07-01-PLAN.md — SPM::ResolvedGraph (source_for/seed!/restore!) + BuildPipeline seed-before-describe wiring + vendored-.xcodeproj classification (FID-02, FID-05)
+- [x] 07-01-PLAN.md — SPM::ResolvedGraph (source_for/seed!/restore!) + BuildPipeline seed-before-describe wiring + vendored-.xcodeproj classification (FID-02, FID-05)
 - [ ] 07-02-PLAN.md — shared -clonedSourcePackagesDirPath + process-level watch/build lock + PERF-01 benchmark gate
 
 ### Phase 8: Drift Read-Back, Fidelity Status & Provenance
