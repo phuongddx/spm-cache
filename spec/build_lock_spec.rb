@@ -155,19 +155,34 @@ RSpec.describe SPMCache::Installer::Use, "build lock" do
     expect(recreate_called_at - start).to be >= 0.3
   end
 
-  it "does not acquire the lock at all on the fast path (nothing to protect against)" do
+  it "blocks its fast-path trailing calls until a concurrently-held lock is released" do
     allow_any_instance_of(SPMCache::Installer::Use).to receive(:fast_path?).and_return(true)
     allow_any_instance_of(SPMCache::Installer).to receive(:recreate_dirs) { raise "must not be called" }
 
+    gen_supporting_files_called_at = nil
+    allow_any_instance_of(SPMCache::Installer).to receive(:gen_supporting_files) { gen_supporting_files_called_at = Time.now }
+
     FileUtils.mkdir_p(File.dirname(lock_path))
-    external_lock = File.open(lock_path, File::CREAT | File::RDWR)
-    external_lock.flock(File::LOCK_EX)
+    reader, writer = IO.pipe
+    pid = fork do
+      reader.close
+      f = File.open(lock_path, File::CREAT | File::RDWR)
+      f.flock(File::LOCK_EX)
+      writer.write("locked")
+      writer.close
+      sleep 0.4
+      f.flock(File::LOCK_UN)
+      f.close
+    end
+    writer.close
+    reader.read
+    reader.close
+    start = Time.now
 
-    expect {
-      described_class.new(project: project_path).perform_install
-    }.not_to raise_error
+    described_class.new(project: project_path).perform_install
 
-    external_lock.flock(File::LOCK_UN)
-    external_lock.close
+    Process.wait(pid)
+    expect(gen_supporting_files_called_at).not_to be_nil
+    expect(gen_supporting_files_called_at - start).to be >= 0.3
   end
 end

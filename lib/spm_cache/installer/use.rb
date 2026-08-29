@@ -20,9 +20,11 @@ module SPMCache
 
           if fast_path?
             Core::UI.info 'No changes detected. Proxy package up to date.'
-            gen_supporting_files
-            integrate_proxy_into_project
-            gen_cachemap_viz
+            with_build_lock do
+              gen_supporting_files
+              integrate_proxy_into_project
+              gen_cachemap_viz
+            end
           else
             with_build_lock do
               recreate_dirs
@@ -41,9 +43,12 @@ module SPMCache
       private
 
       # D-06: blocks on the SAME exclusive flock Installer::Build holds
-      # across its whole build (Config#build_lock_path), acquired immediately
-      # before recreate_dirs so a watch-triggered regenerate defers to an
-      # in-flight build instead of rm_rf-ing its checkouts out from under it
+      # across its whole build (Config#build_lock_path). Wraps BOTH branches'
+      # trailing gen_supporting_files/integrate_proxy_into_project/
+      # gen_cachemap_viz -- including the fast path, which touches
+      # @config.sandbox_dir (via gen_cachemap_viz) even though it never calls
+      # recreate_dirs itself -- so a watch-triggered regenerate on either path
+      # defers to an in-flight build instead of racing its rm_rf/writes
       # (Pitfall 15). A BLOCKING flock, not a trylock-and-retry -- the OS's
       # own blocking semantics are the whole mechanism, no polling needed.
       def with_build_lock
