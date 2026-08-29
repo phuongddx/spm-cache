@@ -149,8 +149,15 @@ Swift-side-only); the `.shims.json` sidecar-pattern reuse was confirmed correct.
   4. `cache clean` leaves no orphaned provenance sidecars behind.
   5. A rebuild triggered by a graph change does not reuse DerivedData modules or resource bundles produced against the previous graph.
 
-**Research**: **Needed** — comparison granularity (intersection-on-identity, keyed on `revision` falling back to `version`) and the DerivedData graph fingerprint interact with the deferred v0.5 content-addressing work; the key *shape* must be forward-compatible.
-**Plans**: TBD
+**Research**: Done 2026-08-29 (`09-RESEARCH.md`) — traced the actual call path (`Cache.swift`'s
+`hit(module:)` / `ProxyGenerator.swift:119`) rather than relying on CONTEXT.md's description
+alone; found the Class E cache-defeat hazard (Pattern 3) and the `Installer::Use` fast-path
+version-awareness gap (Pitfall 2), both incorporated into the plan below.
+**Plans**: 3 plans across 2 waves
+
+- [ ] 09-01-PLAN.md — CACHE-02 core: provenance-aware `hit()`, Class E safety net (Pattern 3), real-binary SC1/SC2/SC3 proof
+- [ ] 09-02-PLAN.md — `spm-cache use` fast-path version gate (default-command SC1 closure) + CACHE-03 `cache clean` orphan-sidecar sweep
+- [ ] 09-03-PLAN.md — SC5 empirical verification runbook (DerivedData staleness, human-check at end-of-phase)
 
 ### Phase 10: Fidelity Regression Coverage
 
