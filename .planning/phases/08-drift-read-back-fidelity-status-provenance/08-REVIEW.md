@@ -1,6 +1,6 @@
 ---
 phase: 08-drift-read-back-fidelity-status-provenance
-reviewed: 2026-08-29T00:00:00Z
+reviewed: 2026-08-29T16:54:00Z
 depth: deep
 files_reviewed: 5
 files_reviewed_list:
@@ -10,229 +10,154 @@ files_reviewed_list:
   - spec/build_pipeline_provenance_spec.rb
   - spec/command_cache_list_spec.rb
 findings:
-  critical: 1
-  warning: 3
-  info: 1
-  total: 5
+  critical: 0
+  warning: 0
+  info: 2
+  total: 2
 status: issues_found
 ---
 
-# Phase 08: Code Review Report
+# Phase 08: Code Review Report (Third Re-Review — Final Auto-Fix Iteration)
 
-**Reviewed:** 2026-08-29T00:00:00Z
+**Reviewed:** 2026-08-29T16:54:00Z
 **Depth:** deep
 **Files Reviewed:** 5
 **Status:** issues_found
 
 ## Summary
 
-Reviewed the drift read-back / fidelity-status / provenance-sidecar feature: the new
-`fidelity_status_for` read path in `cache list`, the `config:` threading in
-`Installer::Build`, and the new `report_fidelity` / `drifted_identities` /
-`pin_value_map` / `write_provenance_sidecar` machinery added to
-`SPM::BuildPipeline.run`. The core drift-diff logic (intersection-only scoping,
-revision-over-version precedence, nil-safe fallbacks) is correct and well covered by
-`spec/build_pipeline_provenance_spec.rb`. Cross-file tracing surfaced one real crash
-risk in the new `cache list` read path, and several correctness/robustness gaps in the
-new provenance-write code that aren't exercised by the current spec suite (verified by
-confirming no test in `build_pipeline_provenance_spec.rb` covers a partial-destination
-failure, a `report_fidelity` write failure, or a non-Hash sidecar payload).
+Third and final auto-fix-iteration re-review. Scope for this pass: (1) confirm the
+iteration-2 fix for WR-04 (`08-REVIEW-FIX.md`, commit `386305b`) is genuinely correct
+and complete, not just plausible-looking; (2) surface anything new across the same
+5 in-scope files at deep depth.
 
-## Critical Issues
+**WR-04 fix verification (confirmed correct and complete):** Read the actual diff
+(`git show 386305b`) and the current source, not just the fix report's prose.
+`perform_build`'s Class E short-circuit (`build_pipeline.rb:221-231`) now calls a new
+private helper `actual_destinations_for(output_path, destinations)`
+(`build_pipeline.rb:1054-1057`) instead of returning the bare requested `destinations`
+tuple. `actual_destinations_for` lists the copied xcframework's own top-level slice
+directories via `Dir.children` + `File.directory?` and narrows `requested` down to the
+ones a slice actually satisfies via a new `slice_satisfies?` (`build_pipeline.rb:1059-1065`)
+— logic byte-identical to `Installer::Build#slice_satisfies?` (`installer/build.rb:96-102`):
+`"iphonesimulator"` requires a slice name containing `"simulator"`; `"iphoneos"` requires
+one starting with `"ios"` that does *not* contain `"simulator"`.
 
-### CR-01: `cache list` can crash and abort the entire listing on a sidecar read race or malformed sidecar shape
+Traced this against the actual destination values ever passed into `BuildPipeline.run`
+in production: `Installer::Build#resolve_destinations` (`installer/build.rb:186-189`)
+yields only `SPM::Package::DEFAULT_DESTINATIONS` (`["iphonesimulator", "iphoneos"]`) or
+`[@config.default_sdk]` (default `"iphonesimulator"`), and `Command::Pkg::Build#resolve_destinations`
+(`command/pkg/build.rb:62-73`) normalizes its `ios_simulator`/`ios_device` CLI aliases to
+`"iphonesimulator"`/`"iphoneos"` *before* calling `BuildPipeline.run` — so the two-branch
+`case` in `slice_satisfies?` covers every real destination string that reaches it; the
+`else false` branch is unreachable in practice, not a hidden data-loss path.
 
-**File:** `lib/spm_cache/command/cache/list.rb:29-35`
-**Issue:** `fidelity_status_for` only rescues `JSON::ParserError`:
+Verified both new regression tests in `build_pipeline_provenance_spec.rb:445-517`
+exercise real production code end-to-end (real `mkdir_p`'d checkout/artifacts directory
+tree, no stubbing of `copy_prebuilt_binary_target` or `actual_destinations_for`
+themselves) rather than mirroring the implementation. Ran the targeted specs
+(`spec/build_pipeline_provenance_spec.rb` + `spec/command_cache_list_spec.rb`: 29
+examples, 0 failures) and the full suite (368 examples, 0 failures) myself — matches the
+counts claimed in `08-REVIEW-FIX.md`.
 
-```ruby
-def fidelity_status_for(sidecar_path)
-  return "not-graph-pinned" unless File.exist?(sidecar_path)
+**Conclusion: WR-04 is genuinely fixed.** No residual "requested ≠ actually-produced"
+gap remains in any of the three artifact-producing paths (`perform_build`'s main loop,
+`run_with_scheme`, `copy_prebuilt_binary_target`).
 
-  JSON.parse(File.read(sidecar_path))["fidelity_status"] || "not-graph-pinned"
-rescue JSON::ParserError
-  "not-graph-pinned"
-end
-```
+IN-01 was correctly left unfixed again this iteration, per the documented
+`fix_scope: critical_warning` cut carried across all three iterations — confirmed still
+present and still not a correctness bug.
 
-Two realistic failure modes are not handled:
+One new item surfaced by this pass, `IN-02` below: the WR-04 fix itself introduced a
+second, independent copy of the slice/destination-satisfaction predicate rather than
+extracting a shared helper. Classified Info per this workflow's own taxonomy (code
+duplication is an Info-tier example, not Warning), but worth naming explicitly since a
+future destination-key addition (e.g. macCatalyst) landing in only one of the two copies
+would silently desync cache-hit detection from provenance-sidecar honesty — the exact
+kind of drift this whole feature exists to prevent, just at the meta level.
 
-1. **TOCTOU race:** between the `File.exist?` check and `File.read`, a concurrent
-   `spm-cache cache clean` (which unconditionally `rm_f`s `.provenance.json`
-   alongside the xcframework) or a concurrent build's `report_fidelity`/
-   `copy_prebuilt_binary_target` rewrite can delete/replace the file. `File.read`
-   then raises `Errno::ENOENT` (or briefly reads a truncated in-flight write from
-   the non-atomic `File.write` in `write_provenance_sidecar`), which is **not**
-   rescued here.
-2. **Valid JSON, non-Hash payload:** if the sidecar ever contains valid JSON that
-   isn't an object (e.g. a truncated-but-syntactically-valid array/scalar from a
-   partial write, or a foreign/future schema), `JSON.parse(...)["fidelity_status"]`
-   raises `NoMethodError`/`TypeError`, not `JSON::ParserError`.
-
-Either raises an uncaught exception out of the `Dir.glob(...).each` loop in `run`,
-which aborts the *entire* `cache list` command — every package alphabetically after
-the offending one silently never gets printed, not just the affected entry. The spec
-suite only exercises the syntax-invalid case (`spec/command_cache_list_spec.rb:52-58`,
-`'{"fidelity_status": "host-pinned"'`), so this gap is untested.
-
-**Fix:**
-```ruby
-def fidelity_status_for(sidecar_path)
-  return "not-graph-pinned" unless File.exist?(sidecar_path)
-
-  parsed = JSON.parse(File.read(sidecar_path))
-  return "not-graph-pinned" unless parsed.is_a?(Hash)
-
-  parsed["fidelity_status"] || "not-graph-pinned"
-rescue JSON::ParserError, SystemCallError
-  "not-graph-pinned"
-end
-```
-
-## Warnings
-
-### WR-01: Provenance sidecar's `destinations` field records requested destinations, not the ones that actually built
-
-**File:** `lib/spm_cache/spm/build_pipeline.rb:49-74, 87-114, 223-249`
-**Issue:** `run` threads its own `destinations:` argument straight through to
-`report_fidelity` (line 69) and into `write_provenance_sidecar` (line 113), which
-writes it verbatim into the sidecar. But `perform_build`'s per-destination loop
-(lines 223-231) *rescues and skips* a destination that fails to build:
-
-```ruby
-destinations.each do |dest_key|
-  ...
-  begin
-    artifacts = buildable.build_for_destination(dest_key, derived_data_path: dd)
-  rescue => e
-    Core::UI.warn "#{dest_key} build failed: #{e.message}"
-    next
-  end
-  ...
-end
-...
-raise "No slices were built successfully for #{name}" if framework_paths.empty?
-```
-
-Only an *empty* `framework_paths` raises. If, say, `iphoneos` fails but
-`iphonesimulator` succeeds, the build "succeeds" with a single-slice xcframework,
-yet the provenance sidecar still claims `"destinations": ["iphonesimulator",
-"iphoneos"]` — the exact opposite of what this phase is supposed to record (an
-honest read-back of what was actually produced). No test in
-`build_pipeline_provenance_spec.rb` exercises a partial-destination-failure build,
-so this gap is unverified.
-
-**Fix:** Track which `dest_key`s actually produced a framework inside
-`perform_build` (e.g. `built_destinations << dest_key` right after the `next unless
-artifacts[...]` guard) and thread that list back through `run`/`report_fidelity`
-instead of the original `destinations:` argument.
-
-### WR-02: `intended_pin_map` is computed outside the seed/restore exception boundary
-
-**File:** `lib/spm_cache/spm/build_pipeline.rb:55-73`
-**Issue:**
-```ruby
-seed_snapshot, seeded = seed_host_graph(name, pkg_dir, resolved_pins_file)
-intended_pin_map = seeded ? pin_value_map(Core::PackageResolved.pins_or_nil(resolved_pins_file)) : nil
-
-success = false
-begin
-  result = perform_build(...)
-  success = true
-  report_fidelity(...)
-  result
-ensure
-  ResolvedGraph.restore!(pkg_dir, seed_snapshot) if seeded && !success
-end
-```
-`seed_host_graph` mutates `pkg_dir/Package.resolved` (via `ResolvedGraph.seed!`)
-*before* the `begin/ensure` region starts. The `intended_pin_map` line sits between
-the seed call and `begin`, so if it were ever to raise, the just-seeded checkout
-would never be restored — contradicting the surrounding comment's stated guarantee
-("seeded checkout restored on any failure/interrupt"). Today this can't actually
-fire, because `Core::PackageResolved.pins_or_nil` and `pin_value_map` are both
-designed to swallow parse errors and return `nil` rather than raise — but that
-safety is incidental to this call site, not structurally guaranteed by it. This is a
-latent landmine for the next person who touches `pin_value_map`/`pins_or_nil` and
-assumes (reasonably, from the "always restored on failure" doc comment) that
-anything after `seed_host_graph` is covered.
-
-**Fix:** Move the `intended_pin_map` computation inside the `begin` block so the
-exception-safety invariant actually covers every statement that can observe/act on
-the seeded checkout:
-```ruby
-success = false
-begin
-  intended_pin_map = seeded ? pin_value_map(Core::PackageResolved.pins_or_nil(resolved_pins_file)) : nil
-  result = perform_build(...)
-  ...
-```
-
-### WR-03: `write_provenance_sidecar`'s non-atomic `File.write` can raise, contradicting `report_fidelity`'s documented "never raises" invariant
-
-**File:** `lib/spm_cache/spm/build_pipeline.rb:86-114, 158-166`
-**Issue:** The doc comment on `report_fidelity` states: "Never raises -- this always
-runs on the success path, so `ignore_build_errors?` can never mask the
-resolution-incompatible status (Pitfall 2)." But `write_provenance_sidecar` ends in
-a plain `File.write`:
-```ruby
-def write_provenance_sidecar(output_path, status:, pins:, config:, destinations:)
-  File.write("#{output_path}.provenance.json", JSON.generate(...))
-end
-```
-This can raise (`Errno::ENOSPC`, `Errno::EACCES`, etc.), unlike
-`ResolvedGraph.atomic_write` elsewhere in this same feature, which uses a
-tempfile-then-rename specifically to avoid partial/failed writes. If it does raise,
-the exception propagates out of `report_fidelity` → `run` → into
-`build_single_target`'s `rescue => e` in `lib/spm_cache/installer/build.rb:177-183`,
-where it is indistinguishable from a genuine build failure — including engaging
-`ignore_build_errors?` handling. A build that already succeeded (the xcframework is
-on disk and usable) would then be reported to the user as a failed target purely
-because a small metadata write hit a disk error, which is both misleading and
-exactly the kind of masking Pitfall 2 was meant to prevent (just via a different
-code path than the one the comment anticipated).
-
-**Fix:** Either make the sidecar write atomic (tempfile + rename, mirroring
-`ResolvedGraph.atomic_write`) and/or wrap it so a write failure degrades to a
-warning instead of raising, e.g.:
-```ruby
-def write_provenance_sidecar(output_path, status:, pins:, config:, destinations:)
-  File.write("#{output_path}.provenance.json", JSON.generate(...))
-rescue SystemCallError => e
-  Core::UI.warn "  could not write provenance sidecar for #{File.basename(output_path)}: #{e.message}"
-end
-```
+No new Critical or Warning findings. Zero critical findings across all three iterations
+of this phase's review (CR-01 was the only Critical, fixed in iteration 1).
 
 ## Info
 
-### IN-01: Redundant `.provenance.json` cleanup in `copy_prebuilt_binary_target`
+### IN-01 (carried over, deliberately unfixed): Redundant `.provenance.json` cleanup in `copy_prebuilt_binary_target`
 
-**File:** `lib/spm_cache/spm/build_pipeline.rb:1007-1010`
-**Issue:**
+**File:** `lib/spm_cache/spm/build_pipeline.rb:1044-1046`
+**Status:** Confirmed still present, unchanged from the original review. Per
+`08-REVIEW-FIX.md` (both iterations), this was explicitly excluded from the fix pass's
+scope (`fix_scope: critical_warning`). No new concerns. Restating the fix suggestion for
+completeness: remove the redundant `FileUtils.rm_f` (the consolidated `report_fidelity`
+insertion point in `run` already handles sidecar cleanup for every path), or add a
+one-line note if intentionally kept as defense-in-depth.
+
+### IN-02 (new): `slice_satisfies?` is now duplicated verbatim across `build_pipeline.rb` and `installer/build.rb`
+
+**File:** `lib/spm_cache/spm/build_pipeline.rb:1059-1065`, `lib/spm_cache/installer/build.rb:96-102`
+**Issue:** The WR-04 fix added a second, independently-maintained copy of the exact same
+destination/slice-satisfaction predicate:
+
 ```ruby
-# Same rationale as the .shims.json rm_f immediately above: a
-# pre-Class-E cache entry may carry a stale provenance sidecar from
-# when this product was still built via the normal path.
-FileUtils.rm_f("#{output_path}.provenance.json")
+# build_pipeline.rb:1059-1065 (new, from commit 386305b)
+def slice_satisfies?(slices, dest_key)
+  case dest_key
+  when "iphonesimulator" then slices.any? { |s| s.include?("simulator") }
+  when "iphoneos" then slices.any? { |s| s.start_with?("ios") && !s.include?("simulator") }
+  else false
+  end
+end
 ```
-Unlike the `.shims.json` cleanup on the preceding line (which *is* needed, since
-nothing else touches that sidecar for the Class E path), this `.provenance.json`
-`rm_f` is dead weight: `perform_build`'s return always flows back into `run`, which
-unconditionally calls `report_fidelity` afterward — and `report_fidelity` either
-`FileUtils.rm_f`s the same path again (`seeded == false`) or fully overwrites it via
-`write_provenance_sidecar` (`seeded == true`, `File.write` truncates). Either way the
-final state of `output_path.provenance.json` after `run` returns is entirely
-determined by `report_fidelity`'s consolidated insertion point, making this earlier
-`rm_f` unreachable-in-effect and the accompanying comment's stated rationale
-("Same rationale as the .shims.json rm_f") inaccurate for this specific line — it
-gives future readers false confidence that removing it here matters.
 
-**Fix:** Remove the redundant `FileUtils.rm_f("#{output_path}.provenance.json")` at
-line 1010 (keep the `.shims.json` one), or add a one-line comment noting it's
-belt-and-suspenders only if intentionally kept for defense-in-depth.
+```ruby
+# installer/build.rb:96-102 (pre-existing)
+def slice_satisfies?(slices, dest_key)
+  case dest_key
+  when "iphonesimulator" then slices.any? { |s| s.include?("simulator") }
+  when "iphoneos" then slices.any? { |s| s.start_with?("ios") && !s.include?("simulator") }
+  else false
+  end
+end
+```
+
+The fix's own comment (`build_pipeline.rb:1050`, `:228`) explicitly acknowledges this is
+a mirror of `Installer::Build#slice_satisfies?` rather than a shared call — a conscious
+copy-paste, not an oversight, but it means two independent authoritative definitions of
+"does this slice directory name satisfy this destination" now exist in two different
+classes (`SPM::BuildPipeline`, a module-level singleton method, vs.
+`Installer::Build`, a private instance method), with no shared source of truth. If a
+future destination key (e.g. macCatalyst, watchOS) is added to one copy and not the
+other, `Installer::Build#slice_complete?`'s cache-hit-completeness check and
+`BuildPipeline#actual_destinations_for`'s provenance-sidecar narrowing would silently
+disagree about which slices count — one could report a hit/complete artifact the other
+would consider incomplete, or vice versa, without any test catching the divergence since
+each copy is tested only against its own call site.
+
+**Fix:** Extract a single shared helper (e.g. a `SPM::DestinationSlice` module method or
+a method on `SPM::Package`/`Buildable::DESTINATIONS`) that both `Installer::Build` and
+`SPM::BuildPipeline` call, e.g.:
+
+```ruby
+module SPMCache
+  module SPM
+    module DestinationSlice
+      def self.satisfies?(slices, dest_key)
+        case dest_key
+        when "iphonesimulator" then slices.any? { |s| s.include?("simulator") }
+        when "iphoneos" then slices.any? { |s| s.start_with?("ios") && !s.include?("simulator") }
+        else false
+        end
+      end
+    end
+  end
+end
+```
+
+Not urgent enough to block shipping this phase (both copies are currently identical and
+both are test-covered independently), but worth a follow-up cleanup pass before a third
+destination key is ever added.
 
 ---
 
-_Reviewed: 2026-08-29T00:00:00Z_
+_Reviewed: 2026-08-29T16:54:00Z_
 _Reviewer: Claude (gsd-code-reviewer)_
 _Depth: deep_
