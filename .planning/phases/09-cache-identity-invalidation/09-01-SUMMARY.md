@@ -210,6 +210,11 @@ None - no external service configuration required.
   ~20 before this plan; +14 new: 9 CacheTests, 4 LockfileTests PackageRefPinValueTests, 1
   ProxyGeneratorTests Pitfall-3 guard).
 
+## Self-Check: PASSED
+
+All created/modified files verified present on disk; all 4 commit hashes
+(`8be8c72`, `cb286c5`, `9cc0597`, `823cb1e`) verified present in `git log --oneline --all`.
+
 ---
 *Phase: 09-cache-identity-invalidation*
 *Completed: 2026-08-29*
