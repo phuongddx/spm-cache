@@ -289,21 +289,60 @@ RSpec.describe "TEST-02: bucket-partition coverage over the declared universe" d
     it "TEST-02: a pinned package is observed in exactly one bucket, read back from its sidecar" do
       expect(SPMCache::Core::UI).not_to receive(:warn)
 
+      # WR-02: anchor the leg's identity to the DECLARED input universe -- the
+      # kitchen-sink fixture's own package list, read from the fixture on
+      # disk, never from this leg's output. The partition is only defined
+      # over declared identities, so a fixture edit or leg rename that
+      # orphaned the tracer from the universe fails HERE, before any bucket
+      # is counted.
+      identity = "Alamofire"
+      expect(fixture_packages_by_name.keys).to include(identity)
+
       result = run_tier1_leg(
-        name: "Alamofire",
-        seeded_pins: { "Alamofire" => "aaa111" },
-        realized_pins: { "Alamofire" => "aaa111" },
+        name: identity,
+        seeded_pins: { identity => "aaa111" },
+        realized_pins: { identity => "aaa111" },
       )
 
       parsed = JSON.parse(File.read("#{result}.provenance.json"))
       status_read_from_sidecar = parsed.fetch("fidelity_status")
+      expect(status_read_from_sidecar).to be_a(String), "sidecar must record a fidelity_status"
+      expect(status_read_from_sidecar).not_to be_empty
+      expect(parsed["pins"]).to eq(identity => "aaa111")
 
-      observed_buckets = {}
-      collected = observe_bucket(observed_buckets, "Alamofire", status_read_from_sidecar)
+      # WR-02: the "exactly one bucket" claim, made non-tautological. The
+      # identity's bucket set is collected from BOTH production surfaces that
+      # classify it -- the sidecar status above plus the compiled proxy's
+      # graph.json aggregated through the ownership map, with the
+      # canary-observed cache-availability statuses filtered out (the same
+      # semantics as the SC2 partition) -- and then checked through the real
+      # partition classifier, both arms. The graph surface INDEPENDENTLY
+      # re-classifies the identity, so a production change that drops its
+      # graph classification (the not_to be_empty expectation below) or
+      # emits a second, non-availability status for this consumed,
+      # allowlisted package (the double-bucket arm) fails this example, as
+      # does a dropped sidecar classification (the fetch above).
+      skip "spm-cache-proxy binary not built (run make proxy.build)" unless binary
 
-      expect(collected.length).to eq(1)
-      expect(collected.first).to eq(status_read_from_sidecar)
-      expect(parsed["pins"]).to eq("Alamofire" => "aaa111")
+      observations = {}
+      observe_bucket(observations, identity, status_read_from_sidecar)
+
+      run_gen_proxy(ignore: ignore_pattern, cache_only: cache_only_patterns)
+      graph_statuses = package_statuses_from(output_dir).fetch(identity, [])
+      expect(graph_statuses).not_to be_empty,
+             "graph surface must classify the declared identity #{identity.inspect}"
+      availability = cache_availability_statuses
+      graph_statuses.each do |status|
+        observe_bucket(observations, identity, status) unless availability.include?(status)
+      end
+
+      zero_bucket, double_bucket = partition_violations([identity], observations)
+      expect(zero_bucket).to be_empty,
+                             "TEST-02 zero-bucket members (silently absent): " +
+                             zero_bucket.map { |i| "#{i} (observed #{observations[i].to_a.uniq.inspect})" }.join(", ")
+      expect(double_bucket).to be_empty,
+                               "TEST-02 double-bucket members: " +
+                               double_bucket.map { |i| "#{i} (observed #{observations[i].to_a.uniq.inspect})" }.join(", ")
     end
   end
 
