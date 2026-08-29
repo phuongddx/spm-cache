@@ -322,3 +322,167 @@ RSpec.describe SPMCache::Installer::Build, "threads config: from @config_name in
     expect(SPMCache::SPM::BuildPipeline).to have_received(:run).with(hash_including(config: "debug"))
   end
 end
+
+RSpec.describe SPMCache::SPM::BuildPipeline, "diff scoping is intersection-only" do
+  let(:tmpdir) { Dir.mktmpdir }
+  let(:pkg_dir) { File.join(tmpdir, "pkg") }
+  let(:out_dir) { File.join(tmpdir, "out") }
+  let(:resolved_pins_file) { File.join(tmpdir, "host-Package.resolved") }
+
+  def stub_desc_products(products)
+    fake_desc = instance_double(SPMCache::SPM::Desc::Description)
+    allow(SPMCache::SPM::Desc::Description).to receive(:new).and_return(fake_desc)
+    allow(fake_desc).to receive(:fetch)
+    allow(fake_desc).to receive(:products).and_return(
+      products.map { |p| SPMCache::SPM::Desc::Product.new(raw: p, pkg_dir: pkg_dir) },
+    )
+    allow(fake_desc).to receive(:raw).and_return({ "targets" => [] })
+    fake_desc
+  end
+
+  before do
+    FileUtils.mkdir_p(pkg_dir)
+    FileUtils.mkdir_p(out_dir)
+    stub_desc_products([{ "name" => "SomePkg", "type" => { "library" => ["automatic"] } }])
+    allow(SPMCache::SPM::XCFramework::XCFramework).to receive(:new).and_return(
+      double("XCFramework", build: File.join(out_dir, "SomePkg.xcframework")),
+    )
+  end
+
+  after { FileUtils.rm_rf(tmpdir) }
+
+  def run_with_realized_pins(realized_pins_json)
+    fake_buildable = instance_double(SPMCache::SPM::Buildable)
+    allow(SPMCache::SPM::Buildable).to receive(:new).and_return(fake_buildable)
+    allow(fake_buildable).to receive(:build_for_destination) do |*_args, **_kwargs|
+      File.write(File.join(pkg_dir, "Package.resolved"), realized_pins_json)
+      { derived_data: "/dd", object_file: "/dd/SomePkg.o",
+        swiftmodule: nil, swiftdoc: nil, swiftsourceinfo: nil, swiftinterface: nil }
+    end
+    allow(fake_buildable).to receive(:create_framework) do |_arts, subdir|
+      fw = File.join(subdir, "SomePkg.framework")
+      FileUtils.mkdir_p(fw)
+      File.write(File.join(fw, "SomePkg"), "stub")
+      fw
+    end
+
+    described_class.run(
+      name: "SomePkg", pkg_dir: pkg_dir, destinations: ["iphonesimulator"],
+      out_dir: out_dir, resolved_pins_file: resolved_pins_file, config: "debug",
+    )
+  end
+
+  it "does not report drift for an identity present only in intended (host's full graph), absent from realized (this package's narrower closure)" do
+    File.write(resolved_pins_file, JSON.generate("pins" => [
+      { "identity" => "SomePkg", "state" => { "revision" => "aaa" } },
+      { "identity" => "OnlyInHost", "state" => { "revision" => "zzz" } },
+    ]))
+
+    result = nil
+    expect(SPMCache::Core::UI).not_to receive(:warn)
+    expect {
+      result = run_with_realized_pins(JSON.generate("pins" => [{ "identity" => "SomePkg", "state" => { "revision" => "aaa" } }]))
+    }.to output(/host-pinned/).to_stdout
+
+    expect(JSON.parse(File.read("#{result}.provenance.json"))["fidelity_status"]).to eq("host-pinned")
+  end
+
+  it "does not report drift for an identity present only in realized (a dependency unique to this package), absent from intended" do
+    File.write(resolved_pins_file, JSON.generate("pins" => [{ "identity" => "SomePkg", "state" => { "revision" => "aaa" } }]))
+
+    result = nil
+    expect(SPMCache::Core::UI).not_to receive(:warn)
+    expect {
+      result = run_with_realized_pins(JSON.generate("pins" => [
+        { "identity" => "SomePkg", "state" => { "revision" => "aaa" } },
+        { "identity" => "OnlyInPackage", "state" => { "revision" => "yyy" } },
+      ]))
+    }.to output(/host-pinned/).to_stdout
+
+    expect(JSON.parse(File.read("#{result}.provenance.json"))["fidelity_status"]).to eq("host-pinned")
+  end
+
+  it "defaults to host-pinned with no warn or crash when the realized Package.resolved is malformed/unreadable" do
+    File.write(resolved_pins_file, JSON.generate("pins" => [{ "identity" => "SomePkg", "state" => { "revision" => "aaa" } }]))
+
+    result = nil
+    expect(SPMCache::Core::UI).not_to receive(:warn)
+    expect {
+      result = run_with_realized_pins("{not valid json")
+    }.to output(/host-pinned/).to_stdout
+
+    parsed = JSON.parse(File.read("#{result}.provenance.json"))
+    expect(parsed["fidelity_status"]).to eq("host-pinned")
+    expect(parsed["pins"]).to eq({})
+  end
+
+  it "compares revision values when present on both sides, ignoring version" do
+    File.write(resolved_pins_file, JSON.generate("pins" => [
+      { "identity" => "SomePkg", "state" => { "revision" => "abc123" } },
+    ]))
+
+    expect {
+      run_with_realized_pins(JSON.generate("pins" => [
+        { "identity" => "SomePkg", "state" => { "revision" => "def456" } },
+      ]))
+    }.to output(/SomePkg.*abc123.*def456/).to_stderr
+  end
+
+  it "falls back to comparing version values when revision is absent on both sides" do
+    File.write(resolved_pins_file, JSON.generate("pins" => [
+      { "identity" => "SomePkg", "state" => { "version" => "1.0.0" } },
+    ]))
+
+    expect {
+      run_with_realized_pins(JSON.generate("pins" => [
+        { "identity" => "SomePkg", "state" => { "version" => "2.0.0" } },
+      ]))
+    }.to output(/SomePkg.*1\.0\.0.*2\.0\.0/).to_stderr
+  end
+end
+
+RSpec.describe SPMCache::Installer::Build, "ignore_build_errors? cannot mask resolution-incompatible (Pitfall 2 regression guard)" do
+  let(:tmpdir) { Dir.mktmpdir }
+  let(:project_path) { File.join(tmpdir, "Fake.xcodeproj") }
+
+  let(:cachemap) do
+    SPMCache::Cache::Cachemap.new(
+      graph_data: [{ "module" => "SomePkg", "status" => "missed" }],
+    )
+  end
+
+  before do
+    FileUtils.mkdir_p(project_path)
+    allow_any_instance_of(SPMCache::Installer).to receive(:perform_install).and_wrap_original do |original, *_args|
+      me = original.receiver
+      me.instance_variable_set(:@cachemap, cachemap) if me.respond_to?(:cachemap)
+      nil
+    end
+    allow_any_instance_of(SPMCache::Installer::Build).to receive(:resolve_umbrella_checkouts).and_return(nil)
+    pkg_dir = File.join(tmpdir, "checkouts", "SomePkg")
+    FileUtils.mkdir_p(pkg_dir)
+    allow_any_instance_of(SPMCache::Installer::Build).to receive(:checkout_map).and_return("SomePkg" => pkg_dir)
+    allow(SPMCache::Core::Config.instance).to receive(:default_sdk).and_return("iphonesimulator")
+    allow(SPMCache::Core::Config.instance).to receive(:cache_dir).and_return(tmpdir)
+    allow(SPMCache::Core::Config.instance).to receive(:umbrella_dir).and_return(File.join(tmpdir, "umbrella"))
+  end
+
+  after { FileUtils.rm_rf(tmpdir) }
+
+  it "never queries ignore_build_errors? when BuildPipeline.run succeeds and reports resolution-incompatible on its own success path" do
+    inst = described_class.new(project: project_path, targets: [])
+    allow(SPMCache::SPM::ResolvedGraph).to receive(:source_for).and_return("/host/Package.resolved")
+    # BuildPipeline.run itself prints its own status line internally and
+    # returns normally (never raises) for a resolution-incompatible package --
+    # simulated here by a real Core::UI.info call inside the stub, mirroring
+    # what the real implementation does on its own success path.
+    allow(SPMCache::SPM::BuildPipeline).to receive(:run) do
+      SPMCache::Core::UI.info "  SomePkg: resolution-incompatible (built from source)"
+      "/out/fake.xcframework"
+    end
+    allow(SPMCache::Core::Config.instance).to receive(:ignore_build_errors?)
+      .and_raise("ignore_build_errors? must never be queried on the success path")
+
+    expect { inst.perform_install }.to output(/resolution-incompatible/).to_stdout
+  end
+end
