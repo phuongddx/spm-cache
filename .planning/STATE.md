@@ -5,8 +5,8 @@ milestone_name: Build Fidelity & Release Automation
 current_phase: 10
 current_phase_name: Fidelity Regression Coverage
 status: executing
-stopped_at: Completed 10-01-PLAN.md
-last_updated: "2026-08-29T15:54:38.026Z"
+stopped_at: Completed 10-02-PLAN.md
+last_updated: "2026-08-29T16:23:25.618Z"
 last_activity: 2026-08-29
 last_activity_desc: Phase 09 complete (UAT 1/1 pass — SC5 operator PASS)
 progress:
@@ -213,8 +213,8 @@ See: .planning/PROJECT.md (updated 2026-08-29)
 
 ## Session Continuity
 
-Last session: 2026-08-29T15:54:38.005Z
-Stopped at: Completed 10-01-PLAN.md
+Last session: 2026-08-29T16:23:25.597Z
+Stopped at: Completed 10-02-PLAN.md
 Resume file: None
 
 ## Performance Metrics
@@ -232,6 +232,7 @@ Resume file: None
 | Phase 07 P01 | ~55m | 3 tasks | 6 files |
 | Phase 07 P02 | ~2h (incl. ~29min real xcodebuild) | 3 tasks | 9 files |
 | Phase 10 P01 | 10min | 3 tasks | 1 files |
+| Phase 10 P02 | 831s | 3 tasks | 2 files |
 
 ## Decisions
 
@@ -262,11 +263,14 @@ Resume file: None
 - [Phase ?]: Phase 10 Plan 01: one spec file, two describe blocks — tier-1 read-back legs under the default-deny Core::Sh guard (both entry points raise on unexpected invocation, SC4 as an executable assertion), tier-3 gen-proxy sidecar legs outside it
 - [Phase ?]: Phase 10 Plan 01: missing-realized-file edge simulated by the stub consuming the seeded Package.resolved — seed_host_graph necessarily creates it, so absence at read-back is only reachable via the build removing it
 - [Phase ?]: Phase 10 Plan 01: tier-3 lockfile fixture pins by revision (aaa111) not version, mirroring pinValue revision-over-version precedence so the sidecar drift compare is an exact string match
+- [Phase ?]: Phase 10 Plan 02: TEST-02's six buckets observed via the hybrid two-surface route — sidecar statuses through the tier-1 seam, graph statuses through the compiled proxy — with the universe always the declared input set (fixture lockfile packages incl. empty-repositoryURL local/path entry + tier-1 pin identities), never classifier output
+- [Phase ?]: Phase 10 Plan 02: cache-availability graph statuses (hit/missed) are excluded from the bucket vocabulary by OBSERVING them via a config-unconstrained canary package run against empty and populated caches — no status name is typed anywhere; input-side rules (local/path -> excluded, transitive-only -> consumer's pinned bucket) reuse observed values only
+- [Phase ?]: Phase 10 Plan 02: partition is per-PACKAGE identity via a fixture-authored product->package ownership map (graph.json is per-product); the mixed hit+missed downgrade keeps multi-product packages at exactly one bucket (adjacency probe), and the local/path entry joins the observed excluded bucket rather than introducing a seventh bucket
 
 ## Current Position
 
 Phase: 10 (Fidelity Regression Coverage) — EXECUTING
-Plan: 2 of 3
+Plan: 3 of 3
 Status: Ready to execute
 Last activity: 2026-08-29 — Phase 10 execution started
 

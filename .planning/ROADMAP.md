@@ -172,10 +172,10 @@ version-awareness gap (Pitfall 2), both incorporated into the plan below.
   4. The whole suite runs hermetically on the existing `Core::Sh` / `Desc` / `Buildable` seams — no network, no real `xcodebuild` — and is green on every leg of the Ruby 3.1–3.3 CI matrix.
 
 **Research**: Done 2026-08-29 (`10-RESEARCH.md`, HIGH confidence, pattern-reuse) — run despite the roadmap's original "not needed" call because the six TEST-02 buckets span TWO production surfaces (3 statuses from Ruby `report_fidelity` sidecars; ignored/excluded/plugin decided by the Swift ProxyGenerator into graph.json), so the partition meta-spec needs a hybrid observation route. Pattern map: `10-PATTERNS.md`.
-**Plans**: 1/3 plans executed across 1 wave (the three spec files are file-disjoint — fully parallel)
+**Plans**: 2/3 plans executed across 1 wave (the three spec files are file-disjoint — fully parallel)
 
 - [x] 10-01-PLAN.md — TEST-01: `spec/fidelity_drift_regression_spec.rb` — drift regression both directions, both injection sources (read-back + provenance-sidecar), SC4 default-deny guard, fail-first mutation proofs
-- [ ] 10-02-PLAN.md — TEST-02: `spec/fidelity_bucket_partition_spec.rb` + kitchen-sink fixture — hybrid partition meta-spec (tier-1 fidelity legs + tier-3 graph legs), completeness + disjointness both arms fail-first
+- [x] 10-02-PLAN.md — TEST-02: `spec/fidelity_bucket_partition_spec.rb` + kitchen-sink fixture — hybrid partition meta-spec (tier-1 fidelity legs + tier-3 graph legs), completeness + disjointness both arms fail-first
 - [ ] 10-03-PLAN.md — TEST-03: `spec/fidelity_edge_matrix_spec.rb` — all 8 v0.2.x edge classes incl. the two no-analog shapes (macro `swift-syntax` pin, resource bundle), existing specs untouched
 
 ### Phase 11: Homebrew Release Automation
@@ -218,7 +218,7 @@ version-awareness gap (Pitfall 2), both incorporated into the plan below.
 | 7. Host-Faithful Checkout Seeding | v0.4.0 | 2/2 | Complete    | 2026-08-29 |
 | 8. Drift Read-Back, Fidelity Status & Provenance | v0.4.0 | 2/2 | Complete    | 2026-08-29 |
 | 9. Cache Identity & Invalidation | v0.4.0 | 3/3 | Complete    | 2026-08-29 |
-| 10. Fidelity Regression Coverage | v0.4.0 | 1/3 | In Progress|  |
+| 10. Fidelity Regression Coverage | v0.4.0 | 2/3 | In Progress|  |
 | 11. Homebrew Release Automation | v0.4.0 | 0/TBD | Not started | - |
 
 ## Coverage
