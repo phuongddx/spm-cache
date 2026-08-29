@@ -27,9 +27,9 @@ module SPMCache
             next unless File.directory?(cache_dir)
 
             if @all
-              remove_path(cache_dir, cfg)
+              remove_path(cache_dir)
             elsif @targets.any?
-              @targets.each { |t| remove_path(File.join(cache_dir, t), cfg) }
+              @targets.each { |t| remove_path(File.join(cache_dir, t)) }
             else
               puts "Specify --all or target names to clean"
             end
@@ -40,7 +40,7 @@ module SPMCache
 
         private
 
-        def remove_path(path, cfg)
+        def remove_path(path)
           return unless File.exist?(path)
 
           if @dry
