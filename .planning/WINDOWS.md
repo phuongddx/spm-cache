@@ -1,10 +1,10 @@
 ---
 schema_version: 1
-open_count: 1
+open_count: 2
 waived_count: 5
 fixed_count: 0
-total_count: 6
-last_updated: 2026-08-27T09:17:34.399Z
+total_count: 7
+last_updated: 2026-08-29T16:38:32.821Z
 ---
 
 # Broken Windows Ledger
@@ -21,6 +21,7 @@ last_updated: 2026-08-27T09:17:34.399Z
 | 4 | 06 | deviation | spec/package_resolved_spec.rb |  | Task 3's two parity examples passed on write (no RED phase) because they assert locator properties Tasks 1-2 had already delivered; commit order preserved but they are guard rails, not RED evidence | waived | Historical process gap: two parity examples in 06-02 passed on write (no RED phase) because they assert locator properties Tasks 1-2 had already delivered. Cannot be made RED after the fact; the examples are valid regression guards and pass. Self-reported by the executor rather than concealed. | 2026-08-27T07:55:37.028Z | 2026-08-27T09:17:34.307Z |
 | 5 | 6 | unrun-verify | lib/spm_cache/core/diff_detector.rb | 140 | live_packages JSON.parses the host Package.resolved unguarded, so a truncated file aborts detect_diff before the reconciler's D-04 warn-and-degrade path is reachable | waived | Truncated Package.resolved aborts detect_diff (diff_detector.rb:140 unguarded parse) before D-04's warn-and-degrade is reachable. NOTE: this violates locked decision D-04's 'never crash', so it is a decision-fidelity gap, not merely missing hardening. Waived per explicit user authorization 2026-08-27 under that stronger framing. Proper fix requires deciding DiffDetector's posture for ALL detect callers and keeping the diff report honest about unreadable-vs-removed; 06-05-PLAN.md guard ordering was specified so closing it later needs no rework. | 2026-08-27T08:11:34.058Z | 2026-08-27T09:17:34.399Z |
 | 6 | 06 | deviation | lib/spm_cache/core/diagnostics.rb |  | lock_graph_fidelity guards cfg.respond_to?(:lockfile_path) because a verifying instance_double raises MockExpectationError (not a StandardError) and escapes run_check's capture | open |  | 2026-08-27T08:24:12.828Z |  |
+| 7 | 10 | deviation | lib/spm_cache/spm/xcframework/slice.rb | 31 | FrameworkSlice unwired dead code: copy_resource_bundles unreachable (private resource_paths defeats respond_to? guard, bare-Sh NameError, template binding mismatch) — TEST-03 class 6/8 drives the real copy via send; logged in deferred-items.md | open |  | 2026-08-29T16:38:32.821Z |  |
 
 ````json
 [
@@ -94,6 +95,18 @@ last_updated: 2026-08-27T09:17:34.399Z
     "status": "open",
     "reason": "",
     "recorded_at": "2026-08-27T08:24:12.828Z",
+    "resolved_at": null
+  },
+  {
+    "id": 7,
+    "kind": "deviation",
+    "phase": "10",
+    "file": "lib/spm_cache/spm/xcframework/slice.rb",
+    "line": 31,
+    "description": "FrameworkSlice unwired dead code: copy_resource_bundles unreachable (private resource_paths defeats respond_to? guard, bare-Sh NameError, template binding mismatch) — TEST-03 class 6/8 drives the real copy via send; logged in deferred-items.md",
+    "status": "open",
+    "reason": "",
+    "recorded_at": "2026-08-29T16:38:32.821Z",
     "resolved_at": null
   }
 ]
