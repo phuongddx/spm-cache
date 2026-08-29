@@ -1,0 +1,41 @@
+{
+  "version": "1.0",
+  "timestamp": "2026-08-29T06:02:06.158Z",
+  "phase": "7",
+  "phase_name": "Host-Faithful Checkout Seeding",
+  "phase_dir": ".planning/phases/07-host-faithful-checkout-seeding",
+  "plan": 2,
+  "task": 3,
+  "total_tasks": 6,
+  "status": "paused",
+  "completed_tasks": [
+    {"id": "06-01..06-05", "name": "Phase 6: Graph Authority — Lockfile Reconciliation (all plans + gap closure)", "status": "done", "commit": "aa76e8a"},
+    {"id": "07-01", "name": "Phase 7 Plan 1: verbatim seeding + vendored-.xcodeproj classification + byte-identical guard", "status": "done", "commit": "a8d5ddb"},
+    {"id": "07-02", "name": "Phase 7 Plan 2: shared clone dir + flock + PERF-01 benchmark", "status": "done", "commit": "7aff7bd"}
+  ],
+  "remaining_tasks": [
+    {"id": "verify-7", "name": "Canonical goal-backward verification of Phase 7 (never run — only executor self-checks exist)", "status": "not_started"},
+    {"id": "phase-8", "name": "Drift Read-Back, Fidelity Status & Provenance — discuss/plan/execute", "status": "not_started"},
+    {"id": "phase-9", "name": "Cache Identity & Invalidation — discuss/plan/execute", "status": "not_started"},
+    {"id": "phase-10", "name": "Fidelity Regression Coverage — discuss/plan/execute", "status": "not_started"},
+    {"id": "phase-11", "name": "Homebrew Release Automation — discuss/plan/execute (operator step: GitHub App creation, autonomous will pause here)", "status": "not_started"}
+  ],
+  "blockers": [
+    {"description": "Phase 6 criterion 2 (live spm-cache use/build against the reference project) was never verified — accepted as recorded risk by explicit user decision 2026-08-27, not fixed", "type": "human_action", "workaround": "User can run it manually against /Users/ddphuong/Projects/next-labs/stress-ai/ios-stress-app/StressMonitor, or accept as-is"},
+    {"description": "Phase 11 needs a GitHub App created by the repo owner (Contents: read&write, Metadata: read, installed on homebrew-spm-cache only) before its tap-token work can complete — autonomous will pause here regardless of context budget", "type": "human_action", "workaround": "Create the App ahead of time to avoid a mid-run pause"}
+  ],
+  "async_jobs": [],
+  "human_actions_pending": [
+    {"action": "Run /gsd-verify-work 7", "context": "Phase 7 executed but never canonically verified", "blocking": false},
+    {"action": "Create a GitHub App for the Homebrew tap token before Phase 11", "context": "Locked decision 2026-08-27: durable token fix is a GitHub App installation token, not a re-minted classic PAT", "blocking": true}
+  ],
+  "decisions": [
+    {"decision": "M1 field measurement inverted the milestone's root-cause model — stale-locator selection (FID-06) is dominant, not the never-refreshed lockfile (FID-01)", "rationale": "H-wrongfile 25 · H-lock 0 · H-float 0, later partially corrected: the H-lock/H-wrongfile split was unsupported (orchestrator's own falsifier was a false negative), but H-float=0 stood — this is what the Phase 7 downgrade rests on", "phase": "6"},
+    {"decision": "User explicitly overrode the 'finish Phase 6 UAT, then re-plan Phases 7-9' decision", "rationale": "Chose to proceed to /gsd-autonomous 6-11 directly against current roadmap text, accepting the risk of not re-scoping 7-9 around M1's findings first", "phase": "6→7"},
+    {"decision": "Phase 6 VERIFICATION.md status set to passed by explicit user override, not full re-verification", "rationale": "Criterion 2's live build check remains genuinely unverified; recorded as accepted risk in 06-VERIFICATION.md '## User Override' section and STATE.md", "phase": "6"},
+    {"decision": "Phase 7 CONTEXT.md compressed — sourced from existing milestone ARCHITECTURE.md/PITFALLS.md rather than fresh discuss-phase or phase-level research", "rationale": "Context budget pressure; those docs were already empirically verified (Xcode 26.3 probes), so re-deriving via a fresh researcher would be redundant", "phase": "7"}
+  ],
+  "uncommitted_files": [],
+  "next_action": "Run /gsd-verify-work 7 to close out Phase 7 properly (never canonically verified — only executor self-checks). Then /gsd-autonomous --from 8 --to 11 for the remaining phases with a fresh context budget.",
+  "context_notes": "This session hit context pressure unusually early and repeatedly (3 warnings across ~2.5 phases, including one right at a fresh-session start) — worth watching if the pattern recurs. Phase 6 and 7 code is solid (341 examples green, real benchmark showing -40.6% wall-clock / -34% disk on the reference project) but the paper trail carries several explicit user risk-acceptances (Phase 6 criterion 2, Phase 7's compressed discuss) that a resuming session should NOT silently 'fix' by re-litigating — they were deliberate, informed calls."
+}
