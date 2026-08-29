@@ -188,3 +188,127 @@ RSpec.describe SPMCache::SPM::BuildPipeline, "TEST-01: transitive-version drift 
     expect(parsed["pins"]).to eq({})
   end
 end
+
+# TEST-01's second drift-injection source: provenance-sidecar disagreement
+# under Phase 9's hit/miss semantics. Runs the actual compiled spm-cache-proxy
+# binary (tier-3, gen_proxy_provenance_spec.rb pattern), NOT the tier-1
+# default-deny Core::Sh guard above -- this block invokes the local proxy via
+# system() with output redirected to File::NULL, which involves no Core::Sh
+# call, no network, and no xcodebuild. The drift signal at the cache layer:
+# a sidecar whose recorded pin disagrees with the current pin (or is absent)
+# can never serve the stale artifact as a hit.
+RSpec.describe "TEST-01: provenance-sidecar disagreement is a cache miss, never a silent hit (gen-proxy real-binary)" do
+  let(:binary) do
+    local = SPMCache::ROOT.join("tools", "spm-cache-proxy",
+                                ".build", "release", "spm-cache-proxy").to_s
+    File.executable?(local) ? local : nil
+  end
+
+  let(:tmpdir) { Dir.mktmpdir }
+
+  before do
+    skip "spm-cache-proxy binary not built (run make proxy.build)" unless binary
+  end
+
+  after { FileUtils.rm_rf(tmpdir) if tmpdir }
+
+  def write_lockfile(path, project_name:, packages:)
+    File.write(path, JSON.generate(
+      project_name => {
+        "packages" => packages,
+        "dependencies" => {},
+        "platforms" => { "ios" => "16.0" },
+      },
+    ))
+  end
+
+  def write_sidecar(cache_dir, module_name, pins:, status: "host-pinned")
+    File.write(
+      File.join(cache_dir, "#{module_name}.xcframework.provenance.json"),
+      JSON.generate("fidelity_status" => status, "pins" => pins),
+    )
+  end
+
+  def run_gen_proxy(umbrella_dir:, lockfile:, output_dir:, cache_dir:)
+    cmd = "#{binary} gen-proxy --umbrella #{umbrella_dir} --lockfile #{lockfile} " \
+          "--output #{output_dir} --cache #{cache_dir}"
+    system(cmd, out: File::NULL, err: File::NULL)
+  end
+
+  def statuses_from(output_dir)
+    graph = JSON.parse(File.read(File.join(output_dir, "graph.json")))
+    graph.each_with_object({}) { |e, h| h[e["module"]] = e["status"] }
+  end
+
+  it "TEST-01: an agreeing sidecar pin stays a hit" do
+    umbrella_dir = File.join(tmpdir, "umbrella")
+    output_dir = File.join(tmpdir, "proxy")
+    cache_dir = File.join(tmpdir, "cache")
+    [umbrella_dir, output_dir, cache_dir].each { |d| FileUtils.mkdir_p(d) }
+
+    FileUtils.mkdir_p(File.join(cache_dir, "SomePkg.xcframework"))
+    write_sidecar(cache_dir, "SomePkg", pins: { "SomePkg" => "aaa111" })
+
+    lockfile = File.join(tmpdir, "lockfile.json")
+    write_lockfile(lockfile, project_name: "FixtureApp.xcodeproj", packages: [
+      {
+        "repositoryURL" => "https://example.invalid/SomePkg.git",
+        "name" => "SomePkg",
+        "product_name" => "SomePkg",
+        "revision" => "aaa111",
+      },
+    ])
+
+    run_gen_proxy(umbrella_dir: umbrella_dir, lockfile: lockfile, output_dir: output_dir, cache_dir: cache_dir)
+
+    expect(statuses_from(output_dir)["SomePkg"]).to eq("hit")
+  end
+
+  it "TEST-01: a disagreeing sidecar pin is a cache miss, never a silent hit" do
+    umbrella_dir = File.join(tmpdir, "umbrella")
+    output_dir = File.join(tmpdir, "proxy")
+    cache_dir = File.join(tmpdir, "cache")
+    [umbrella_dir, output_dir, cache_dir].each { |d| FileUtils.mkdir_p(d) }
+
+    FileUtils.mkdir_p(File.join(cache_dir, "SomePkg.xcframework"))
+    write_sidecar(cache_dir, "SomePkg", pins: { "SomePkg" => "bbb222" })
+
+    lockfile = File.join(tmpdir, "lockfile.json")
+    write_lockfile(lockfile, project_name: "FixtureApp.xcodeproj", packages: [
+      {
+        "repositoryURL" => "https://example.invalid/SomePkg.git",
+        "name" => "SomePkg",
+        "product_name" => "SomePkg",
+        "revision" => "aaa111",
+      },
+    ])
+
+    run_gen_proxy(umbrella_dir: umbrella_dir, lockfile: lockfile, output_dir: output_dir, cache_dir: cache_dir)
+
+    expect(statuses_from(output_dir)["SomePkg"]).to eq("missed")
+  end
+
+  it "TEST-01: no sidecar at all is a miss (the v0.3.0-upgrade signal)" do
+    umbrella_dir = File.join(tmpdir, "umbrella")
+    output_dir = File.join(tmpdir, "proxy")
+    cache_dir = File.join(tmpdir, "cache")
+    [umbrella_dir, output_dir, cache_dir].each { |d| FileUtils.mkdir_p(d) }
+
+    FileUtils.mkdir_p(File.join(cache_dir, "SomePkg.xcframework"))
+    # Deliberately no provenance.json sidecar written for SomePkg.
+
+    lockfile = File.join(tmpdir, "lockfile.json")
+    write_lockfile(lockfile, project_name: "FixtureApp.xcodeproj", packages: [
+      {
+        "repositoryURL" => "https://example.invalid/SomePkg.git",
+        "name" => "SomePkg",
+        "product_name" => "SomePkg",
+        "revision" => "aaa111",
+      },
+    ])
+
+    run_gen_proxy(umbrella_dir: umbrella_dir, lockfile: lockfile, output_dir: output_dir, cache_dir: cache_dir)
+
+    expect(statuses_from(output_dir)["SomePkg"]).to eq("missed")
+  end
+end
