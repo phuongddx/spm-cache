@@ -53,14 +53,18 @@ module SPMCache
           FileUtils.mkdir_p(out_dir)
 
           seed_snapshot, seeded = seed_host_graph(name, pkg_dir, resolved_pins_file)
-          # Captured immediately, from resolved_pins_file only -- never
-          # re-derived from pkg_dir/Package.resolved after perform_build runs,
-          # since that path may itself hold the realized (possibly drifted)
-          # content by the time it's read a second time (Pitfall 1).
-          intended_pin_map = seeded ? pin_value_map(Core::PackageResolved.pins_or_nil(resolved_pins_file)) : nil
 
           success = false
           begin
+            # Captured immediately, from resolved_pins_file only -- never
+            # re-derived from pkg_dir/Package.resolved after perform_build runs,
+            # since that path may itself hold the realized (possibly drifted)
+            # content by the time it's read a second time (Pitfall 1). Lives
+            # inside this begin block (not between seed_host_graph and begin)
+            # so the ensure's "seeded checkout restored on any failure" holds
+            # for every statement that runs after seeding, not just the ones
+            # after this line.
+            intended_pin_map = seeded ? pin_value_map(Core::PackageResolved.pins_or_nil(resolved_pins_file)) : nil
             result, built_destinations = perform_build(name: name, pkg_dir: pkg_dir, destinations: destinations,
                                                          out_dir: out_dir, library_evolution: library_evolution,
                                                          clones_dir: clones_dir)

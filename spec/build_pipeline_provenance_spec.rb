@@ -186,6 +186,61 @@ RSpec.describe SPMCache::SPM::BuildPipeline, "provenance sidecar destinations re
   end
 end
 
+RSpec.describe SPMCache::SPM::BuildPipeline, "the seeded checkout is restored even if intended_pin_map computation itself raises (WR-02)" do
+  let(:tmpdir) { Dir.mktmpdir }
+  let(:pkg_dir) { File.join(tmpdir, "pkg") }
+  let(:out_dir) { File.join(tmpdir, "out") }
+  let(:resolved_pins_file) { File.join(tmpdir, "host-Package.resolved") }
+
+  def stub_desc_products(products)
+    fake_desc = instance_double(SPMCache::SPM::Desc::Description)
+    allow(SPMCache::SPM::Desc::Description).to receive(:new).and_return(fake_desc)
+    allow(fake_desc).to receive(:fetch)
+    allow(fake_desc).to receive(:products).and_return(
+      products.map { |p| SPMCache::SPM::Desc::Product.new(raw: p, pkg_dir: pkg_dir) },
+    )
+    allow(fake_desc).to receive(:raw).and_return({ "targets" => [] })
+    fake_desc
+  end
+
+  before do
+    FileUtils.mkdir_p(pkg_dir)
+    FileUtils.mkdir_p(out_dir)
+    File.write(resolved_pins_file,
+               JSON.generate("pins" => [{ "identity" => "SomePkg", "state" => { "revision" => "aaa" } }]))
+    stub_desc_products([{ "name" => "SomePkg", "type" => { "library" => ["automatic"] } }])
+  end
+
+  after { FileUtils.rm_rf(tmpdir) }
+
+  it "restores (removes) the just-seeded Package.resolved when computing intended_pin_map raises, instead of leaving it seeded" do
+    resolved_path = File.join(pkg_dir, "Package.resolved")
+    expect(File.exist?(resolved_path)).to be false
+
+    allow(SPMCache::Core::PackageResolved).to receive(:pins_or_nil).with(resolved_pins_file)
+                                                                    .and_raise("boom: simulated parse crash")
+    expect(SPMCache::SPM::Buildable).not_to receive(:new)
+
+    expect {
+      described_class.run(
+        name: "SomePkg",
+        pkg_dir: pkg_dir,
+        destinations: ["iphonesimulator"],
+        out_dir: out_dir,
+        resolved_pins_file: resolved_pins_file,
+        config: "debug",
+      )
+    }.to raise_error(/boom: simulated parse crash/)
+
+    # seed_host_graph copied resolved_pins_file's content into pkg_dir before
+    # intended_pin_map's computation raised; since nothing existed there
+    # beforehand, restore! must remove it again -- proving the ensure's
+    # "seeded checkout restored on any failure" guarantee actually covers
+    # this statement, not just perform_build.
+    expect(File.exist?(resolved_path)).to be false
+  end
+end
+
 RSpec.describe SPMCache::SPM::BuildPipeline, "not-graph-pinned paths never write a provenance sidecar, and clean up any stale one" do
   let(:tmpdir) { Dir.mktmpdir }
   let(:pkg_dir) { File.join(tmpdir, "pkg") }
