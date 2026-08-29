@@ -498,11 +498,11 @@ this phase's new logic, and confirms (via a binary diff of the linked framework 
 DerivedData, or a fresh symbol/version check) that the new content actually made it into the app
 binary without a manual DerivedData clear.
 
-## Open Questions
+## Open Questions (RESOLVED)
 
-1. **Should `spm-cache pkg build` (the standalone per-package build CLI, distinct from
+1. **RESOLVED — 09-01-PLAN.md `<context>`: `spm-cache pkg build`'s `--out` defaults to CWD, structurally distinct from the shared `~/.spm-cache/<config>/` dir; out of scope for CACHE-02, confirmed by direct read of `command/pkg/build.rb` during planning.** Should `spm-cache pkg build` (the standalone per-package build CLI, distinct from
    `Installer::Build`) also get a `not-graph-pinned` sidecar write on its unseeded path, or is its
-   output cache-dir structurally out of scope for CACHE-02 entirely?**
+   output cache-dir structurally out of scope for CACHE-02 entirely?
    - What we know: `resolved_pins_file` is `nil` by design for this path
      (`build_pipeline.rb:37-41`, verified comment: "nil (the default) disables seeding entirely...
      so `spm-cache pkg build` (which never passes this) is unaffected"), so it already takes the
@@ -514,8 +514,8 @@ binary without a manual DerivedData clear.
      default before writing tasks; if it shares the cache dir, Pattern 3's fix already covers it
      for free (same code path).
 
-2. **Does `Installer::Use#fast_path?`'s version-stamp read need its own lightweight JSON parse, or
-   should it reuse `Core::Lockfile`?**
+2. **RESOLVED — 09-02-PLAN.md `<context>` and Task 1 `<action>`: reuses `Core::Lockfile` rather than hand-rolling a second JSON reader.** Does `Installer::Use#fast_path?`'s version-stamp read need its own lightweight JSON parse, or
+   should it reuse `Core::Lockfile`?
    - What we know: `@lockfile` (the ivar) is `nil` at the point `fast_path?` runs today (only
      populated inside `sync_lockfile`, which the fast path skips) — confirmed by reading
      `installer.rb`'s `initialize` and `sync_lockfile`.
