@@ -589,14 +589,35 @@ end
 # SC4 sweep: hermeticity as an executable assertion, not a convention -- the
 # default-deny guard itself fails an example the moment any leg attempts an
 # unexpected real shell-out (both Core::Sh entry points carry the guard; the
-# tier-3 legs' only subprocess is the local compiled proxy binary).
+# tier-3 legs' only subprocess is the local compiled proxy binary). The audit
+# drives REAL production shell-out seams -- the exact calls the matrix legs'
+# object stubs intercept -- and requires the guard to intercept them, so it
+# has teeth against production: a change that bypassed Core::Sh (backticks,
+# system, raw Open3) or stopped routing an entry point through Sh.run makes
+# this example fail (no raise) instead of echoing the stub back to itself.
 RSpec.describe "TEST-03 SC4: matrix hermeticity audit" do
-  it "TEST-03 SC4: the default-deny guard raises on any unexpected real shell-out instead of running it" do
-    allow(SPMCache::Core::Sh).to receive(:run) do |cmd, *_opts|
-      raise "unexpected real invocation: Sh.run(#{cmd.inspect})"
+  it "TEST-03 SC4: the default-deny guard intercepts real production shell-out paths instead of running them" do
+    Dir.mktmpdir do |pkg_dir|
+      allow(SPMCache::Core::Sh).to receive(:run) do |cmd, *_opts|
+        raise "unexpected real invocation: Sh.run(#{cmd.inspect})"
+      end
+
+      # Seam 1 -- Desc::Description#fetch (desc/base.rb) is the tier-1 legs'
+      # one real shell-out: `swift package describe --type json` via Sh.run.
+      # Nothing else is stubbed here, so production code must genuinely route
+      # through Core::Sh for the guard to intercept the call.
+      expect {
+        SPMCache::SPM::Desc::Description.new(name: "Foo", pkg_dir: pkg_dir).fetch
+      }.to raise_error(RuntimeError, /unexpected real invocation: Sh\.run\("swift package describe/)
+
+      # Seam 2 -- BuildPipeline.resolve_scheme_fallback shells out via
+      # Sh.capture_output ("xcodebuild -list"), deliberately NOT stubbed
+      # directly: capture_output must route through the stubbed Sh.run for
+      # the guard to intercept it, proving the second public entry point is
+      # covered by the same default-deny guard.
+      expect {
+        SPMCache::SPM::BuildPipeline.send(:resolve_scheme_fallback, "Foo", pkg_dir)
+      }.to raise_error(RuntimeError, /unexpected real invocation: Sh\.run\("xcodebuild -list/)
     end
-    expect {
-      SPMCache::Core::Sh.run("xcodebuild -project Fake.xcodeproj -scheme Fake build")
-    }.to raise_error(RuntimeError, /unexpected real invocation: Sh\.run\("xcodebuild/)
   end
 end
