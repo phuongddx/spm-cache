@@ -2,26 +2,26 @@
 gsd_state_version: 1.0
 milestone: v0.4.0
 milestone_name: Build Fidelity & Release Automation
-current_phase: 09
-current_phase_name: Cache Identity & Invalidation
-status: executing
-stopped_at: Phase 08 complete, ready to plan Phase 9
-last_updated: "2026-08-29T10:53:20.582Z"
+current_phase: 10 — Fidelity Regression Coverage
+current_phase_name: Fidelity Regression Coverage
+status: planning
+stopped_at: Phase 09 complete, ready to plan Phase 10
+last_updated: "2026-08-29T14:30:23.351Z"
 last_activity: 2026-08-29
-last_activity_desc: Phase 09 execution started
-state_head: 9935f0bf8f5006555f1215c102511d5006d74a07
+last_activity_desc: Phase 09 complete (UAT 1/1 pass — SC5 operator PASS)
 progress:
   total_phases: 6
-  completed_phases: 3
+  completed_phases: 4
   total_plans: 12
-  completed_plans: 9
-  percent: 50
+  completed_plans: 12
+  percent: 67
+state_head: 9935f0bf8f5006555f1215c102511d5006d74a07
 ---
 
 # Project State: spm-cache
 
 **Initialized:** 2026-08-10
-**Current Phase:** 09
+**Current Phase:** 10 — Fidelity Regression Coverage
 **Project Mode:** Horizontal Layers
 **Direction:** v0.4.0 Build fidelity (correctness) + release automation
 
@@ -124,7 +124,7 @@ MediaPicker 3.2.4 while the app resolves 3.3.2.
 | 6 | Graph Authority — Lockfile Reconciliation | Complete (verified) | gsd/v0.4.0-build-fidelity-release-automation |
 | 7 | Host-Faithful Checkout Seeding | Complete (verified 5/5, code-review clean) | gsd/v0.4.0-build-fidelity-release-automation |
 | 8 | Drift Read-Back, Fidelity Status & Provenance | Complete (verified 8/8, code-review clean after 2 fix iterations) | gsd/v0.4.0-build-fidelity-release-automation |
-| 9 | Cache Identity & Invalidation | Not started | — |
+| 9 | Cache Identity & Invalidation | Complete (verified 4/5 + SC5 operator-PASS, UAT 1/1, code-review clean, security 5/5 closed) | gsd/v0.4.0-build-fidelity-release-automation |
 | 10 | Fidelity Regression Coverage | Not started | — |
 | 11 | Homebrew Release Automation | Not started | — |
 
@@ -209,12 +209,12 @@ Phase 11 (release automation) is unaffected — it is fully independent.
 See: .planning/PROJECT.md (updated 2026-08-29)
 
 **Core value:** Reduce Xcode clean build times by serving prebuilt SPM dependency binaries transparently, with fallback to source on cache miss.
-**Current focus:** Phase 09 — Cache Identity & Invalidation
+**Current focus:** Phase 10 — Fidelity Regression Coverage
 
 ## Session Continuity
 
-Last session: 2026-08-29T10:04:00.000Z
-Stopped at: Phase 08 complete, ready to plan Phase 9
+Last session: 2026-08-29T14:30:00.000Z
+Stopped at: Phase 09 complete, ready to plan Phase 10
 Resume file: None
 
 ## Performance Metrics
@@ -257,13 +257,14 @@ Resume file: None
 - [Phase 07 — Host-Faithful Checkout Seeding (2/2 plans — Phase 7 complete)]: 07-02 shipped `Config#clones_dir`/`#build_lock_path`, threaded `clones_dir` through both `Buildable.new` call sites (including `run_with_scheme`'s vendored-.xcodeproj fallback), and a process-level blocking flock shared by `Installer::Build` (held across `super` + the whole build loop) and `Installer::Use`'s non-fast-path branch (blocks before `recreate_dirs`) — closing Pitfall 15. PERF-01 proven by a real cold-cache `spm-cache build --config=release` against the StressMonitor reference project: wall-clock 18m15s→10m50s (-40.6%), `~/.spm-cache` disk 4.1G→2.7G (-34%), no regression on either axis (`07-BENCHMARK.md`). A pre-existing, out-of-scope Class E binaryTarget rename gap (3 Firebase Analytics variant products backed by one differently-named binaryTarget) was discovered live during the benchmark and worked around via the reference project's own gitignored `ignore_build_errors: true` knob (not fixed, logged only — present identically on both before/after commits so it does not bias the comparison). FID-02, FID-05, PERF-01 all Complete — Phase 7 fully done.
 - [Phase 07 — canonical verification + code review, 2026-08-29]: Re-planning found nothing left to plan (research independently re-derived all 5 success criteria from source, 341/0 suite) — user chose "view existing, skip replanning" over adding a plan or replanning from scratch. Code review then found 2 Critical + 6 Warning + 3 Info findings against the already-shipped Phase 7 code: CR-01 (`Installer::Use`'s build lock didn't cover trailing `gen_supporting_files`/`integrate_proxy_into_project`/`gen_cachemap_viz`) was only partially fixed by a fixer agent that crashed mid-run (transient API connection error) — its own commit left the fast-path branch of the same three calls unlocked and added a test asserting the wrong invariant ("nothing to protect against" on the fast path); a re-review caught this as CR-01b and it was closed by locking both branches identically. CR-02 (`slice_complete?` treating a hit-but-missing-from-disk xcframework as complete) was fixed cleanly with a new regression test. 5 of 6 warnings fixed (opts-splat bug, slice_satisfies? catch-all, duplicated swiftinterface scan, 3 overly-broad rescues narrowed, redundant resolve_destinations branches); WR-05 (sleep-based lock-contention timing specs) deliberately left unchanged after independent analysis found the flake risk low and the tests load-bearing. Final re-review (iteration 3 of the 3-iteration cap) converged clean. Canonical goal-backward verification then passed 5/5. `gsd-tools.cjs query phase.complete 7` itself had a bug (see Phase 7 Process Notes above) — computed `next_phase: 6` when Phase 6 was already complete; corrected manually to Phase 8 during transition.
 - [Phase 08 — Drift Read-Back, Fidelity Status & Provenance, 2026-08-29, autonomous execution]: Both plans executed sequentially (workflow.use_worktrees=false) via `/gsd-autonomous --from 8`. 08-01 shipped `BuildPipeline#report_fidelity` (drift read-back, host-pinned/resolution-incompatible classification, provenance sidecar write/cleanup) as a single consolidated insertion point covering all three artifact-producing paths uniformly; threaded `config:` into `Installer::Build`'s call site. 08-02 shipped `cache list`'s per-package fidelity-status column (`Dir.glob("*.xcframework")` replacing raw `Dir.entries`, fixing a pre-existing bug where sidecar files printed as spurious package entries). Deep code review (5 files) found 1 Critical + 3 Warning + 1 Info; a 2-iteration auto-fix loop closed all Critical/Warning findings (CR-01: reject non-Hash JSON + rescue SystemCallError in `cache list`'s TOCTOU race; WR-01: track actually-built destinations instead of the raw request; WR-02: move `intended_pin_map` capture inside the seed/restore exception boundary; WR-03: atomic tempfile-then-rename sidecar write, never raises) plus one finding the re-review itself surfaced mid-loop (WR-04: Class E's direct-copy path narrowed to actual xcframework slices via a new `slice_satisfies?`, mirroring `Installer::Build`'s existing predicate). Final re-review (iteration 3) converged at 0 Critical/0 Warning — 2 Info items (one pre-existing, one code-duplication note on the newly-added `slice_satisfies?`) deliberately left unfixed, out of `critical_warning` scope. Canonical goal-backward verification passed 8/8; full suite 342→368 (+26), 0 failures throughout. `gsd-tools.cjs query phase.complete 8` reproduced the SAME `next_phase` bug as the Phase 7 transition (returned `6` instead of `9`, both already complete) — corrected manually to Phase 9 again; still not filed upstream.
+- [Phase 09 — Cache Identity & Invalidation, 2026-08-29]: 09-01 made the Swift companion's `BinariesCache.hit()` provenance-aware (sidecar `pins[identity]` vs lockfile pin; intersection-only comparison — absence is never drift; any parse anomaly is an unconditional miss); 09-02 closed the default-command gap (`fast_path?` gains a `spm_cache_version` stamp guard so any spm-cache bump forces one full regen) and added `cache clean`'s orphan-sidecar sweep (D-10 paired survival); 09-03 authored the SC5 empirical DerivedData runbook. Verification 4/5 + SC5 operator-PASS via UAT; deep code review converged clean after CR-01 (drop pre-emptive provenance `rm_f` in `copy_prebuilt_binary_target`, preserving prior host-pinned pins per WR-03); security audit 5/5 threats closed (3 mitigated, 2 accepted); suites 387 Ruby / 36 Swift green. `phase.complete 9` computed `next_phase: 10` correctly this time. Tooling quirk (4th, unfixed upstream): any extra `*-VERIFICATION.md` sorting before the canonical report shadows status reads — `gsd-tools` reads only the first sorted candidate, so the SC5 runbook made every status surface report "missing"; resolved by giving the runbook accurate frontmatter (`status: passed`) rather than renaming it.
 
 ## Current Position
 
-Phase: 09 (Cache Identity & Invalidation) — EXECUTING
-Plan: 1 of 3
-Status: Executing Phase 09
-Last activity: 2026-08-29 — Phase 09 execution started
+Phase: 10 (Fidelity Regression Coverage) — READY TO PLAN
+Plan: Not started
+Status: Ready to plan
+Last activity: 2026-08-29 — Phase 9 complete, transitioned to Phase 10
 
 ### Historical position (Phase 6, prior to this update)
 
@@ -274,12 +275,10 @@ Last activity: 2026-08-27 — 06-02 shipped Core::PackageResolved, collapsed all
 
 ## Deferred Verification
 
-| Phase | State | Resume |
-|-------|-------|--------|
-| 9 | verification_deferred_human | `/gsd-verify-work 9` |
+None — Phase 9's deferred SC5 human check was executed and PASSED by the operator on 2026-08-29
+(`09-UAT.md` 1/1 pass; `09-SC5-VERIFICATION.md` `## Outcome`).
 
 ## Operator Next Steps
 
-- **Phase 9 SC5:** run `.planning/phases/09-cache-identity-invalidation/09-SC5-VERIFICATION.md`'s 5-step procedure against the real StressMonitor reference project in Xcode, then record PASS/FAIL in that file's `## Outcome` section and resolve via `/gsd-verify-work 9`. All 4 automated success criteria (SC1-SC4) and both requirements (CACHE-02, CACHE-03) already passed; only this empirical DerivedData-staleness check needs a human with Xcode.
 - **Phase 11 gate:** create a GitHub App owned by `phuongddx` (`Contents: read & write` + `Metadata: read`, installed on `homebrew-spm-cache` only, never `workflow` scope) and store its app id + private key as repo secrets. This replaces the dead `TAP_REPO_TOKEN` (classic PAT, auto-deleted after a year unused). A write-access deploy key is the accepted lower-ceremony substitute.
 - Deferred (not in v0.4.0): `gem signin` → `gem build`/`gem push` → verify `gem install spm-cache`; then the Action + its smoke CI become viable.

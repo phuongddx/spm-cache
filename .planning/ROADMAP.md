@@ -49,7 +49,7 @@ repair the Homebrew release path so shipping stops requiring manual steps.
 - [ ] **Phase 6: Graph Authority — Lockfile Reconciliation** - The lockfile spm-cache builds from always describes the host's *current* resolved graph
 - [x] **Phase 7: Host-Faithful Checkout Seeding** - Every per-package build resolves transitive deps from the host graph, not its own requirements (completed 2026-08-29)
 - [x] **Phase 8: Drift Read-Back, Fidelity Status & Provenance** - Realized versions are read back, compared, reported, and recorded per artifact (completed 2026-08-29)
-- [ ] **Phase 9: Cache Identity & Invalidation** - Provenance mismatch (or absence) is a cache miss, so existing users actually receive the fix
+- [x] **Phase 9: Cache Identity & Invalidation** - Provenance mismatch (or absence) is a cache miss, so existing users actually receive the fix (completed 2026-08-29)
 - [ ] **Phase 10: Fidelity Regression Coverage** - Hermetic specs make transitive-version drift unable to silently return
 - [ ] **Phase 11: Homebrew Release Automation** - Releases publish the formula unattended, and every failure in that path is loud
 
@@ -155,9 +155,9 @@ alone; found the Class E cache-defeat hazard (Pattern 3) and the `Installer::Use
 version-awareness gap (Pitfall 2), both incorporated into the plan below.
 **Plans**: 3 plans across 2 waves
 
-- [ ] 09-01-PLAN.md — CACHE-02 core: provenance-aware `hit()`, Class E safety net (Pattern 3), real-binary SC1/SC2/SC3 proof
-- [ ] 09-02-PLAN.md — `spm-cache use` fast-path version gate (default-command SC1 closure) + CACHE-03 `cache clean` orphan-sidecar sweep
-- [ ] 09-03-PLAN.md — SC5 empirical verification runbook (DerivedData staleness, human-check at end-of-phase)
+- [x] 09-01-PLAN.md — CACHE-02 core: provenance-aware `hit()`, Class E safety net (Pattern 3), real-binary SC1/SC2/SC3 proof
+- [x] 09-02-PLAN.md — `spm-cache use` fast-path version gate (default-command SC1 closure) + CACHE-03 `cache clean` orphan-sidecar sweep
+- [x] 09-03-PLAN.md — SC5 empirical verification runbook (DerivedData staleness, human-check at end-of-phase)
 
 ### Phase 10: Fidelity Regression Coverage
 
@@ -213,7 +213,7 @@ version-awareness gap (Pitfall 2), both incorporated into the plan below.
 | 6. Graph Authority — Lockfile Reconciliation | v0.4.0 | 5/5 | In Progress|  |
 | 7. Host-Faithful Checkout Seeding | v0.4.0 | 2/2 | Complete    | 2026-08-29 |
 | 8. Drift Read-Back, Fidelity Status & Provenance | v0.4.0 | 2/2 | Complete    | 2026-08-29 |
-| 9. Cache Identity & Invalidation | v0.4.0 | 0/TBD | Not started | - |
+| 9. Cache Identity & Invalidation | v0.4.0 | 3/3 | Complete    | 2026-08-29 |
 | 10. Fidelity Regression Coverage | v0.4.0 | 0/TBD | Not started | - |
 | 11. Homebrew Release Automation | v0.4.0 | 0/TBD | Not started | - |
 

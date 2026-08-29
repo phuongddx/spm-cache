@@ -17,8 +17,8 @@
 ### Cache Identity
 
 - [x] **CACHE-01**: Each cached `.xcframework` records the graph provenance it was built against (realized pins, spm-cache version, config, destination set)
-- [ ] **CACHE-02**: A cache hit requires recorded provenance to match the current host graph; **missing provenance counts as a miss**, producing a one-time rebuild that delivers the fix to existing users
-- [ ] **CACHE-03**: `cache clean` sweeps provenance sidecars alongside the artifacts they describe
+- [x] **CACHE-02**: A cache hit requires recorded provenance to match the current host graph; **missing provenance counts as a miss**, producing a one-time rebuild that delivers the fix to existing users
+- [x] **CACHE-03**: `cache clean` sweeps provenance sidecars alongside the artifacts they describe
 
 ### Diagnostics
 
@@ -118,8 +118,8 @@ Which phases cover which requirements. Populated during roadmap creation.
 | FID-05 | Phase 7 | Complete |
 | FID-06 | Phase 6 | Complete |
 | CACHE-01 | Phase 8 | Complete |
-| CACHE-02 | Phase 9 | Pending |
-| CACHE-03 | Phase 9 | Pending |
+| CACHE-02 | Phase 9 | Complete |
+| CACHE-03 | Phase 9 | Complete |
 | DIAG-01 | Phase 6 | Complete |
 | DIAG-02 | Phase 8 | Complete |
 | TEST-01 | Phase 10 | Pending |
