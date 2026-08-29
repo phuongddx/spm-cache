@@ -309,6 +309,85 @@ RSpec.describe SPMCache::SPM::BuildPipeline, "TEST-03: v0.2.x edge-class fixture
       expect(result).to eq(File.join(out_dir, "FirebaseAnalyticsWithoutAdIdSupport.xcframework"))
     end
   end
+
+  # The narrow pin shape of a macro package: the macro package's own pin
+  # plus the exact swift-syntax revision its implementation target builds
+  # against -- the identity whose silent re-resolution is this class's
+  # fidelity contract. No macro-specific production code exists to drive;
+  # the class IS the pin data.
+  def macro_pins
+    { "macro-kit" => "mmm111", "swift-syntax" => "aaa111" }
+  end
+
+  # Standard tier-1 leg for the macro package whose build_for_destination
+  # rewrites pkg_dir/Package.resolved with `realized_pins` before returning
+  # its artifacts (the proven drift-injection idiom).
+  def run_macro_with_realized_pins(realized_pins)
+    fake_buildable = instance_double(SPMCache::SPM::Buildable)
+    allow(SPMCache::SPM::Buildable).to receive(:new).and_return(fake_buildable)
+    allow(fake_buildable).to receive(:build_for_destination) do |*_args, **_kwargs|
+      write_resolved_pins(File.join(pkg_dir, "Package.resolved"), realized_pins)
+      {
+        derived_data: "/dd",
+        object_file: "/dd/MacroKit.o",
+        swiftmodule: nil, swiftdoc: nil, swiftsourceinfo: nil, swiftinterface: nil,
+      }
+    end
+    allow(fake_buildable).to receive(:create_framework) do |_arts, subdir|
+      fw = File.join(subdir, "MacroKit.framework")
+      FileUtils.mkdir_p(fw)
+      File.write(File.join(fw, "MacroKit"), "stub")
+      fw
+    end
+
+    described_class.run(
+      name: "MacroKit", pkg_dir: pkg_dir, destinations: ["iphonesimulator"],
+      out_dir: out_dir, resolved_pins_file: resolved_pins_file, config: "debug",
+    )
+  end
+
+  describe "class 2/8: macro with a narrow swift-syntax pin" do
+    it "TEST-03 class 2/8: an agreeing narrow swift-syntax pin stays host-pinned silently; a drifted revision warns and is resolution-incompatible" do
+      write_resolved_pins(resolved_pins_file, macro_pins)
+      stub_desc_products(
+        [{ "name" => "MacroKit", "type" => { "library" => ["automatic"] } }],
+        pkg_dir: pkg_dir,
+        raw_targets: [
+          { "name" => "MacroKit", "module_type" => "SwiftTarget", "path" => "Sources/MacroKit",
+            "target_dependencies" => ["swift-syntax"] },
+        ],
+      )
+      allow(SPMCache::SPM::XCFramework::XCFramework).to receive(:new).and_return(
+        double("XCFramework", build: File.join(out_dir, "MacroKit.xcframework")),
+      )
+
+      # Direction 1 -- the agreeing narrow pin: host-pinned, and no drift
+      # warn names the swift-syntax identity (false-positive guard).
+      agreeing = nil
+      expect {
+        agreeing = run_macro_with_realized_pins(macro_pins)
+      }.to output(/MacroKit: host-pinned/).to_stdout
+      expect {
+        run_macro_with_realized_pins(macro_pins)
+      }.not_to output(/drift detected/).to_stderr
+      agreeing_sidecar = JSON.parse(File.read("#{agreeing}.provenance.json"))
+      expect(agreeing_sidecar["fidelity_status"]).to eq("host-pinned")
+      expect(agreeing_sidecar["pins"]).to include("swift-syntax" => "aaa111")
+
+      # Direction 2 -- the drifted swift-syntax revision (the macro's own
+      # pin still agreeing): the warn names the swift-syntax identity with
+      # both values, and the sidecar flips to resolution-incompatible with
+      # the drifted value on record.
+      drifted = nil
+      expect {
+        drifted = run_macro_with_realized_pins("macro-kit" => "mmm111", "swift-syntax" => "bbb222")
+      }.to output(/resolution-incompatible/).to_stdout
+        .and output(/swift-syntax.*aaa111.*bbb222/).to_stderr
+      drifted_sidecar = JSON.parse(File.read("#{drifted}.provenance.json"))
+      expect(drifted_sidecar["fidelity_status"]).to eq("resolution-incompatible")
+      expect(drifted_sidecar["pins"]).to include("swift-syntax" => "bbb222")
+    end
+  end
 end
 
 # TEST-03 tier-3 legs: the plugin-only and transitive-only classes are
@@ -408,5 +487,116 @@ RSpec.describe "TEST-03: v0.2.x edge-class fixture matrix (tier-3 legs via compi
     declared = JSON.parse(File.read(lockfile)).fetch("MatrixApp.xcodeproj")
                    .fetch("packages").map { |p| p.fetch("name") }
     expect(declared).to include("swift-syntax")
+  end
+end
+
+# TEST-03 class 6/8 (resource bundle): the REAL Desc::Target parser resolves
+# the describe-JSON resources array, and the REAL slice copy behavior
+# (FrameworkSlice#copy_resource_bundles -- glob *.bundle from the build
+# products into the framework path, skipping existing destinations, Pitfall
+# 14's stale-bundle semantics) delivers the bundle into the assembled
+# framework.
+#
+# DISCOVERED PRE-EXISTING GAPS (logged in 10-03-SUMMARY.md, out of scope for
+# this zero-production-change phase) -- FrameworkSlice is unwired dead code
+# with three independent defects keeping its public #create_framework from
+# ever reaching the resource copy: (1) Desc::Target#resource_paths is PRIVATE
+# (target.rb:123 sits below the first `private`), so slice.rb's
+# `respond_to?(:resource_paths)` guards are always false; (2) slice.rb:64
+# calls bare `Sh`, a NameError inside that namespace; (3) its
+# Utils::Template.render_to calls render templates whose `<%= module_name %>`
+# placeholders have no binding (the LIVE assembly path,
+# Buildable#framework_info_plist, inlines the plist instead). The spec
+# therefore drives the real copy behavior directly against the slice's
+# public framework_path destination -- the semantics this class pins.
+RSpec.describe SPMCache::SPM::XCFramework::FrameworkSlice, "TEST-03 class 6/8: resource bundle" do
+  let(:tmpdir) { Dir.mktmpdir }
+  let(:pkg_dir) { File.join(tmpdir, "pkg") }
+
+  before do
+    FileUtils.mkdir_p(pkg_dir)
+    allow(SPMCache::Core::Sh).to receive(:run) do |cmd, *_opts|
+      raise "unexpected real invocation: Sh.run(#{cmd.inspect})"
+    end
+    allow(SPMCache::Core::Sh).to receive(:capture_output) do |cmd, *_opts|
+      raise "unexpected real invocation: Sh.capture_output(#{cmd.inspect})"
+    end
+  end
+
+  after { FileUtils.rm_rf(tmpdir) }
+
+  # A describe-JSON target carrying a resources array (the swift package
+  # describe shape: entries with a path plus a copy rule).
+  def resource_bundle_target_raw
+    {
+      "name" => "BundleHost", "module_type" => "SwiftTarget",
+      "resources" => [{ "path" => "SomeResources", "rule" => { "copy" => {} } }],
+    }
+  end
+
+  # Builds a real slice whose framework destination is a freshly assembled
+  # <out>/BundleHost.framework directory (the duck-typed buildable supplies
+  # only build_products_dir -- the one collaborator the copy reads).
+  def slice_against_framework_at(fw_parent)
+    build_products = File.join(tmpdir, "products")
+    FileUtils.mkdir_p(build_products)
+    fw_path = File.join(fw_parent, "BundleHost.framework")
+    FileUtils.mkdir_p(fw_path)
+    buildable = double("SliceBuildable", build_products_dir: build_products)
+    target = SPMCache::SPM::Desc::Target.new(raw: resource_bundle_target_raw, pkg_dir: pkg_dir)
+    sdk = double("SDK", triple: "arm64-apple-ios-simulator")
+    slice = described_class.new(target: target, sdk: sdk, buildable: buildable)
+    slice.instance_variable_set(:@framework_path, fw_path)
+    [slice, fw_path]
+  end
+
+  it "TEST-03 class 6/8: the resources array parses to a joined path and the built *.bundle is delivered into the assembled framework" do
+    target = SPMCache::SPM::Desc::Target.new(raw: resource_bundle_target_raw, pkg_dir: pkg_dir)
+
+    # REAL parser: Desc::Target#resource_paths resolves the resources array
+    # into a joined path under pkg_dir. Called via send because the method
+    # is private (gap #1 above the describe block).
+    expect(target.send(:resource_paths)).to eq([File.join(pkg_dir, "SomeResources")])
+
+    # The built bundle where the real copy behavior globs it from: the build
+    # products location (swiftc materializes a target's resource directory
+    # as <name>.bundle there).
+    built_bundle = File.join(tmpdir, "products", "SomeResources.bundle")
+    FileUtils.mkdir_p(built_bundle)
+    File.write(File.join(built_bundle, "asset.txt"), "fresh\n")
+
+    # REAL copy behavior, fresh destination: the bundle is delivered into
+    # the assembled framework path, contents intact.
+    fresh_slice, fw_path = slice_against_framework_at(File.join(tmpdir, "fw-out"))
+    fresh_slice.send(:copy_resource_bundles)
+    expect(fw_path).to eq(File.join(tmpdir, "fw-out", "BundleHost.framework"))
+    copied = File.join(fw_path, "SomeResources.bundle")
+    expect(File.directory?(copied)).to be true
+    expect(File.read(File.join(copied, "asset.txt"))).to eq("fresh\n")
+
+    # Pitfall 14 semantics (the unless-exists skip): a destination bundle
+    # already present is NOT overwritten -- a stale bundle persists rather
+    # than being refreshed by the copy.
+    stale_slice, _stale_fw = slice_against_framework_at(File.join(tmpdir, "fw-stale"))
+    stale_bundle = File.join(stale_slice.framework_path, "SomeResources.bundle")
+    FileUtils.mkdir_p(stale_bundle)
+    File.write(File.join(stale_bundle, "asset.txt"), "stale\n")
+    stale_slice.send(:copy_resource_bundles)
+    expect(File.read(File.join(stale_bundle, "asset.txt"))).to eq("stale\n")
+  end
+end
+
+# SC4 sweep: hermeticity as an executable assertion, not a convention -- the
+# default-deny guard itself fails an example the moment any leg attempts an
+# unexpected real shell-out (both Core::Sh entry points carry the guard; the
+# tier-3 legs' only subprocess is the local compiled proxy binary).
+RSpec.describe "TEST-03 SC4: matrix hermeticity audit" do
+  it "TEST-03 SC4: the default-deny guard raises on any unexpected real shell-out instead of running it" do
+    allow(SPMCache::Core::Sh).to receive(:run) do |cmd, *_opts|
+      raise "unexpected real invocation: Sh.run(#{cmd.inspect})"
+    end
+    expect {
+      SPMCache::Core::Sh.run("xcodebuild -project Fake.xcodeproj -scheme Fake build")
+    }.to raise_error(RuntimeError, /unexpected real invocation: Sh\.run\("xcodebuild/)
   end
 end
