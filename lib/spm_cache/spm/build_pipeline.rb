@@ -118,8 +118,17 @@ module SPMCache
             # graph to attest to, and overwriting a previously host-pinned
             # entry with `{}` would make that cache entry permanently hit
             # against any future pin -- the exact identity-collision failure
-            # mode CACHE-02 exists to prevent.
-            return if existing_sidecar_pins(output_path)&.any?
+            # mode CACHE-02 exists to prevent. Merge rather than early-return,
+            # though: a brand-new xcframework was just written to this exact
+            # output_path by perform_build, so config/destinations/
+            # spm_cache_version must describe THIS build even when pins is
+            # carried over from the previous sidecar (CACHE-01's contract).
+            preserved_pins = existing_sidecar_pins(output_path)
+            if preserved_pins&.any?
+              write_provenance_sidecar(output_path, status: "host-pinned", pins: preserved_pins,
+                                                     config: config, destinations: destinations)
+              return
+            end
 
             write_provenance_sidecar(output_path, status: "not-graph-pinned", pins: {},
                                                    config: config, destinations: destinations)
