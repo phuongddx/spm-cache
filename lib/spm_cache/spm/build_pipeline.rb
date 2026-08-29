@@ -111,6 +111,16 @@ module SPMCache
             # hit()'s intersection-only comparison treats empty pins
             # identically to a normal sidecar whose intersection happens to
             # be empty, so this is safe and never a false hit.
+            #
+            # Never clobber an existing sidecar's non-empty pins, though: an
+            # unseeded build (e.g. `spm-cache pkg build --out <dir>` sharing
+            # a cache directory with `spm-cache use`/`build`) has no host
+            # graph to attest to, and overwriting a previously host-pinned
+            # entry with `{}` would make that cache entry permanently hit
+            # against any future pin -- the exact identity-collision failure
+            # mode CACHE-02 exists to prevent.
+            return if existing_sidecar_pins(output_path)&.any?
+
             write_provenance_sidecar(output_path, status: "not-graph-pinned", pins: {},
                                                    config: config, destinations: destinations)
             return
@@ -169,6 +179,20 @@ module SPMCache
           state = pin["state"] || {}
           revision = state["revision"]
           revision.to_s.empty? ? state["version"] : revision
+        end
+
+        # Reads back an already-written sidecar's `pins` hash, if any --
+        # used by the `unless seeded` branch of `report_fidelity` (WR-03) to
+        # decide whether overwriting with `{}` would erase real drift
+        # protection. Absent, unreadable, or malformed sidecar -> nil, same
+        # fail-safe posture as Cache.swift's `hit()`.
+        def existing_sidecar_pins(output_path)
+          content = File.read("#{output_path}.provenance.json")
+          parsed = JSON.parse(content)
+          pins = parsed["pins"]
+          pins.is_a?(Hash) ? pins : nil
+        rescue SystemCallError, JSON::ParserError
+          nil
         end
 
         # Exactly the four CACHE-01-specified fields plus the computed

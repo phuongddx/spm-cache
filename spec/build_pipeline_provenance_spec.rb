@@ -506,6 +506,31 @@ RSpec.describe SPMCache::SPM::BuildPipeline, "not-graph-pinned paths write an ex
     expect(parsed["pins"]).to eq({})
     expect(parsed["pins"]).not_to be_nil
   end
+
+  it "never clobbers an existing sidecar's non-empty host-pinned pins with {} when this build has no host graph of its own" do
+    FileUtils.mkdir_p(File.join(pkg_dir, "CryptoSwift.xcodeproj"))
+    sidecar = File.join(out_dir, "CryptoSwift.xcframework.provenance.json")
+    File.write(sidecar, JSON.generate(
+                          "fidelity_status" => "host-pinned",
+                          "pins" => { "CryptoSwift" => "aaa" },
+                          "spm_cache_version" => SPMCache::VERSION,
+                          "config" => "release",
+                          "destinations" => ["iphonesimulator"],
+                        ))
+
+    described_class.run(
+      name: "CryptoSwift",
+      pkg_dir: pkg_dir,
+      destinations: ["iphonesimulator"],
+      out_dir: out_dir,
+      resolved_pins_file: resolved_pins_file,
+      config: "debug",
+    )
+
+    parsed = JSON.parse(File.read(sidecar))
+    expect(parsed["fidelity_status"]).to eq("host-pinned")
+    expect(parsed["pins"]).to eq("CryptoSwift" => "aaa")
+  end
 end
 
 RSpec.describe SPMCache::SPM::BuildPipeline, "Class E (copy_prebuilt_binary_target) gets a provenance sidecar via the same consolidated insertion point" do
