@@ -512,9 +512,13 @@ session, same milestone).
 | A1 | `copy_prebuilt_binary_target`'s earlier `swift package describe`/scheme-probe call (line 96, before the binary-target short-circuit) cannot itself trigger a silent re-resolution that rewrites `pkg_dir/Package.resolved` | Pattern 1 / Open Questions | If it CAN, Class E packages need the same drift-detection treatment as the main build path, not just sidecar cleanup — the planner should decide this rather than assume it's a non-issue, since this research pass did not empirically test it (M4 was ruled moot for a different reason — vendored-xcodeproj — not for Class E) |
 | A2 | Doing drift-read-back + provenance write once in `run` (Pattern 2) rather than duplicated at each of the three `write_shim_sidecar` call sites is a valid simplification the planner can choose | Pattern 2 | If some invariant depends on the per-path duplication (e.g. `run_with_scheme`'s companion-framework bookkeping differs meaningfully), consolidating could miss a case-specific nuance; low risk since `pkg_dir`/`resolved_pins_file`/`output_path` are identical in shape across all three paths |
 
-## Open Questions
+## Open Questions (RESOLVED)
 
 1. **Does Class E's `copy_prebuilt_binary_target` path need a fresh provenance sidecar write, or only stale-sidecar cleanup?**
+   - **RESOLVED (08-01-PLAN.md "Design decisions this plan makes"):** Class E gets a provenance
+     sidecar too, via the same single consolidated insertion point (see Q2) — it defaults to
+     `host-pinned` since no resolution step means no possible drift on that path. Covered by 08-01
+     Task 2's tests.
    - What we know: CONTEXT.md's Reusable Assets section only calls out this path for *cleanup*
      (mirroring `.shims.json`'s `rm_f`), not for writing a new sidecar. But CACHE-01 literally requires
      provenance for "each cached `.xcframework`," and this path produces one.
@@ -528,6 +532,10 @@ session, same milestone).
      no sidecar was written.
 
 2. **Single consolidated insertion point in `run` vs. per-call-site duplication (Pattern 2)?**
+   - **RESOLVED (08-01-PLAN.md "Design decisions this plan makes"):** single consolidated insertion
+     point in `BuildPipeline.run`, right after `perform_build` succeeds — not duplicated across the
+     three artifact-producing paths. This is also what makes Class E (Q1) get a correct sidecar for
+     free.
    - What we know: all three artifact-producing paths return through `perform_build`'s return value
      back to `run`, so a single insertion point after `result = perform_build(...)` succeeds would work
      mechanically.
