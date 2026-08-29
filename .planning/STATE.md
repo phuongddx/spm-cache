@@ -197,12 +197,12 @@ Phase 11 (release automation) is unaffected — it is fully independent.
 
 ## Open Measurements (block design decisions)
 
-| # | Measurement | Runs in | Blocks |
-|---|-------------|---------|--------|
-| M1 | Reproduce + attribute the stale-transitive release build on the real 59–70 package project | Phase 6 (first work) | Phase 7 design lock |
-| M2 | Report-only pinning run: count `resolution-incompatible` packages | Phase 7 (produced) | Phase 8 policy commitment; rescope trigger if high |
-| M3 | Wall-clock / disk delta from pin-list fan-out (verbatim superset vs minimal closure) | Phase 7 | PERF-01; narrowing decision |
-| M4 | Does xcodebuild write back realized versions on the `run_with_scheme` / vendored-`.xcodeproj` path? | Phase 7 (early probe) | Sole falsifier of the no-flag design |
+| # | Measurement | Runs in | Blocks | Status |
+|---|-------------|---------|--------|--------|
+| M1 | Reproduce + attribute the stale-transitive release build on the real 59–70 package project | Phase 6 (first work) | Phase 7 design lock | ✓ Done — H-wrongfile (see root-cause model above) |
+| M2 | Report-only pinning run: count `resolution-incompatible` packages | Phase 7 (produced) | Phase 8 policy commitment; rescope trigger if high | ✓ Done 2026-08-29 — 0/17, not a rescope trigger (`08-M2-MEASUREMENT.md`). Never run in Phase 7 itself (research/verifier gap); run retroactively before Phase 8 planning via static manifest analysis against the reference project's own Xcode-resolved checkouts, not a live resolve/build sweep. |
+| M3 | Wall-clock / disk delta from pin-list fan-out (verbatim superset vs minimal closure) | Phase 7 | PERF-01; narrowing decision | ✓ Done — -40.6% wall-clock / -34% disk, no narrowing needed (`07-BENCHMARK.md`) |
+| M4 | Does xcodebuild write back realized versions on the `run_with_scheme` / vendored-`.xcodeproj` path? | Phase 7 (early probe) | Sole falsifier of the no-flag design | Moot, not run — Phase 7 took the conservative branch unconditionally: `BuildPipeline#seed_host_graph` classifies `vendored_xcodeproj?` checkouts as not-graph-pinned and skips seeding entirely, before any build happens (`build_pipeline.rb:69-79`), regardless of whether xcodebuild would have written back realized versions on that path. Nothing is ever claimed pinned there, so there is nothing for Phase 8 to detect drift against — M4's answer no longer affects any design decision. Verified by direct code inspection 2026-08-29, not re-litigated in Phase 8 discuss/plan. |
 
 ## Project Reference
 
