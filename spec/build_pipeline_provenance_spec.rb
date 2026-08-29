@@ -124,6 +124,68 @@ RSpec.describe SPMCache::SPM::BuildPipeline, "drift read-back, resolution-incomp
   end
 end
 
+RSpec.describe SPMCache::SPM::BuildPipeline, "provenance sidecar destinations reflect what actually built, not what was requested" do
+  let(:tmpdir) { Dir.mktmpdir }
+  let(:pkg_dir) { File.join(tmpdir, "pkg") }
+  let(:out_dir) { File.join(tmpdir, "out") }
+  let(:resolved_pins_file) { File.join(tmpdir, "host-Package.resolved") }
+
+  def stub_desc_products(products)
+    fake_desc = instance_double(SPMCache::SPM::Desc::Description)
+    allow(SPMCache::SPM::Desc::Description).to receive(:new).and_return(fake_desc)
+    allow(fake_desc).to receive(:fetch)
+    allow(fake_desc).to receive(:products).and_return(
+      products.map { |p| SPMCache::SPM::Desc::Product.new(raw: p, pkg_dir: pkg_dir) },
+    )
+    allow(fake_desc).to receive(:raw).and_return({ "targets" => [] })
+    fake_desc
+  end
+
+  before do
+    FileUtils.mkdir_p(pkg_dir)
+    FileUtils.mkdir_p(out_dir)
+    File.write(resolved_pins_file,
+               JSON.generate("pins" => [{ "identity" => "SomePkg", "state" => { "revision" => "aaa" } }]))
+    stub_desc_products([{ "name" => "SomePkg", "type" => { "library" => ["automatic"] } }])
+    allow(SPMCache::SPM::XCFramework::XCFramework).to receive(:new).and_return(
+      double("XCFramework", build: File.join(out_dir, "SomePkg.xcframework")),
+    )
+  end
+
+  after { FileUtils.rm_rf(tmpdir) }
+
+  it "records only the destination(s) that actually produced a framework when one destination's build fails" do
+    fake_buildable = instance_double(SPMCache::SPM::Buildable)
+    allow(SPMCache::SPM::Buildable).to receive(:new).and_return(fake_buildable)
+    allow(fake_buildable).to receive(:build_for_destination) do |dest_key, **_kwargs|
+      raise "xcodebuild exploded" if dest_key == "iphoneos"
+
+      File.write(File.join(pkg_dir, "Package.resolved"),
+                 JSON.generate("pins" => [{ "identity" => "SomePkg", "state" => { "revision" => "aaa" } }]))
+      { derived_data: "/dd", object_file: "/dd/SomePkg.o",
+        swiftmodule: nil, swiftdoc: nil, swiftsourceinfo: nil, swiftinterface: nil }
+    end
+    allow(fake_buildable).to receive(:create_framework) do |_arts, subdir|
+      fw = File.join(subdir, "SomePkg.framework")
+      FileUtils.mkdir_p(fw)
+      File.write(File.join(fw, "SomePkg"), "stub")
+      fw
+    end
+
+    result = described_class.run(
+      name: "SomePkg",
+      pkg_dir: pkg_dir,
+      destinations: ["iphonesimulator", "iphoneos"],
+      out_dir: out_dir,
+      resolved_pins_file: resolved_pins_file,
+      config: "debug",
+    )
+
+    parsed = JSON.parse(File.read("#{result}.provenance.json"))
+    expect(parsed["destinations"]).to eq(["iphonesimulator"])
+  end
+end
+
 RSpec.describe SPMCache::SPM::BuildPipeline, "not-graph-pinned paths never write a provenance sidecar, and clean up any stale one" do
   let(:tmpdir) { Dir.mktmpdir }
   let(:pkg_dir) { File.join(tmpdir, "pkg") }

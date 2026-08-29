@@ -61,12 +61,12 @@ module SPMCache
 
           success = false
           begin
-            result = perform_build(name: name, pkg_dir: pkg_dir, destinations: destinations,
-                                    out_dir: out_dir, library_evolution: library_evolution,
-                                    clones_dir: clones_dir)
+            result, built_destinations = perform_build(name: name, pkg_dir: pkg_dir, destinations: destinations,
+                                                         out_dir: out_dir, library_evolution: library_evolution,
+                                                         clones_dir: clones_dir)
             success = true
             report_fidelity(name: name, pkg_dir: pkg_dir, output_path: result, seeded: seeded,
-                             intended_pin_map: intended_pin_map, config: config, destinations: destinations)
+                             intended_pin_map: intended_pin_map, config: config, destinations: built_destinations)
             result
           ensure
             ResolvedGraph.restore!(pkg_dir, seed_snapshot) if seeded && !success
@@ -198,7 +198,11 @@ module SPMCache
           # prebuilt content, the exact bug this fixes).
           forwarded_target = resolve_forwarded_target(name, pkg_dir)
           if forwarded_target && forwarded_target["module_type"] == "BinaryTarget"
-            return copy_prebuilt_binary_target(forwarded_target["name"], name, pkg_dir, out_dir)
+            # A direct copy of an already-resolved prebuilt xcframework, not a
+            # per-destination build loop -- there is no partial-slice-failure
+            # concept here, so the full requested `destinations` list is an
+            # honest description of what ended up in the copied artifact.
+            return [copy_prebuilt_binary_target(forwarded_target["name"], name, pkg_dir, out_dir), destinations]
           end
 
           scheme = resolve_scheme(name, pkg_dir)
@@ -218,6 +222,7 @@ module SPMCache
 
           tmpdir = Dir.mktmpdir
           framework_paths = []
+          built_destinations = []
           shim_framework_paths = Hash.new { |h, k| h[k] = [] }
 
           destinations.each do |dest_key|
@@ -230,6 +235,8 @@ module SPMCache
               next
             end
             next unless artifacts[:object_file] || artifacts[:framework]
+
+            built_destinations << dest_key
 
             fw_subdir = File.join(tmpdir, dest_key)
             FileUtils.mkdir_p(fw_subdir)
@@ -271,7 +278,7 @@ module SPMCache
           result = xcframework.build
           write_shim_sidecar(output_path, shim_framework_paths, out_dir)
           FileUtils.rm_rf(tmpdir)
-          result
+          [result, built_destinations]
         end
 
         def run_with_scheme(name:, scheme:, pkg_dir:, destinations:, out_dir:, library_evolution:, clones_dir: nil)
@@ -289,6 +296,7 @@ module SPMCache
 
           tmpdir = Dir.mktmpdir
           framework_paths = []
+          built_destinations = []
           companion_framework_paths = Hash.new { |h, k| h[k] = [] }
 
           destinations.each do |dest_key|
@@ -301,6 +309,8 @@ module SPMCache
               next
             end
             next unless artifacts[:object_file] || artifacts[:framework]
+
+            built_destinations << dest_key
 
             fw_subdir = File.join(tmpdir, dest_key)
             FileUtils.mkdir_p(fw_subdir)
@@ -329,7 +339,7 @@ module SPMCache
           result = xcframework.build
           write_shim_sidecar(output_path, companion_framework_paths, out_dir)
           FileUtils.rm_rf(tmpdir)
-          result
+          [result, built_destinations]
         end
 
         # Resolve the Xcode scheme to build for `name` (package identity) BEFORE
