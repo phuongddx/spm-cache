@@ -3,6 +3,7 @@
 require "spec_helper"
 require "tmpdir"
 require "json"
+require "shellwords"
 
 # TEST-02 bucket-partition meta-spec: every package in the declared universe
 # of one synthetic all-classes project (the kitchen-sink lockfile fixture plus
@@ -138,5 +139,169 @@ RSpec.describe SPMCache::SPM::BuildPipeline, "TEST-02: bucket-partition coverage
     expect(collected.length).to eq(1)
     expect(collected.first).to eq(status_read_from_sidecar)
     expect(parsed["pins"]).to eq("Alamofire" => "aaa111")
+  end
+end
+
+# TEST-02's second observation surface: the Swift-side classifications
+# (ignored / excluded / plugin) exist ONLY in ProxyGenerator's graph.json
+# output, so these legs run the actual compiled spm-cache-proxy binary
+# (tier-3, the gen_proxy_* pattern) against the kitchen-sink fixture --
+# offline, via system() with output redirected to File::NULL: no Core::Sh
+# call, no network, no xcodebuild (SC4). CI builds the binary before RSpec
+# on every matrix leg; locally the examples skip when it is not built.
+RSpec.describe "TEST-02: bucket-partition coverage (tier-3 graph legs via compiled spm-cache-proxy)" do
+  let(:binary) do
+    local = SPMCache::ROOT.join("tools", "spm-cache-proxy",
+                                ".build", "release", "spm-cache-proxy").to_s
+    File.executable?(local) ? local : nil
+  end
+
+  let(:lockfile) do
+    SPMCache::ROOT.join("spec", "fixtures", "fidelity-kitchen-sink-lockfile.json").to_s
+  end
+
+  let(:tmpdir) { Dir.mktmpdir }
+  let(:umbrella_dir) { File.join(tmpdir, "umbrella") }
+  let(:output_dir) { File.join(tmpdir, "proxy") }
+  let(:cache_dir) { File.join(tmpdir, "cache") }
+
+  before do
+    skip "spm-cache-proxy binary not built (run make proxy.build)" unless binary
+    FileUtils.mkdir_p(umbrella_dir)
+    FileUtils.mkdir_p(output_dir)
+    FileUtils.mkdir_p(cache_dir)
+  end
+
+  after { FileUtils.rm_rf(tmpdir) if tmpdir }
+
+  def ignore_pattern
+    "Noise*"
+  end
+
+  def cache_only_patterns
+    # Every package the graph leg should classify by cache availability
+    # rather than by the inverted allowlist. SideCartKit is deliberately
+    # absent so the --cache-only exclusion is observable; NoiseInjector is
+    # deliberately present so the ignore decision is not shadowed by the
+    # exclusion decision (excluded wins in ProxyGenerator's if/elsif).
+    "Alamofire,NoiseInjector,PrimeKit"
+  end
+
+  # Fixture-authored ownership map: graph.json is per-PRODUCT (module) and
+  # GraphEntry carries no package identity (ProxyGenerator.swift), so the
+  # spec maps each module back to its owning lockfile package -- it can,
+  # because it authored the kitchen sink. All partition lookups go through
+  # this Hash, never through graph entry position.
+  def ownership_map
+    {
+      "Alamofire" => "Alamofire",
+      "SwiftGenPlugin" => "SwiftGenPlugin",
+      "NoiseInjector" => "NoiseInjector",
+      "SideCartKit" => "SideCartKit",
+      "PrimeCore" => "PrimeKit",
+      "PrimeExtras" => "PrimeKit",
+      "TransitiveCore" => "TransitiveCore",
+      "LocalDesignKit" => "LocalDesignKit",
+    }
+  end
+
+  def run_gen_proxy(ignore: nil, cache_only: nil)
+    cmd = "#{binary} gen-proxy --umbrella #{umbrella_dir} --lockfile #{lockfile} " \
+          "--output #{output_dir} --cache #{cache_dir}"
+    cmd += " --ignore #{Shellwords.escape(ignore)}" if ignore
+    cmd += " --cache-only #{Shellwords.escape(cache_only)}" if cache_only
+    system(cmd, out: File::NULL, err: File::NULL)
+  end
+
+  def statuses_from(dir)
+    graph = JSON.parse(File.read(File.join(dir, "graph.json")))
+    graph.each_with_object({}) { |e, h| h[e["module"]] = e["status"] }
+  end
+
+  # Per-package aggregation: collects the set of statuses of each package's
+  # owned graph entries, keyed by lockfile package identity. graph.json is
+  # per-product and a multi-product package legitimately emits several
+  # entries -- partitioning per-product would misread that product
+  # granularity as double-bucketing (RESEARCH Pitfall 3).
+  def package_statuses_from(dir)
+    statuses_from(dir).each_with_object({}) do |(module_name, status), per_package|
+      owner = ownership_map[module_name]
+      next unless owner
+
+      (per_package[owner] ||= []) << status
+    end
+  end
+
+  # Seeds one cached module for a hit decision: the xcframework directory
+  # plus the provenance sidecar BinariesCache.hit() reads back. Only `pins`
+  # is load-bearing for hit() -- the recorded pin must equal the lockfile
+  # entry's revision-over-version pinValue for the owning identity.
+  def seed_cache_hit(cache_root, module_name, identity, pin)
+    FileUtils.mkdir_p(File.join(cache_root, "#{module_name}.xcframework"))
+    File.write(
+      File.join(cache_root, "#{module_name}.xcframework.provenance.json"),
+      JSON.generate("pins" => { identity => pin }),
+    )
+  end
+
+  it "TEST-02: the ignore-glob-matched package's products report the ignored status" do
+    run_gen_proxy(ignore: ignore_pattern, cache_only: cache_only_patterns)
+
+    expect(statuses_from(output_dir)["NoiseInjector"]).to eq("ignored")
+  end
+
+  it "TEST-02: the package outside the --cache-only allowlist reports the excluded status" do
+    run_gen_proxy(ignore: ignore_pattern, cache_only: cache_only_patterns)
+
+    expect(statuses_from(output_dir)["SideCartKit"]).to eq("excluded")
+  end
+
+  it "TEST-02: the plugin-only package's plugin product reports the plugin status" do
+    run_gen_proxy(ignore: ignore_pattern, cache_only: cache_only_patterns)
+
+    expect(statuses_from(output_dir)["SwiftGenPlugin"]).to eq("plugin")
+  end
+
+  it "TEST-02: the transitive-only package contributes NO graph entry -- classified input-side, never silently absent" do
+    run_gen_proxy(ignore: ignore_pattern, cache_only: cache_only_patterns)
+
+    # Production skips transitive-only packages by design
+    # (ProxyGenerator.swift: isTransitiveOnly -> continue): referencing them
+    # from the root proxy would independently pin them at a conflicting
+    # version. Their absence from graph.json is therefore INTENTIONAL -- the
+    # partition classifies them from the input side (pinned via their
+    # consumer), which is exactly why a graph-derived universe would be
+    # vacuous.
+    expect(statuses_from(output_dir)["TransitiveCore"]).to be_nil
+  end
+
+  it "TEST-02: the local/path lockfile entry never reaches gen-proxy -- its bucket is lockfile-side" do
+    run_gen_proxy(ignore: ignore_pattern, cache_only: cache_only_patterns)
+
+    # SwiftPM never lists a local/path package in Package.resolved, so its
+    # fidelity outcome can only come from the lockfile side (the empty
+    # repositoryURL rule, DIAG-01 precedent). The fixture keeps it out of
+    # the consumed set, so the generator emits no entry for it either --
+    # the partition must not depend on gen-proxy mentioning it at all.
+    expect(statuses_from(output_dir)["LocalDesignKit"]).to be_nil
+  end
+
+  it "TEST-02: a multi-product package's product statuses collapse under ONE identity (aggregation)" do
+    # One product cached (agreeing sidecar pin for the package identity),
+    # its sibling not: the generator's mixed-status handling downgrades the
+    # missed sibling so the package's entries diverge per product.
+    seed_cache_hit(cache_dir, "PrimeCore", "PrimeKit", "prime111")
+    run_gen_proxy(ignore: ignore_pattern, cache_only: cache_only_patterns)
+
+    statuses = statuses_from(output_dir)
+    expect(statuses["PrimeCore"]).to eq("hit")
+    expect(statuses["PrimeExtras"]).to eq("excluded")
+
+    per_package = package_statuses_from(output_dir)
+    expect(per_package.keys).to include("PrimeKit")
+    expect(per_package["PrimeKit"]).to contain_exactly("hit", "excluded")
+    # Identity-keyed access, not positional: both product entries resolve
+    # through the one ownership map to the one package key.
+    expect(ownership_map.values.count("PrimeKit")).to eq(2)
   end
 end
