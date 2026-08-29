@@ -21,7 +21,7 @@ created: 2026-08-29
 |----------|-------|
 | **Framework** | RSpec 3.12 (Swift companion covered separately by `swift test`, out of this phase's scope) |
 | **Config file** | none — existing `spec/spec_helper.rb` + default RSpec configuration |
-| **Quick run command** | `bundle exec rspec spec/fidelity_drift_regression_spec.rb spec/fidelity_partition_spec.rb spec/fidelity_edge_matrix_spec.rb` |
+| **Quick run command** | `bundle exec rspec spec/fidelity_drift_regression_spec.rb spec/fidelity_bucket_partition_spec.rb spec/fidelity_edge_matrix_spec.rb` |
 | **Full suite command** | `bundle exec rspec` |
 | **Estimated runtime** | ~47 seconds (full suite, measured 2026-08-29: 387 examples, 0 failures) |
 
