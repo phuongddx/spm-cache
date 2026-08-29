@@ -27,7 +27,7 @@
 
 ### Regression Coverage
 
-- [ ] **TEST-01**: A regression spec proves an out-of-range pin is detected and reported rather than silently re-resolved
+- [x] **TEST-01**: A regression spec proves an out-of-range pin is detected and reported rather than silently re-resolved
 - [ ] **TEST-02**: A coverage assertion proves every package in `Package.resolved` lands in exactly one bucket (pinned / ignored / excluded / plugin-only / resolution-incompatible / not-graph-pinned), with none silently absent
 - [ ] **TEST-03**: The v0.2.x edge-class fixture matrix does not regress — binary target (Class E), macro with narrow `swift-syntax`, vendored `.xcodeproj`, plugin-only, transitive-only, resource bundle, private Clang shim, product≠target rename
 
@@ -122,7 +122,7 @@ Which phases cover which requirements. Populated during roadmap creation.
 | CACHE-03 | Phase 9 | Complete |
 | DIAG-01 | Phase 6 | Complete |
 | DIAG-02 | Phase 8 | Complete |
-| TEST-01 | Phase 10 | Pending |
+| TEST-01 | Phase 10 | Complete |
 | TEST-02 | Phase 10 | Pending |
 | TEST-03 | Phase 10 | Pending |
 | PERF-01 | Phase 7 | Complete |

@@ -2,18 +2,18 @@
 gsd_state_version: 1.0
 milestone: v0.4.0
 milestone_name: Build Fidelity & Release Automation
-current_phase: 10 — Fidelity Regression Coverage
+current_phase: 10
 current_phase_name: Fidelity Regression Coverage
 status: executing
-stopped_at: Phase 09 complete, ready to plan Phase 10
-last_updated: "2026-08-29T15:42:35.761Z"
+stopped_at: Completed 10-01-PLAN.md
+last_updated: "2026-08-29T15:54:38.026Z"
 last_activity: 2026-08-29
 last_activity_desc: Phase 09 complete (UAT 1/1 pass — SC5 operator PASS)
 progress:
   total_phases: 6
   completed_phases: 4
   total_plans: 15
-  completed_plans: 12
+  completed_plans: 13
   percent: 67
 state_head: 9935f0bf8f5006555f1215c102511d5006d74a07
 ---
@@ -21,7 +21,7 @@ state_head: 9935f0bf8f5006555f1215c102511d5006d74a07
 # Project State: spm-cache
 
 **Initialized:** 2026-08-10
-**Current Phase:** 10 — Fidelity Regression Coverage
+**Current Phase:** 10
 **Project Mode:** Horizontal Layers
 **Direction:** v0.4.0 Build fidelity (correctness) + release automation
 
@@ -213,8 +213,8 @@ See: .planning/PROJECT.md (updated 2026-08-29)
 
 ## Session Continuity
 
-Last session: 2026-08-29T14:30:00.000Z
-Stopped at: Phase 09 complete, ready to plan Phase 10
+Last session: 2026-08-29T15:54:38.005Z
+Stopped at: Completed 10-01-PLAN.md
 Resume file: None
 
 ## Performance Metrics
@@ -231,6 +231,7 @@ Resume file: None
 | Phase 06 P05 | ~12m | 2 tasks | 3 files |
 | Phase 07 P01 | ~55m | 3 tasks | 6 files |
 | Phase 07 P02 | ~2h (incl. ~29min real xcodebuild) | 3 tasks | 9 files |
+| Phase 10 P01 | 10min | 3 tasks | 1 files |
 
 ## Decisions
 
@@ -258,13 +259,16 @@ Resume file: None
 - [Phase 07 — canonical verification + code review, 2026-08-29]: Re-planning found nothing left to plan (research independently re-derived all 5 success criteria from source, 341/0 suite) — user chose "view existing, skip replanning" over adding a plan or replanning from scratch. Code review then found 2 Critical + 6 Warning + 3 Info findings against the already-shipped Phase 7 code: CR-01 (`Installer::Use`'s build lock didn't cover trailing `gen_supporting_files`/`integrate_proxy_into_project`/`gen_cachemap_viz`) was only partially fixed by a fixer agent that crashed mid-run (transient API connection error) — its own commit left the fast-path branch of the same three calls unlocked and added a test asserting the wrong invariant ("nothing to protect against" on the fast path); a re-review caught this as CR-01b and it was closed by locking both branches identically. CR-02 (`slice_complete?` treating a hit-but-missing-from-disk xcframework as complete) was fixed cleanly with a new regression test. 5 of 6 warnings fixed (opts-splat bug, slice_satisfies? catch-all, duplicated swiftinterface scan, 3 overly-broad rescues narrowed, redundant resolve_destinations branches); WR-05 (sleep-based lock-contention timing specs) deliberately left unchanged after independent analysis found the flake risk low and the tests load-bearing. Final re-review (iteration 3 of the 3-iteration cap) converged clean. Canonical goal-backward verification then passed 5/5. `gsd-tools.cjs query phase.complete 7` itself had a bug (see Phase 7 Process Notes above) — computed `next_phase: 6` when Phase 6 was already complete; corrected manually to Phase 8 during transition.
 - [Phase 08 — Drift Read-Back, Fidelity Status & Provenance, 2026-08-29, autonomous execution]: Both plans executed sequentially (workflow.use_worktrees=false) via `/gsd-autonomous --from 8`. 08-01 shipped `BuildPipeline#report_fidelity` (drift read-back, host-pinned/resolution-incompatible classification, provenance sidecar write/cleanup) as a single consolidated insertion point covering all three artifact-producing paths uniformly; threaded `config:` into `Installer::Build`'s call site. 08-02 shipped `cache list`'s per-package fidelity-status column (`Dir.glob("*.xcframework")` replacing raw `Dir.entries`, fixing a pre-existing bug where sidecar files printed as spurious package entries). Deep code review (5 files) found 1 Critical + 3 Warning + 1 Info; a 2-iteration auto-fix loop closed all Critical/Warning findings (CR-01: reject non-Hash JSON + rescue SystemCallError in `cache list`'s TOCTOU race; WR-01: track actually-built destinations instead of the raw request; WR-02: move `intended_pin_map` capture inside the seed/restore exception boundary; WR-03: atomic tempfile-then-rename sidecar write, never raises) plus one finding the re-review itself surfaced mid-loop (WR-04: Class E's direct-copy path narrowed to actual xcframework slices via a new `slice_satisfies?`, mirroring `Installer::Build`'s existing predicate). Final re-review (iteration 3) converged at 0 Critical/0 Warning — 2 Info items (one pre-existing, one code-duplication note on the newly-added `slice_satisfies?`) deliberately left unfixed, out of `critical_warning` scope. Canonical goal-backward verification passed 8/8; full suite 342→368 (+26), 0 failures throughout. `gsd-tools.cjs query phase.complete 8` reproduced the SAME `next_phase` bug as the Phase 7 transition (returned `6` instead of `9`, both already complete) — corrected manually to Phase 9 again; still not filed upstream.
 - [Phase 09 — Cache Identity & Invalidation, 2026-08-29]: 09-01 made the Swift companion's `BinariesCache.hit()` provenance-aware (sidecar `pins[identity]` vs lockfile pin; intersection-only comparison — absence is never drift; any parse anomaly is an unconditional miss); 09-02 closed the default-command gap (`fast_path?` gains a `spm_cache_version` stamp guard so any spm-cache bump forces one full regen) and added `cache clean`'s orphan-sidecar sweep (D-10 paired survival); 09-03 authored the SC5 empirical DerivedData runbook. Verification 4/5 + SC5 operator-PASS via UAT; deep code review converged clean after CR-01 (drop pre-emptive provenance `rm_f` in `copy_prebuilt_binary_target`, preserving prior host-pinned pins per WR-03); security audit 5/5 threats closed (3 mitigated, 2 accepted); suites 387 Ruby / 36 Swift green. `phase.complete 9` computed `next_phase: 10` correctly this time. Tooling quirk (4th, unfixed upstream): any extra `*-VERIFICATION.md` sorting before the canonical report shadows status reads — `gsd-tools` reads only the first sorted candidate, so the SC5 runbook made every status surface report "missing"; resolved by giving the runbook accurate frontmatter (`status: passed`) rather than renaming it.
+- [Phase ?]: Phase 10 Plan 01: one spec file, two describe blocks — tier-1 read-back legs under the default-deny Core::Sh guard (both entry points raise on unexpected invocation, SC4 as an executable assertion), tier-3 gen-proxy sidecar legs outside it
+- [Phase ?]: Phase 10 Plan 01: missing-realized-file edge simulated by the stub consuming the seeded Package.resolved — seed_host_graph necessarily creates it, so absence at read-back is only reachable via the build removing it
+- [Phase ?]: Phase 10 Plan 01: tier-3 lockfile fixture pins by revision (aaa111) not version, mirroring pinValue revision-over-version precedence so the sidecar drift compare is an exact string match
 
 ## Current Position
 
-Phase: 10 (Fidelity Regression Coverage) — READY TO PLAN
-Plan: Not started
+Phase: 10 (Fidelity Regression Coverage) — EXECUTING
+Plan: 2 of 3
 Status: Ready to execute
-Last activity: 2026-08-29 — Phase 9 complete, transitioned to Phase 10
+Last activity: 2026-08-29 — Phase 10 execution started
 
 ### Historical position (Phase 6, prior to this update)
 
