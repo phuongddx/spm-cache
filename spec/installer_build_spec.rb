@@ -12,6 +12,11 @@ RSpec.describe SPMCache::Installer::Build do
 
   before do
     FileUtils.mkdir_p(project_path)
+    # CachedLib is "hit" per the cachemap below; give it a real on-disk
+    # xcframework with a simulator slice so it is a genuine complete cache
+    # hit, not a hit-by-metadata-only miss (slice_complete? forces a rebuild
+    # when the framework directory is absent from disk, #CR-02).
+    FileUtils.mkdir_p(File.join(tmpdir, "CachedLib.xcframework", "ios-arm64-simulator"))
     # Stub out the heavy Installer#perform_install steps so we can isolate
     # the selection logic added in Phase 2.
     allow_any_instance_of(SPMCache::Installer).to receive(:perform_install).and_wrap_original do |original, *args, &block|
@@ -322,6 +327,12 @@ RSpec.describe SPMCache::Installer::Build, "slice-aware rebuild of incomplete hi
   it "rebuilds a hit package missing the device slice, but skips a complete one" do
     inst = described_class.new(project: project_path)
     expect { inst.perform_install }.to output(/Building 1 target.*: SimOnlyLib/).to_stdout
+  end
+
+  it "rebuilds a hit package whose xcframework directory is entirely absent from disk" do
+    FileUtils.rm_rf(File.join(tmpdir, "CompleteLib.xcframework"))
+    inst = described_class.new(project: project_path)
+    expect { inst.perform_install }.to output(/Building 2 target.*SimOnlyLib.*CompleteLib/m).to_stdout
   end
 end
 

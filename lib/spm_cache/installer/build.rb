@@ -88,7 +88,7 @@ module SPMCache
       # under --sdk=all, so it must be rebuilt instead of skipped.
       def slice_complete?(cache_dir, module_name, destinations)
         fw = File.join(cache_dir, "#{module_name}.xcframework")
-        return true unless File.directory?(fw)
+        return false unless File.directory?(fw)
         slices = Dir.children(fw).select { |s| File.directory?(File.join(fw, s)) }
         destinations.all? { |d| slice_satisfies?(slices, d) }
       end
