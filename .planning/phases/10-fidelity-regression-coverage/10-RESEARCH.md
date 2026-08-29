@@ -585,16 +585,18 @@ meta-spec. The roadmap's "258 green examples" figure is also stale: the suite is
 
 All other claims in this document are `[VERIFIED: path:lines]` against files read this session, or direct tool output (suite run).
 
-## Open Questions
+## Open Questions (RESOLVED)
 
-1. **TEST-02 observation route for the three graph buckets**
+1. **TEST-02 observation route for the three graph buckets** — RESOLVED (2026-08-29, plan adoption)
    - What we know: `ignored`/`excluded`/`plugin` exist ONLY in the Swift ProxyGenerator output (graph.json); no Ruby classifier produces them except the `plugin_only_package?` predicate. CI builds the proxy binary before RSpec on every matrix leg.
-   - What's unclear: whether driving the compiled binary inside the new meta-spec violates the CONTEXT's "driven through the seams" phrasing.
-   - Recommendation: hybrid (tier-1 for fidelity legs, tier-3 gen-proxy pattern for graph legs, buckets derived only from observed output). This is the only route that honors "no hand-maintained bucket list". Flag at plan-check if the planner disagrees.
-2. **Kitchen-sink sharing mechanics**
+   - What was unclear: whether driving the compiled binary inside the new meta-spec violates the CONTEXT's "driven through the seams" phrasing.
+   - Recommendation (ADOPTED): hybrid (tier-1 for fidelity legs, tier-3 gen-proxy pattern for graph legs, buckets derived only from observed output). This is the only route that honors "no hand-maintained bucket list".
+   - Resolution: the hybrid two-surface route is adopted in 10-02-PLAN.md (objective + Tasks 1-2): fidelity legs (host-pinned / resolution-incompatible / not-graph-pinned) observe provenance sidecars via the tier-1 object-stub seam; graph legs (ignored / excluded / plugin) drive the compiled proxy binary via the tier-3 gen-proxy pattern; every bucket name is derived from observed production output. Assumption A1 (tier-3 binary is SC4-compatible) is accepted on the `gen_proxy_provenance_spec.rb` same-suite precedent.
+2. **Kitchen-sink sharing mechanics** — RESOLVED (2026-08-29, plan adoption)
    - What we know: `let` is per-example; `before(:context)` forbids stubs.
-   - What's unclear: whether per-example rebuild meets the ~2–3s target for all three specs combined.
-   - Recommendation: start per-example (simplest, no order-dependence); measure; switch to file-only `before(:context)` + per-example stubs only if over target.
+   - What was unclear: whether per-example rebuild meets the ~2–3s target for all three specs combined.
+   - Recommendation (ADOPTED): start per-example (simplest, no order-dependence); measure; switch to file-only `before(:context)` + per-example stubs only if over target.
+   - Resolution: per-example `let` builds are adopted across all three plans (10-01/10-02/10-03 tier-1 scaffolds rebuild per example); runtime is measured and recorded in the plan SUMMARYs against the ~2–3s target (10-02 and 10-03 record the fidelity specs' combined wall-clock). Escalation to file-only `before(:context)` + per-example stubs remains the documented fallback if measurement exceeds the target.
 
 ## Environment Availability
 
