@@ -166,7 +166,7 @@ clean, correctly-pinned state before resuming other work on the reference projec
 
 <!-- Filled in by the human running this procedure. Do not pre-fill. -->
 
-- [ ] PASS — the rebuilt xcframework's new content reached the app binary without a manual
+- [x] PASS — the rebuilt xcframework's new content reached the app binary without a manual
       DerivedData clear.
 - [ ] FAIL — the app binary continued to reflect the stale, pre-rebuild content.
 
@@ -176,4 +176,5 @@ clean, correctly-pinned state before resuming other work on the reference projec
 
 **MARKER_AFTER:**
 
-**Notes:**
+**Notes:** PASS reported by the operator via `/gsd-verify-work 9` on 2026-08-29T14:24:56Z;
+marker values were not separately recorded.
