@@ -29,8 +29,11 @@ module SPMCache
         def fidelity_status_for(sidecar_path)
           return "not-graph-pinned" unless File.exist?(sidecar_path)
 
-          JSON.parse(File.read(sidecar_path))["fidelity_status"] || "not-graph-pinned"
-        rescue JSON::ParserError
+          parsed = JSON.parse(File.read(sidecar_path))
+          return "not-graph-pinned" unless parsed.is_a?(Hash)
+
+          parsed["fidelity_status"] || "not-graph-pinned"
+        rescue JSON::ParserError, SystemCallError
           "not-graph-pinned"
         end
       end

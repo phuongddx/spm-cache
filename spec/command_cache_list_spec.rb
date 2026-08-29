@@ -64,6 +64,30 @@ RSpec.describe SPMCache::Command::Cache::List do
       expect { SPMCache::Command.parse(["cache", "list"]).run }.to output(/NoStatusKeyLib.*not-graph-pinned/m).to_stdout
     end
 
+    it "reports not-graph-pinned for a sidecar that is valid JSON but not a Hash (e.g. a truncated-but-valid array)" do
+      write_xcframework(debug_dir, "ArrayPayloadLib")
+      write_sidecar(debug_dir, "ArrayPayloadLib", JSON.generate(["not", "a", "hash"]))
+
+      expect { SPMCache::Command.parse(["cache", "list"]).run }.not_to raise_error
+      expect { SPMCache::Command.parse(["cache", "list"]).run }.to output(/ArrayPayloadLib.*not-graph-pinned/m).to_stdout
+    end
+
+    it "reports not-graph-pinned instead of crashing the whole listing when the sidecar disappears between the exist? check and the read (TOCTOU race)" do
+      write_xcframework(debug_dir, "RacyLib")
+      write_xcframework(debug_dir, "ZAfterRacy")
+      write_sidecar(debug_dir, "ZAfterRacy", JSON.generate(fidelity_status: "host-pinned"))
+      racy_sidecar = File.join(debug_dir, "RacyLib.xcframework.provenance.json")
+      write_sidecar(debug_dir, "RacyLib", JSON.generate(fidelity_status: "host-pinned"))
+
+      allow(File).to receive(:read).and_call_original
+      allow(File).to receive(:read).with(racy_sidecar).and_raise(Errno::ENOENT)
+
+      output = capture_stdout { SPMCache::Command.parse(["cache", "list"]).run }
+
+      expect(output).to match(/RacyLib.*not-graph-pinned/)
+      expect(output).to match(/ZAfterRacy.*host-pinned/)
+    end
+
     it "never prints a sidecar file as its own spurious package entry" do
       write_xcframework(debug_dir, "CachedLib")
       write_sidecar(debug_dir, "CachedLib", JSON.generate(fidelity_status: "host-pinned"))
