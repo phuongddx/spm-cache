@@ -163,6 +163,13 @@ bundle exec rspec                                                               
 
 FID-03, FID-04, CACHE-01, and DIAG-02's build-output half are complete. `cache list`'s per-module status column (DIAG-02's other half, per RESEARCH.md's Pitfall 4 -- `cache list` currently has no per-module concept at all) was not part of this plan's `files_modified` scope and remains open; the provenance sidecar this plan writes is exactly what a future `cache list` implementation would read. Phase 9 (Cache Identity & Invalidation) can consume the provenance sidecar's `fidelity_status`/`pins` fields as-is; no schema changes anticipated.
 
+## Self-Check: PASSED
+
+All created/modified files exist on disk (`lib/spm_cache/spm/build_pipeline.rb`,
+`lib/spm_cache/installer/build.rb`, `spec/build_pipeline_provenance_spec.rb`, this
+SUMMARY.md). All 6 commits (`85538f2`, `af356de`, `89c8135`, `b9b2d7e`, `abaa718`,
+`96b91fd`) verified present via `git log --oneline --all`.
+
 ---
 *Phase: 08-drift-read-back-fidelity-status-provenance*
 *Completed: 2026-08-29*
