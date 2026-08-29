@@ -70,8 +70,18 @@ module SPMCache
                                                          out_dir: out_dir, library_evolution: library_evolution,
                                                          clones_dir: clones_dir)
             success = true
-            report_fidelity(name: name, pkg_dir: pkg_dir, output_path: result, seeded: seeded,
-                             intended_pin_map: intended_pin_map, config: config, destinations: built_destinations)
+            begin
+              report_fidelity(name: name, pkg_dir: pkg_dir, output_path: result, seeded: seeded,
+                               intended_pin_map: intended_pin_map, config: config, destinations: built_destinations)
+            rescue StandardError => e
+              # report_fidelity's doc comment claims it "never raises", but only
+              # write_provenance_sidecar's own rescue enforces that -- the pin-map
+              # computation above it (drift comparison, malformed pin entries) is
+              # not covered. Any exception here would otherwise escape `run` with
+              # `success` already true, so the ensure guard below never restores
+              # the seeded checkout, contradicting "restored on any failure".
+              Core::UI.warn "  could not compute/write provenance for #{File.basename(result)}: #{e.message}"
+            end
             result
           ensure
             ResolvedGraph.restore!(pkg_dir, seed_snapshot) if seeded && !success
