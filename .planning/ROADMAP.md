@@ -48,7 +48,7 @@ repair the Homebrew release path so shipping stops requiring manual steps.
 
 - [ ] **Phase 6: Graph Authority — Lockfile Reconciliation** - The lockfile spm-cache builds from always describes the host's *current* resolved graph
 - [x] **Phase 7: Host-Faithful Checkout Seeding** - Every per-package build resolves transitive deps from the host graph, not its own requirements (completed 2026-08-29)
-- [ ] **Phase 8: Drift Read-Back, Fidelity Status & Provenance** - Realized versions are read back, compared, reported, and recorded per artifact
+- [x] **Phase 8: Drift Read-Back, Fidelity Status & Provenance** - Realized versions are read back, compared, reported, and recorded per artifact (completed 2026-08-29)
 - [ ] **Phase 9: Cache Identity & Invalidation** - Provenance mismatch (or absence) is a cache miss, so existing users actually receive the fix
 - [ ] **Phase 10: Fidelity Regression Coverage** - Hermetic specs make transitive-version drift unable to silently return
 - [ ] **Phase 11: Homebrew Release Automation** - Releases publish the formula unattended, and every failure in that path is loud
@@ -130,11 +130,11 @@ Swift-side-only); the `.shims.json` sidecar-pattern reuse was confirmed correct.
 **Plans**: 2 plans across 2 waves
 **Wave 1**
 
-- [ ] 08-01-PLAN.md — drift read-back, resolution-incompatible classification, provenance sidecar write/cleanup, build-output status line (FID-03, FID-04, CACHE-01, DIAG-02 build-output half)
+- [x] 08-01-PLAN.md — drift read-back, resolution-incompatible classification, provenance sidecar write/cleanup, build-output status line (FID-03, FID-04, CACHE-01, DIAG-02 build-output half)
 
 **Wave 2** *(blocked on Wave 1 completion)*
 
-- [ ] 08-02-PLAN.md — `cache list` fidelity-status column, fixes pre-existing sidecar-as-spurious-entry bug (DIAG-02 cache-list half)
+- [x] 08-02-PLAN.md — `cache list` fidelity-status column, fixes pre-existing sidecar-as-spurious-entry bug (DIAG-02 cache-list half)
 
 ### Phase 9: Cache Identity & Invalidation
 
@@ -205,7 +205,7 @@ Swift-side-only); the `.shims.json` sidecar-pattern reuse was confirmed correct.
 | 5. Auto-Sync Watcher | v0.3.0 | 2/2 | Complete | 2026-08-24 |
 | 6. Graph Authority — Lockfile Reconciliation | v0.4.0 | 5/5 | In Progress|  |
 | 7. Host-Faithful Checkout Seeding | v0.4.0 | 2/2 | Complete    | 2026-08-29 |
-| 8. Drift Read-Back, Fidelity Status & Provenance | v0.4.0 | 0/TBD | Not started | - |
+| 8. Drift Read-Back, Fidelity Status & Provenance | v0.4.0 | 2/2 | Complete    | 2026-08-29 |
 | 9. Cache Identity & Invalidation | v0.4.0 | 0/TBD | Not started | - |
 | 10. Fidelity Regression Coverage | v0.4.0 | 0/TBD | Not started | - |
 | 11. Homebrew Release Automation | v0.4.0 | 0/TBD | Not started | - |
