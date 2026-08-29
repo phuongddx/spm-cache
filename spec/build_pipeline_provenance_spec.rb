@@ -669,6 +669,47 @@ RSpec.describe SPMCache::SPM::BuildPipeline, "Class E (copy_prebuilt_binary_targ
     parsed = JSON.parse(File.read(sidecar_path))
     expect(parsed["destinations"]).to eq(["iphoneos"])
   end
+
+  it "preserves a prior host-pinned sidecar's non-empty pins on an unseeded Class E rebuild (CR-01) " \
+     "instead of copy_prebuilt_binary_target deleting it before report_fidelity can read it back" do
+    FileUtils.mkdir_p(out_dir)
+    build_root = File.join(tmpdir, "umbrella", ".build")
+    real_pkg_dir = File.join(build_root, "checkouts", "firebase-ios-sdk")
+    FileUtils.mkdir_p(real_pkg_dir)
+    prebuilt = File.join(build_root, "artifacts", "firebase-ios-sdk", "FirebaseAnalytics", "FirebaseAnalytics.xcframework")
+    FileUtils.mkdir_p(File.join(prebuilt, "ios-arm64", "FirebaseAnalytics.framework", "Headers"))
+    File.write(File.join(prebuilt, "ios-arm64", "FirebaseAnalytics.framework", "Headers", "FIRAnalytics.h"), "// real header\n")
+    File.write(File.join(prebuilt, "Info.plist"), "<plist/>")
+
+    stub_desc_products(real_pkg_dir)
+
+    # Simulates `spm-cache use`/`build` (seeded) having previously built this
+    # same Class E product and recorded a real host-pinned identity, before
+    # `spm-cache pkg build --out <out_dir>` (unseeded -- no resolved_pins_file)
+    # rebuilds it against the same cache directory.
+    sidecar = File.join(out_dir, "FirebaseAnalytics.xcframework.provenance.json")
+    File.write(sidecar, JSON.generate(
+                          "fidelity_status" => "host-pinned",
+                          "pins" => { "firebase-ios-sdk" => "10.24.0" },
+                          "spm_cache_version" => SPMCache::VERSION,
+                          "config" => "release",
+                          "destinations" => ["iphonesimulator"],
+                        ))
+
+    result = described_class.run(
+      name: "FirebaseAnalytics",
+      pkg_dir: real_pkg_dir,
+      destinations: ["iphonesimulator"],
+      out_dir: out_dir,
+      resolved_pins_file: nil,
+      config: "debug",
+    )
+
+    expect(result).to eq(File.join(out_dir, "FirebaseAnalytics.xcframework"))
+    parsed = JSON.parse(File.read(sidecar))
+    expect(parsed["fidelity_status"]).to eq("host-pinned")
+    expect(parsed["pins"]).to eq("firebase-ios-sdk" => "10.24.0")
+  end
 end
 
 RSpec.describe SPMCache::Installer::Build, "threads config: from @config_name into every SPM::BuildPipeline.run call" do

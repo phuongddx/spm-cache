@@ -1085,13 +1085,13 @@ module SPMCache
           # `cache clean <name>.xcframework` only removes the xcframework
           # itself, so a targeted clean+rebuild would otherwise leave that
           # stale sidecar in place, still pointing the proxy generator at a
-          # companion this direct-copy path never builds or needs.
+          # companion this direct-copy path never builds or needs. (No
+          # equivalent removal for .provenance.json: report_fidelity's
+          # consolidated insertion point always overwrites it afterward, and
+          # for an unseeded rebuild it specifically needs to read the OLD file
+          # first to decide whether to preserve a previously-recorded pin --
+          # deleting it here pre-emptively defeats that guard.)
           FileUtils.rm_f("#{output_path}.shims.json")
-
-          # Same rationale as the .shims.json rm_f immediately above: a
-          # pre-Class-E cache entry may carry a stale provenance sidecar from
-          # when this product was still built via the normal path.
-          FileUtils.rm_f("#{output_path}.provenance.json")
 
           output_path
         end
