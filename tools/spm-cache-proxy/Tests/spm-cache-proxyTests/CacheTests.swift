@@ -129,4 +129,28 @@ struct BinariesCacheHitTests {
         let result = cache.hit(module: "SomePkg", identity: "SomePkg", currentPin: "aaa111")
         #expect(result != nil)
     }
+
+    @Test("xcframework present, currentPin is nil (unreadable/malformed lockfile entry) but a pin is recorded for this identity -> miss (fail-safe)")
+    func nilCurrentPinWithRecordedPinIsMiss() throws {
+        let dir = try makeCacheDir()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        try dir.appendingPathComponent("SomePkg.xcframework").mkdir()
+        try writeSidecar(["pins": ["SomePkg": "aaa111"]], module: "SomePkg", in: dir)
+
+        let cache = BinariesCache(dir: dir)
+        let result = cache.hit(module: "SomePkg", identity: "SomePkg", currentPin: nil)
+        #expect(result == nil)
+    }
+
+    @Test("xcframework present, currentPin is nil but pins has no entry for this identity -> hit (intersection-only, absence is still not drift)")
+    func nilCurrentPinWithNoRecordedPinIsHit() throws {
+        let dir = try makeCacheDir()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        try dir.appendingPathComponent("SomePkg.xcframework").mkdir()
+        try writeSidecar(["pins": ["OtherPkg": "ccc333"]], module: "SomePkg", in: dir)
+
+        let cache = BinariesCache(dir: dir)
+        let result = cache.hit(module: "SomePkg", identity: "SomePkg", currentPin: nil)
+        #expect(result != nil)
+    }
 }

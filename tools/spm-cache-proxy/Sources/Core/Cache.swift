@@ -36,8 +36,13 @@ struct BinariesCache {
         }
         guard let pins = parsed["pins"] as? [String: String] else { return nil }
 
-        if let recorded = pins[identity], let current = currentPin, recorded != current {
-            return nil
+        if let recorded = pins[identity] {
+            // A recorded pin with no readable currentPin is inconclusive, not
+            // "no evidence of drift" -- treat it the same as a disagreement
+            // (fail-safe) rather than falling back to pre-CACHE-02,
+            // fileExists-only semantics for exactly the lockfile entries
+            // whose data is least trustworthy.
+            guard let current = currentPin, recorded == current else { return nil }
         }
         return xcframework
     }
