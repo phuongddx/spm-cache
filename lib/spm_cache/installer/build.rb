@@ -171,6 +171,7 @@ module SPMCache
             library_evolution: true,
             resolved_pins_file: resolved_pins_file,
             clones_dir: clones_dir,
+            config: @config_name,
           )
           Core::UI.info "  Cached: #{result}"
         rescue => e

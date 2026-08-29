@@ -85,7 +85,15 @@ module SPMCache
         # success path, so `ignore_build_errors?` can never mask the
         # resolution-incompatible status (Pitfall 2).
         def report_fidelity(name:, pkg_dir:, output_path:, seeded:, intended_pin_map:, config:, destinations:)
-          return unless seeded
+          unless seeded
+            # Generalizes CACHE-01's cleanup guarantee to every path that
+            # overwrites/replaces an xcframework, not just Class E's -- never
+            # leave a stale sidecar to lie about a rebuilt artifact. A no-op
+            # when no sidecar exists, so the nil-resolved_pins_file path stays
+            # byte-identical to v0.3.0 (D-07).
+            FileUtils.rm_f("#{output_path}.provenance.json")
+            return
+          end
 
           realized_pin_map = pin_value_map(
             Core::PackageResolved.pins_or_nil(File.join(pkg_dir, ResolvedGraph::RESOLVED_FILENAME)),
@@ -995,6 +1003,11 @@ module SPMCache
           # stale sidecar in place, still pointing the proxy generator at a
           # companion this direct-copy path never builds or needs.
           FileUtils.rm_f("#{output_path}.shims.json")
+
+          # Same rationale as the .shims.json rm_f immediately above: a
+          # pre-Class-E cache entry may carry a stale provenance sidecar from
+          # when this product was still built via the normal path.
+          FileUtils.rm_f("#{output_path}.provenance.json")
 
           output_path
         end
