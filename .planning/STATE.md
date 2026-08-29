@@ -2,18 +2,18 @@
 gsd_state_version: 1.0
 milestone: v0.4.0
 milestone_name: Build Fidelity & Release Automation
-current_phase: 9
+current_phase: 09
 current_phase_name: Cache Identity & Invalidation
-status: planning
+status: executing
 stopped_at: Phase 08 complete, ready to plan Phase 9
-last_updated: "2026-08-29T10:04:00.660Z"
+last_updated: "2026-08-29T10:53:20.582Z"
 last_activity: 2026-08-29
-last_activity_desc: Phase 08 complete, transitioned to Phase 9 (phase.complete tool bug recurred -- see Phase 8 Process Notes)
-state_head: a8314df3150f278ab4e0caea9cb6db772e20b822
+last_activity_desc: Phase 09 execution started
+state_head: 9935f0bf8f5006555f1215c102511d5006d74a07
 progress:
   total_phases: 6
   completed_phases: 3
-  total_plans: 9
+  total_plans: 12
   completed_plans: 9
   percent: 50
 ---
@@ -21,7 +21,7 @@ progress:
 # Project State: spm-cache
 
 **Initialized:** 2026-08-10
-**Current Phase:** 9 — Cache Identity & Invalidation
+**Current Phase:** 09
 **Project Mode:** Horizontal Layers
 **Direction:** v0.4.0 Build fidelity (correctness) + release automation
 
@@ -209,7 +209,7 @@ Phase 11 (release automation) is unaffected — it is fully independent.
 See: .planning/PROJECT.md (updated 2026-08-29)
 
 **Core value:** Reduce Xcode clean build times by serving prebuilt SPM dependency binaries transparently, with fallback to source on cache miss.
-**Current focus:** Phase 9 — Cache Identity & Invalidation
+**Current focus:** Phase 09 — Cache Identity & Invalidation
 
 ## Session Continuity
 
@@ -260,10 +260,10 @@ Resume file: None
 
 ## Current Position
 
-Phase: 9 (Cache Identity & Invalidation) — NOT STARTED
-Plan: Not started
-Status: Ready to plan
-Last activity: 2026-08-29 — Phase 08 complete, transitioned to Phase 9
+Phase: 09 (Cache Identity & Invalidation) — EXECUTING
+Plan: 1 of 3
+Status: Executing Phase 09
+Last activity: 2026-08-29 — Phase 09 execution started
 
 ### Historical position (Phase 6, prior to this update)
 
@@ -272,7 +272,14 @@ Plan: 4 (next) — 2 of 4 plans complete (06-01 M1 measurement, 06-02 FID-06 loc
 Status: FID-06 complete; FID-01 partially delivered (version/revision reconcile + products preservation), membership rules pending in 06-03
 Last activity: 2026-08-27 — 06-02 shipped Core::PackageResolved, collapsed all five glob sites, 275 examples 0 failures
 
+## Deferred Verification
+
+| Phase | State | Resume |
+|-------|-------|--------|
+| 9 | verification_deferred_human | `/gsd-verify-work 9` |
+
 ## Operator Next Steps
 
+- **Phase 9 SC5:** run `.planning/phases/09-cache-identity-invalidation/09-SC5-VERIFICATION.md`'s 5-step procedure against the real StressMonitor reference project in Xcode, then record PASS/FAIL in that file's `## Outcome` section and resolve via `/gsd-verify-work 9`. All 4 automated success criteria (SC1-SC4) and both requirements (CACHE-02, CACHE-03) already passed; only this empirical DerivedData-staleness check needs a human with Xcode.
 - **Phase 11 gate:** create a GitHub App owned by `phuongddx` (`Contents: read & write` + `Metadata: read`, installed on `homebrew-spm-cache` only, never `workflow` scope) and store its app id + private key as repo secrets. This replaces the dead `TAP_REPO_TOKEN` (classic PAT, auto-deleted after a year unused). A write-access deploy key is the accepted lower-ceremony substitute.
 - Deferred (not in v0.4.0): `gem signin` → `gem build`/`gem push` → verify `gem install spm-cache`; then the Action + its smoke CI become viable.
