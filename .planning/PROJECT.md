@@ -42,10 +42,10 @@ Reduce Xcode clean build times by serving prebuilt SPM dependency binaries trans
 - ✓ `spm-cache init` — 7-flag bootstrap wizard, TTY-conditional prompts, idempotent yml diff-merge, canonical lockfile seeding (init→use fast path proven) — Phase 3 (v0.3.0)
 - ✓ GitHub Action (`action/` → `phuongddx/spm-cache-action`) — 6-input thin composite, `--default-config` wiring fixed, 12-example structural spec; publication is a release-checklist item — Phase 4 (v0.3.0)
 - ✓ `spm-cache watch` — mtime+size polling (user-accepted 2026-08-24, supersedes FSEvents design), debounce 2s, `--once`, signal-safe flush (INT/TERM masked during flush), self-trigger guard — Phase 5 (v0.3.0)
+- ✓ Package builds resolve transitive dependencies from the host project's resolved graph (fixes release-config cache builds linking stale transitive versions) — Phase 6 (canonical locator + lockfile reconciliation) + Phase 7 (host-graph seeding, vendored-project classification, no perf regression) (v0.4.0)
 
 ### Active
 
-- [ ] Package builds resolve transitive dependencies from the host project's resolved graph (fixes release-config cache builds linking stale transitive versions) — v0.4.0
 - [ ] Regression coverage proving transitive-version drift cannot silently return — v0.4.0
 - [ ] `update-tap.yml` publishes the Homebrew formula unattended (`TAP_REPO_TOKEN` valid) — v0.4.0
 
@@ -90,6 +90,8 @@ Known state after v0.3.0: test CI runs the full suite on every PR/push (was: non
 | Content-addressed cache deferred to v0.5 | HIGH effort; current lockfile-based key is adequate for v0.3 | — Pending (carried) |
 | v0.4.0 direction = build fidelity + release automation | Only known correctness failure (release-config builds link stale transitive versions) strikes the core value directly; Homebrew automation is small and independent | — Pending |
 | RubyGems publication deferred out of v0.4.0 | User decision 2026-08-27; Homebrew builds from the GitHub release tarball and needs no gem on RubyGems | — Pending |
+| Host graph seeded verbatim before first `swift package describe`, no `-onlyUsePackageVersionsFromResolvedFile` flag | Xcodebuild silently upgrades a seeded pin below a package's manifest floor rather than hard-failing; detecting that drift is Phase 8's job, not Phase 7's | ✓ Shipped Phase 7 — FID-02/FID-05 complete |
+| Shared `-clonedSourcePackagesDirPath` + process-level build lock | Verbatim host-graph seeding fans out per-package clones; a shared clone dir plus a lock closing the watch/build race were required to avoid a wall-clock/disk regression | ✓ Shipped Phase 7 — PERF-01: -40.6% wall-clock, -34% disk vs pre-seeding baseline on the reference project |
 
 ## Evolution
 
@@ -109,4 +111,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-08-27 after starting milestone v0.4.0*
+*Last updated: 2026-08-29 after Phase 7*

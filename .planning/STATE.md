@@ -2,13 +2,13 @@
 gsd_state_version: 1.0
 milestone: v0.4.0
 milestone_name: Build Fidelity & Release Automation
-current_phase: 6 — Graph Authority — Lockfile Reconciliation
-current_phase_name: Graph Authority — Lockfile Reconciliation
+current_phase: 8 — Drift Read-Back, Fidelity Status & Provenance
+current_phase_name: Drift Read-Back, Fidelity Status & Provenance
 status: planning
-stopped_at: Phase 7 complete, ready to plan Phase 6
-last_updated: "2026-08-29T07:07:29.752Z"
+stopped_at: Phase 7 complete (verified + code-review clean), ready to plan Phase 8
+last_updated: "2026-08-29T07:20:00.000Z"
 last_activity: 2026-08-29
-last_activity_desc: Phase 7 complete, transitioned to Phase 6
+last_activity_desc: Phase 7 canonically verified (5/5 must-haves passed), code review found + fixed 2 critical + 5 warning findings (342 examples, 0 failures), transitioned to Phase 8
 state_head: a2eb4bca468fc7f698da455d9ae65f98cfbf521e
 progress:
   total_phases: 6
@@ -21,7 +21,7 @@ progress:
 # Project State: spm-cache
 
 **Initialized:** 2026-08-10
-**Current Phase:** 6 — Graph Authority — Lockfile Reconciliation
+**Current Phase:** 8 — Drift Read-Back, Fidelity Status & Provenance
 **Project Mode:** Horizontal Layers
 **Direction:** v0.4.0 Build fidelity (correctness) + release automation
 
@@ -121,8 +121,8 @@ MediaPicker 3.2.4 while the app resolves 3.3.2.
 
 | Phase | Name | Status | Branch |
 |-------|------|--------|--------|
-| 6 | Graph Authority — Lockfile Reconciliation | 4/4 plans executed (pending verification) | gsd/v0.4.0-build-fidelity-release-automation |
-| 7 | Host-Faithful Checkout Seeding | 2/2 plans executed | gsd/v0.4.0-build-fidelity-release-automation |
+| 6 | Graph Authority — Lockfile Reconciliation | Complete (verified) | gsd/v0.4.0-build-fidelity-release-automation |
+| 7 | Host-Faithful Checkout Seeding | Complete (verified 5/5, code-review clean) | gsd/v0.4.0-build-fidelity-release-automation |
 | 8 | Drift Read-Back, Fidelity Status & Provenance | Not started | — |
 | 9 | Cache Identity & Invalidation | Not started | — |
 | 10 | Fidelity Regression Coverage | Not started | — |
@@ -134,6 +134,16 @@ fully independent and schedulable anywhere.
 Research flags: **Phase 7** and **Phase 9** need `--research-phase` during planning; 6, 8, 10, 11 reuse established patterns.
 
 v0.3.0 phase history archived to `.planning/milestones/v0.3.0-phases/`.
+
+## Phase 7 Process Notes (2026-08-29)
+
+- **`gsd-tools.cjs query phase.complete 7` computed the wrong `next_phase`.** Both Phase 6 and
+  Phase 7 were already `disk_status: complete` per `roadmap.analyze`, so the true next incomplete
+  phase is 8 — but the CLI returned `next_phase: "6"` and wrote `current_phase: 6` into STATE.md
+  (with a `preservation_warnings` entry noting it "preserved [the] disagreeing derived" value for
+  `current_phase_name`, suggesting it detected the conflict but resolved it wrong). Caught by the
+  orchestrator comparing against `roadmap.analyze`'s phase list before trusting the tool's output;
+  corrected manually to Phase 8 in this transition. Not yet filed upstream as a tool bug.
 
 ## Phase 7 Process Notes (2026-08-27)
 
@@ -156,8 +166,12 @@ the reference project: wall-clock **-40.6%** (18m15s -> 10m50s), disk **-34%** (
 the shared clone dir is a genuine improvement, not just neutral. See
 `.planning/phases/07-host-faithful-checkout-seeding/07-BENCHMARK.md`.
 
-Phase 7 not yet canonically verified (no goal-backward verifier run) or transitioned. Session
-stopped here on context budget (thin at the time) rather than continuing into Phases 8-11.
+Phase 7 canonically verified 2026-08-29 (5/5 must-haves passed) after a code-review pass found
+and fixed 2 Critical findings (a residual build-lock coverage gap in `Installer::Use`'s fast
+path, and `slice_complete?` treating a hit-but-missing-from-disk xcframework as complete) plus 5
+Warning findings; 1 warning (sleep-based timing specs) and 3 Info items deliberately deferred with
+documented rationale in `07-REVIEW-FIX.md`. Final suite: 342 examples, 0 failures. Transitioned to
+Phase 8.
 
 ## Milestone Re-scope Decision (2026-08-27, post-M1) -- OVERRIDDEN same day
 
@@ -199,8 +213,8 @@ See: .planning/PROJECT.md (updated 2026-08-27)
 
 ## Session Continuity
 
-Last session: 2026-08-29T06:01:23.149Z
-Stopped at: Phase 7 complete, ready to plan Phase 6
+Last session: 2026-08-29T07:20:00.000Z
+Stopped at: Phase 7 complete (verified + code-review clean), ready to plan Phase 8
 Resume file: None
 
 ## Performance Metrics
@@ -241,13 +255,14 @@ Resume file: None
 - [Phase Phase 6 — Graph Authority: Lockfile Reconciliation (4/4 plans executed — pending verification)]: WINDOWS #5 (unguarded host-graph parse in DiffDetector) left open: routing it through the tolerant accessor would flip every detect caller to silently-degrade. Recorded as a decision-fidelity gap against D-04 'never crash', not just robustness — warrants a dedicated follow-up plan
 - [Phase 07 — Host-Faithful Checkout Seeding (1/2 plans)]: 07-01 shipped SPM::ResolvedGraph and wired it into BuildPipeline.run/Installer::Build — FID-02 (seed host graph before first `swift package describe`) and FID-05 (vendored-.xcodeproj packages reported not-graph-pinned, never silently folded into pinned) marked Complete; the run's single pin source is resolved once via the already-memoized `host_graph_detector` (no second locator, per Phase 6 Plan 05's invariant); `run`'s body was extracted into a private `perform_build` so the seed/restore lives in one success-flag + ensure region around it, restoring on StandardError AND Interrupt, never on success; `-onlyUsePackageVersionsFromResolvedFile` deliberately NOT added (D-02). PERF-01 (shared clone dir, watch/build lock, benchmark gate) deferred to 07-02 per ROADMAP's own mapping.
 - [Phase 07 — Host-Faithful Checkout Seeding (2/2 plans — Phase 7 complete)]: 07-02 shipped `Config#clones_dir`/`#build_lock_path`, threaded `clones_dir` through both `Buildable.new` call sites (including `run_with_scheme`'s vendored-.xcodeproj fallback), and a process-level blocking flock shared by `Installer::Build` (held across `super` + the whole build loop) and `Installer::Use`'s non-fast-path branch (blocks before `recreate_dirs`) — closing Pitfall 15. PERF-01 proven by a real cold-cache `spm-cache build --config=release` against the StressMonitor reference project: wall-clock 18m15s→10m50s (-40.6%), `~/.spm-cache` disk 4.1G→2.7G (-34%), no regression on either axis (`07-BENCHMARK.md`). A pre-existing, out-of-scope Class E binaryTarget rename gap (3 Firebase Analytics variant products backed by one differently-named binaryTarget) was discovered live during the benchmark and worked around via the reference project's own gitignored `ignore_build_errors: true` knob (not fixed, logged only — present identically on both before/after commits so it does not bias the comparison). FID-02, FID-05, PERF-01 all Complete — Phase 7 fully done.
+- [Phase 07 — canonical verification + code review, 2026-08-29]: Re-planning found nothing left to plan (research independently re-derived all 5 success criteria from source, 341/0 suite) — user chose "view existing, skip replanning" over adding a plan or replanning from scratch. Code review then found 2 Critical + 6 Warning + 3 Info findings against the already-shipped Phase 7 code: CR-01 (`Installer::Use`'s build lock didn't cover trailing `gen_supporting_files`/`integrate_proxy_into_project`/`gen_cachemap_viz`) was only partially fixed by a fixer agent that crashed mid-run (transient API connection error) — its own commit left the fast-path branch of the same three calls unlocked and added a test asserting the wrong invariant ("nothing to protect against" on the fast path); a re-review caught this as CR-01b and it was closed by locking both branches identically. CR-02 (`slice_complete?` treating a hit-but-missing-from-disk xcframework as complete) was fixed cleanly with a new regression test. 5 of 6 warnings fixed (opts-splat bug, slice_satisfies? catch-all, duplicated swiftinterface scan, 3 overly-broad rescues narrowed, redundant resolve_destinations branches); WR-05 (sleep-based lock-contention timing specs) deliberately left unchanged after independent analysis found the flake risk low and the tests load-bearing. Final re-review (iteration 3 of the 3-iteration cap) converged clean. Canonical goal-backward verification then passed 5/5. `gsd-tools.cjs query phase.complete 7` itself had a bug (see Phase 7 Process Notes above) — computed `next_phase: 6` when Phase 6 was already complete; corrected manually to Phase 8 during transition.
 
 ## Current Position
 
-Phase: 7 — Host-Faithful Checkout Seeding (complete)
+Phase: 8 — Drift Read-Back, Fidelity Status & Provenance (not started)
 Plan: Not started
 Status: Ready to plan
-Last activity: 2026-08-29 — Phase 7 complete, transitioned to Phase 6
+Last activity: 2026-08-29 — Phase 7 canonically verified + code-review clean, transitioned to Phase 8
 
 ### Historical position (Phase 6, prior to this update)
 
@@ -259,5 +274,4 @@ Last activity: 2026-08-27 — 06-02 shipped Core::PackageResolved, collapsed all
 ## Operator Next Steps
 
 - **Phase 11 gate:** create a GitHub App owned by `phuongddx` (`Contents: read & write` + `Metadata: read`, installed on `homebrew-spm-cache` only, never `workflow` scope) and store its app id + private key as repo secrets. This replaces the dead `TAP_REPO_TOKEN` (classic PAT, auto-deleted after a year unused). A write-access deploy key is the accepted lower-ceremony substitute.
-- **Phase 6 first work (M1):** reproduce the stale-transitive release build on the real 59–70 package reference project and attribute the cause before Phase 7's design is locked.
 - Deferred (not in v0.4.0): `gem signin` → `gem build`/`gem push` → verify `gem install spm-cache`; then the Action + its smoke CI become viable.
