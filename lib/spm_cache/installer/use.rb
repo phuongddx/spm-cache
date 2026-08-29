@@ -20,6 +20,9 @@ module SPMCache
 
           if fast_path?
             Core::UI.info 'No changes detected. Proxy package up to date.'
+            gen_supporting_files
+            integrate_proxy_into_project
+            gen_cachemap_viz
           else
             with_build_lock do
               recreate_dirs
@@ -27,12 +30,11 @@ module SPMCache
               sync_lockfile
               prepare_proxy
               yield self if block_given?
+              gen_supporting_files
+              integrate_proxy_into_project
+              gen_cachemap_viz
             end
           end
-
-          gen_supporting_files
-          integrate_proxy_into_project
-          gen_cachemap_viz
         end
       end
 
