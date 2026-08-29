@@ -47,7 +47,7 @@ Full phase detail: `milestones/v0.3.0-ROADMAP.md` · Audit: `milestones/v0.3.0-M
 repair the Homebrew release path so shipping stops requiring manual steps.
 
 - [ ] **Phase 6: Graph Authority — Lockfile Reconciliation** - The lockfile spm-cache builds from always describes the host's *current* resolved graph
-- [ ] **Phase 7: Host-Faithful Checkout Seeding** - Every per-package build resolves transitive deps from the host graph, not its own requirements
+- [x] **Phase 7: Host-Faithful Checkout Seeding** - Every per-package build resolves transitive deps from the host graph, not its own requirements (completed 2026-08-29)
 - [ ] **Phase 8: Drift Read-Back, Fidelity Status & Provenance** - Realized versions are read back, compared, reported, and recorded per artifact
 - [ ] **Phase 9: Cache Identity & Invalidation** - Provenance mismatch (or absence) is a cache miss, so existing users actually receive the fix
 - [ ] **Phase 10: Fidelity Regression Coverage** - Hermetic specs make transitive-version drift unable to silently return
@@ -194,7 +194,7 @@ repair the Homebrew release path so shipping stops requiring manual steps.
 | 4. CI GitHub Action | v0.3.0 | 2/2 | Complete | 2026-08-24 |
 | 5. Auto-Sync Watcher | v0.3.0 | 2/2 | Complete | 2026-08-24 |
 | 6. Graph Authority — Lockfile Reconciliation | v0.4.0 | 5/5 | In Progress|  |
-| 7. Host-Faithful Checkout Seeding | v0.4.0 | 0/TBD | Not started | - |
+| 7. Host-Faithful Checkout Seeding | v0.4.0 | 2/2 | Complete    | 2026-08-29 |
 | 8. Drift Read-Back, Fidelity Status & Provenance | v0.4.0 | 0/TBD | Not started | - |
 | 9. Cache Identity & Invalidation | v0.4.0 | 0/TBD | Not started | - |
 | 10. Fidelity Regression Coverage | v0.4.0 | 0/TBD | Not started | - |

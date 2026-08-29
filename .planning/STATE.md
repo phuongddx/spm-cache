@@ -2,26 +2,26 @@
 gsd_state_version: 1.0
 milestone: v0.4.0
 milestone_name: Build Fidelity & Release Automation
-current_phase: "Phase 7 — Host-Faithful Checkout Seeding (2/2 plans executed)"
-current_phase_name: "Host-Faithful Checkout Seeding"
-status: in-progress
-stopped_at: Completed 07-02-PLAN.md
-last_updated: "2026-08-27T17:16:36.000Z"
-last_activity: 2026-08-27
-last_activity_desc: 07-02 shipped shared -clonedSourcePackagesDirPath (clones_dir) + process-level build/watch flock + real PERF-01 benchmark against the reference project (18m15s->10m50s, 4.1G->2.7G, no regression). Phase 7 complete -- FID-02, FID-05, PERF-01 all Complete. 341 examples, 0 failures
-state_head: 1b7b89d
+current_phase: 6 — Graph Authority — Lockfile Reconciliation
+current_phase_name: Graph Authority — Lockfile Reconciliation
+status: planning
+stopped_at: Phase 7 complete, ready to plan Phase 6
+last_updated: "2026-08-29T07:07:29.752Z"
+last_activity: 2026-08-29
+last_activity_desc: Phase 7 complete, transitioned to Phase 6
+state_head: a2eb4bca468fc7f698da455d9ae65f98cfbf521e
 progress:
   total_phases: 6
-  completed_phases: 0
-  total_plans: 6
-  completed_plans: 6
-  percent: 0
+  completed_phases: 2
+  total_plans: 7
+  completed_plans: 7
+  percent: 33
 ---
 
 # Project State: spm-cache
 
 **Initialized:** 2026-08-10
-**Current Phase:** Phase 6 — Graph Authority: Lockfile Reconciliation (4/4 plans executed — pending verification)
+**Current Phase:** 6 — Graph Authority — Lockfile Reconciliation
 **Project Mode:** Horizontal Layers
 **Direction:** v0.4.0 Build fidelity (correctness) + release automation
 
@@ -135,12 +135,12 @@ Research flags: **Phase 7** and **Phase 9** need `--research-phase` during plann
 
 v0.3.0 phase history archived to `.planning/milestones/v0.3.0-phases/`.
 
-
 ## Phase 7 Process Notes (2026-08-27)
 
 - **07-02 executor briefly used `git stash`** during a verification step — against an absolute
   rule with no exceptions. Self-caught, `git stash pop` recovered immediately, verified via
   `git diff`/`git stash list` (nothing lost). Logged here rather than silently passed over.
+
 - **Reference-project restoration claim was slightly overstated.** The benchmark left
   `StressMonitor.xcodeproj/.../StressMonitor.xcscheme` at `version = "1.8"` (was `1.7"`) —
   an Xcode auto-migration side effect of running a build/resolve against the project, not
@@ -199,8 +199,8 @@ See: .planning/PROJECT.md (updated 2026-08-27)
 
 ## Session Continuity
 
-Last session: 2026-08-27T17:16:36.000Z
-Stopped at: Completed 07-02-PLAN.md
+Last session: 2026-08-29T06:01:23.149Z
+Stopped at: Phase 7 complete, ready to plan Phase 6
 Resume file: None
 
 ## Performance Metrics
@@ -245,9 +245,9 @@ Resume file: None
 ## Current Position
 
 Phase: 7 — Host-Faithful Checkout Seeding (complete)
-Plan: 07-02 — 2 of 2 plans complete (07-01 SPM::ResolvedGraph + seed-before-describe wiring + vendored classification; 07-02 clones_dir + build lock + PERF-01 benchmark)
-Status: FID-02, FID-05, and PERF-01 all Complete in REQUIREMENTS.md. Phase 7 success criteria 1-5 all hold. Ready to proceed to Phase 8 (Drift Read-Back, Fidelity Status & Provenance).
-Last activity: 2026-08-27 — 07-02 shipped Config#clones_dir/#build_lock_path, threaded clones_dir into both BuildPipeline Buildable.new call sites, process-level flock shared by Installer::Build/Installer::Use closing the watch re-entrancy race, and a real cold-cache PERF-01 benchmark against the reference project (18m15s->10m50s wall-clock, 4.1G->2.7G disk, no regression); 341 examples, 0 failures; `make proxy.build` clean
+Plan: Not started
+Status: Ready to plan
+Last activity: 2026-08-29 — Phase 7 complete, transitioned to Phase 6
 
 ### Historical position (Phase 6, prior to this update)
 
