@@ -1,15 +1,17 @@
 ---
 phase: 09-cache-identity-invalidation
 verified: 2026-08-29T13:29:23Z
-status: human_needed
+status: passed
 score: 4/5 must-haves verified
 behavior_unverified: 1
 overrides_applied: 0
 human_verification:
+
   - test: "Follow the reproduction procedure recorded in 09-SC5-VERIFICATION.md against the real reference project (/Users/ddphuong/Projects/next-labs/stress-ai/ios-stress-app/StressMonitor): cold-build, mark one cached package's linked framework content in DerivedData, force a pin-disagreement miss + rebuild that one package, rebuild the app WITHOUT clearing DerivedData, re-check the marker."
     expected: "The app's rebuilt binary reflects the NEW xcframework's content (marker changes) -- Xcode's incremental build noticed the in-place content change on its own, with no manual DerivedData clear required."
     why_human: "Requires the real external reference project, a real Xcode build, and human judgment comparing binary/symbol content across two DerivedData states -- not reproducible by an autonomous agent in this environment (no Xcode GUI, no reference-project repo access)."
 behavior_unverified_items:
+
   - truth: "A rebuild triggered by the new invalidation mechanism does not leave Xcode's DerivedData serving the PREVIOUS build's linked module/resource content once the app is rebuilt without a manual DerivedData clear (SC5, ROADMAP success criterion 5)"
     test: "Run the 5-step procedure in 09-SC5-VERIFICATION.md: cold-build, mark linked framework content, force a pin-disagreement miss + rebuild one package, rebuild app without clearing DerivedData, re-check marker"
     expected: "Post-rebuild marker differs from pre-rebuild marker, proving Xcode relinked the new artifact content without a manual DerivedData purge"
@@ -101,6 +103,10 @@ sweep's suffix-strip regex would misclassify a non-`.xcframework.`-segmented sid
 confirmed unreachable since every current sidecar producer follows that naming convention).
 
 ### Human Verification Required
+
+> **Update 2026-08-29T14:24:56Z:** SC5 executed by the operator — **PASS**. Recorded in
+> `09-UAT.md` (test 1) and `09-SC5-VERIFICATION.md` `## Outcome`. Status canonicalized to
+> `passed` via `/gsd-verify-work 9`.
 
 ### 1. SC5 — DerivedData staleness on in-place xcframework rebuild
 

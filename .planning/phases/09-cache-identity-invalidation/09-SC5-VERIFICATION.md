@@ -1,3 +1,13 @@
+---
+phase: 09-cache-identity-invalidation
+status: passed
+verified: 2026-08-29T14:24:56Z
+score: SC5 empirical check — 1/1 passed (operator-executed runbook)
+note: Empirical SC5 runbook report; the phase-wide report is 09-VERIFICATION.md. Frontmatter
+  added 2026-08-29 because tooling reads the alphabetically-first *-VERIFICATION.md — without
+  it every status surface reported the phase as "missing" verification.
+---
+
 # SC5 Verification: DerivedData Staleness on In-Place xcframework Rebuild
 
 **Verifies:** RESEARCH.md Assumption A1 (MEDIUM confidence) and CONTEXT.md decisions D-11
