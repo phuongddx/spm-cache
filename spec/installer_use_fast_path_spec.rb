@@ -28,12 +28,13 @@ RSpec.describe SPMCache::Installer::Use, '#perform_install fast path' do
     project.save
   end
 
-  def write_lockfile(packages)
+  def write_lockfile(packages, version: SPMCache::VERSION)
     File.write(lockfile_path, JSON.generate(
                                 'Fake.xcodeproj' => {
                                   'packages' => packages,
                                   'dependencies' => {},
-                                  'platforms' => { 'ios' => '16.0' }
+                                  'platforms' => { 'ios' => '16.0' },
+                                  'spm_cache_version' => version
                                 }
                               ))
   end
@@ -73,6 +74,51 @@ RSpec.describe SPMCache::Installer::Use, '#perform_install fast path' do
     installer = described_class.new(project: project_path)
     # Stub the heavy methods that should NOT run on the fast path
     expect(installer).not_to receive(:recreate_dirs)
+    expect(installer).not_to receive(:sync_lockfile)
+    expect(installer).not_to receive(:prepare_proxy)
+
+    installer.perform_install
+
+    expect(installer.diff).to be_empty
+  end
+
+  it 'regenerates (does not take the fast path) when the lockfile spm_cache_version stamp does not match the running gem version, even with an unchanged host graph' do
+    build_project
+    write_lockfile([
+                     { 'repositoryURL' => 'https://github.com/Alamofire/Alamofire.git', 'name' => 'Alamofire', 'version' => '5.0.0' }
+                   ], version: 'v0.3.0-stub')
+    write_package_resolved([
+                             { identity: 'Alamofire', url: 'https://github.com/Alamofire/Alamofire.git', version: '5.0.0' }
+                           ])
+    materialize_proxy
+
+    installer = described_class.new(project: project_path)
+    allow(installer).to receive(:recreate_dirs)
+    allow(installer).to receive(:ensure_config_file)
+    allow(installer).to receive(:sync_lockfile)
+    allow(installer).to receive(:prepare_proxy)
+    allow(installer).to receive(:gen_supporting_files)
+    allow(installer).to receive(:integrate_proxy_into_project)
+    allow(installer).to receive(:gen_cachemap_viz)
+
+    installer.perform_install
+
+    expect(installer.diff).to be_empty
+    expect(installer).to have_received(:sync_lockfile)
+    expect(installer).to have_received(:prepare_proxy)
+  end
+
+  it 'still takes the fast path when the lockfile spm_cache_version stamp matches the running gem version and the host graph is unchanged' do
+    build_project
+    write_lockfile([
+                     { 'repositoryURL' => 'https://github.com/Alamofire/Alamofire.git', 'name' => 'Alamofire', 'version' => '5.0.0' }
+                   ])
+    write_package_resolved([
+                             { identity: 'Alamofire', url: 'https://github.com/Alamofire/Alamofire.git', version: '5.0.0' }
+                           ])
+    materialize_proxy
+
+    installer = described_class.new(project: project_path)
     expect(installer).not_to receive(:sync_lockfile)
     expect(installer).not_to receive(:prepare_proxy)
 
