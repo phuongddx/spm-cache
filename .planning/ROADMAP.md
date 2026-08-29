@@ -128,8 +128,12 @@ because the roadmap's own claim about `Core::Diagnostics`/`GraphEntry.Status` re
 misleading (neither is reachable from `build`/`cache list` output — both are doctor-only or
 Swift-side-only); the `.shims.json` sidecar-pattern reuse was confirmed correct.
 **Plans**: 2 plans across 2 waves
+**Wave 1**
 
 - [ ] 08-01-PLAN.md — drift read-back, resolution-incompatible classification, provenance sidecar write/cleanup, build-output status line (FID-03, FID-04, CACHE-01, DIAG-02 build-output half)
+
+**Wave 2** *(blocked on Wave 1 completion)*
+
 - [ ] 08-02-PLAN.md — `cache list` fidelity-status column, fixes pre-existing sidecar-as-spurious-entry bug (DIAG-02 cache-list half)
 
 ### Phase 9: Cache Identity & Invalidation

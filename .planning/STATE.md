@@ -4,16 +4,16 @@ milestone: v0.4.0
 milestone_name: Build Fidelity & Release Automation
 current_phase: 8 — Drift Read-Back, Fidelity Status & Provenance
 current_phase_name: Drift Read-Back, Fidelity Status & Provenance
-status: planning
+status: executing
 stopped_at: Phase 7 complete (verified + code-review clean), ready to plan Phase 8
-last_updated: "2026-08-29T07:20:00.000Z"
+last_updated: "2026-08-29T07:58:12.236Z"
 last_activity: 2026-08-29
 last_activity_desc: Phase 7 canonically verified (5/5 must-haves passed), code review found + fixed 2 critical + 5 warning findings (342 examples, 0 failures), transitioned to Phase 8
-state_head: a2eb4bca468fc7f698da455d9ae65f98cfbf521e
+state_head: 92bbb5bd5ba4eea3d547a3674ca0f93a6e75be7e
 progress:
   total_phases: 6
   completed_phases: 2
-  total_plans: 7
+  total_plans: 9
   completed_plans: 7
   percent: 33
 ---
@@ -259,9 +259,9 @@ Resume file: None
 
 ## Current Position
 
-Phase: 8 — Drift Read-Back, Fidelity Status & Provenance (not started)
+Phase: 8 (Drift Read-Back, Fidelity Status & Provenance) — READY TO EXECUTE
 Plan: Not started
-Status: Ready to plan
+Status: Ready to execute
 Last activity: 2026-08-29 — Phase 7 canonically verified + code-review clean, transitioned to Phase 8
 
 ### Historical position (Phase 6, prior to this update)
