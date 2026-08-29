@@ -206,15 +206,15 @@ Phase 11 (release automation) is unaffected — it is fully independent.
 
 ## Project Reference
 
-See: .planning/PROJECT.md (updated 2026-08-27)
+See: .planning/PROJECT.md (updated 2026-08-29)
 
 **Core value:** Reduce Xcode clean build times by serving prebuilt SPM dependency binaries transparently, with fallback to source on cache miss.
-**Current focus:** Phase 08 — Drift Read-Back, Fidelity Status & Provenance
+**Current focus:** Phase 9 — Cache Identity & Invalidation
 
 ## Session Continuity
 
-Last session: 2026-08-29T07:20:00.000Z
-Stopped at: Phase 08 complete, ready to plan Phase 6
+Last session: 2026-08-29T10:04:00.000Z
+Stopped at: Phase 08 complete, ready to plan Phase 9
 Resume file: None
 
 ## Performance Metrics
