@@ -241,6 +241,95 @@ RSpec.describe SPMCache::SPM::BuildPipeline, "the seeded checkout is restored ev
   end
 end
 
+RSpec.describe SPMCache::SPM::BuildPipeline, "write_provenance_sidecar never raises, even on a disk write failure (WR-03)" do
+  let(:tmpdir) { Dir.mktmpdir }
+  let(:pkg_dir) { File.join(tmpdir, "pkg") }
+  let(:out_dir) { File.join(tmpdir, "out") }
+  let(:resolved_pins_file) { File.join(tmpdir, "host-Package.resolved") }
+
+  def stub_desc_products(products)
+    fake_desc = instance_double(SPMCache::SPM::Desc::Description)
+    allow(SPMCache::SPM::Desc::Description).to receive(:new).and_return(fake_desc)
+    allow(fake_desc).to receive(:fetch)
+    allow(fake_desc).to receive(:products).and_return(
+      products.map { |p| SPMCache::SPM::Desc::Product.new(raw: p, pkg_dir: pkg_dir) },
+    )
+    allow(fake_desc).to receive(:raw).and_return({ "targets" => [] })
+    fake_desc
+  end
+
+  before do
+    FileUtils.mkdir_p(pkg_dir)
+    FileUtils.mkdir_p(out_dir)
+    File.write(resolved_pins_file,
+               JSON.generate("pins" => [{ "identity" => "SomePkg", "state" => { "revision" => "aaa" } }]))
+    stub_desc_products([{ "name" => "SomePkg", "type" => { "library" => ["automatic"] } }])
+    allow(SPMCache::SPM::XCFramework::XCFramework).to receive(:new).and_return(
+      double("XCFramework", build: File.join(out_dir, "SomePkg.xcframework")),
+    )
+
+    fake_buildable = instance_double(SPMCache::SPM::Buildable)
+    allow(SPMCache::SPM::Buildable).to receive(:new).and_return(fake_buildable)
+    allow(fake_buildable).to receive(:build_for_destination).and_return(
+      derived_data: "/dd", object_file: "/dd/SomePkg.o",
+      swiftmodule: nil, swiftdoc: nil, swiftsourceinfo: nil, swiftinterface: nil,
+    )
+    allow(fake_buildable).to receive(:create_framework) do |_arts, subdir|
+      fw = File.join(subdir, "SomePkg.framework")
+      FileUtils.mkdir_p(fw)
+      File.write(File.join(fw, "SomePkg"), "stub")
+      fw
+    end
+  end
+
+  after { FileUtils.rm_rf(tmpdir) }
+
+  it "warns and returns the built artifact path instead of raising when the atomic rename fails with a disk error" do
+    allow(File).to receive(:rename).and_call_original
+    allow(File).to receive(:rename)
+      .with(instance_of(String), "#{File.join(out_dir, 'SomePkg.xcframework')}.provenance.json")
+      .and_raise(Errno::ENOSPC)
+
+    result = nil
+    expect(SPMCache::Core::UI).to receive(:warn).with(/could not write provenance sidecar for SomePkg\.xcframework/)
+
+    expect {
+      result = described_class.run(
+        name: "SomePkg",
+        pkg_dir: pkg_dir,
+        destinations: ["iphonesimulator"],
+        out_dir: out_dir,
+        resolved_pins_file: resolved_pins_file,
+        config: "debug",
+      )
+    }.not_to raise_error
+
+    expect(result).to eq(File.join(out_dir, "SomePkg.xcframework"))
+    expect(File.exist?("#{result}.provenance.json")).to be false
+  end
+
+  it "never leaves a partially-written (truncated) sidecar file behind on a failed write" do
+    allow(File).to receive(:rename).and_call_original
+    allow(File).to receive(:rename)
+      .with(instance_of(String), "#{File.join(out_dir, 'SomePkg.xcframework')}.provenance.json")
+      .and_raise(Errno::EACCES)
+    allow(SPMCache::Core::UI).to receive(:warn)
+
+    described_class.run(
+      name: "SomePkg",
+      pkg_dir: pkg_dir,
+      destinations: ["iphonesimulator"],
+      out_dir: out_dir,
+      resolved_pins_file: resolved_pins_file,
+      config: "debug",
+    )
+
+    # The tempfile written before the failed rename must be cleaned up too --
+    # not left orphaned in out_dir.
+    expect(Dir.glob(File.join(out_dir, "provenance*.tmp*"))).to be_empty
+  end
+end
+
 RSpec.describe SPMCache::SPM::BuildPipeline, "not-graph-pinned paths never write a provenance sidecar, and clean up any stale one" do
   let(:tmpdir) { Dir.mktmpdir }
   let(:pkg_dir) { File.join(tmpdir, "pkg") }

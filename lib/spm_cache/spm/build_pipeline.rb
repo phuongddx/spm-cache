@@ -2,6 +2,7 @@
 
 require "fileutils"
 require "tmpdir"
+require "tempfile"
 require "digest"
 require "json"
 require "set"
@@ -154,19 +155,36 @@ module SPMCache
           revision.to_s.empty? ? state["version"] : revision
         end
 
-        # Mirrors write_shim_sidecar's exact File.write/JSON.generate shape.
         # Exactly the four CACHE-01-specified fields plus the computed
         # fidelity status -- no absolute filesystem paths, usernames,
         # hostnames, or build timestamps (the sidecar may travel through a
         # shared/remote cache backend).
+        #
+        # Tempfile-then-rename, mirroring ResolvedGraph.atomic_write, so a
+        # crash/interrupt mid-write never leaves a truncated sidecar for
+        # `cache list`'s reader to trip over. Also never raises: a disk error
+        # here (ENOSPC/EACCES/...) degrades to a warning instead of
+        # propagating out of report_fidelity -> run and being mistaken for a
+        # genuine build failure by ignore_build_errors? handling (Pitfall 2)
+        # -- the xcframework this sidecar describes already built
+        # successfully, so a metadata-write failure must never mask that.
         def write_provenance_sidecar(output_path, status:, pins:, config:, destinations:)
-          File.write("#{output_path}.provenance.json", JSON.generate(
-                                                           fidelity_status: status,
-                                                           pins: pins,
-                                                           spm_cache_version: SPMCache::VERSION,
-                                                           config: config,
-                                                           destinations: destinations,
-                                                         ))
+          destination = "#{output_path}.provenance.json"
+          content = JSON.generate(
+            fidelity_status: status,
+            pins: pins,
+            spm_cache_version: SPMCache::VERSION,
+            config: config,
+            destinations: destinations,
+          )
+
+          tmp = Tempfile.new(["provenance", ".tmp"], File.dirname(destination))
+          tmp.write(content)
+          tmp.close
+          File.rename(tmp.path, destination)
+        rescue SystemCallError => e
+          tmp&.unlink
+          Core::UI.warn "  could not write provenance sidecar for #{File.basename(output_path)}: #{e.message}"
         end
 
         # Classifies `pkg_dir` before seeding anything (D-04): a vendored
