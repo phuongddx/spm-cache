@@ -230,4 +230,48 @@ RSpec.describe SPMCache::Installer::Use, '#perform_install fast path' do
     expect(drifted['revision']).to eq('rev-new')
     expect(packages.find { |pkg| pkg['name'] == 'Enriched' }['products']).to eq(enriched_products)
   end
+
+  # CR-01 regression: the fast path never calls sync_lockfile, so @lockfile
+  # was nil when integrate_proxy_into_project's plugin_only_lockfile_urls ran,
+  # silently stripping every plugin-only package reference on each fast-path
+  # run. @lockfile must be populated on the fast path too.
+  it 'preserves a plugin-only package reference and its product dependency across a real fast-path run' do
+    swiftgen_url = 'https://github.com/SwiftGen/SwiftGenPlugin.git'
+
+    project = Xcodeproj::Project.new(project_path)
+    target = project.new_target(:application, 'MyApp', :ios)
+    swiftgen_ref = project.new(Xcodeproj::Project::Object::XCRemoteSwiftPackageReference)
+    swiftgen_ref.repositoryURL = swiftgen_url
+    project.root_object.package_references << swiftgen_ref
+    dep = project.new(Xcodeproj::Project::Object::XCSwiftPackageProductDependency)
+    dep.product_name = 'SwiftGenPlugin'
+    dep.package = swiftgen_ref
+    target.package_product_dependencies << dep
+    project.save
+
+    write_lockfile([
+                     { 'repositoryURL' => swiftgen_url, 'name' => 'SwiftGenPlugin', 'revision' => 'rev',
+                       'products' => [{ 'name' => 'SwiftGenPlugin', 'type' => 'plugin', 'targets' => ['SwiftGenPlugin'] }] }
+                   ])
+    write_package_resolved([
+                             { identity: 'SwiftGenPlugin', url: swiftgen_url, revision: 'rev' }
+                           ])
+    materialize_proxy
+
+    installer = described_class.new(project: project_path)
+    expect(installer).not_to receive(:sync_lockfile)
+
+    installer.perform_install
+
+    expect(installer.diff).to be_empty
+
+    saved = Xcodeproj::Project.open(project_path)
+    remote_urls = saved.root_object.package_references
+                        .grep(Xcodeproj::Project::Object::XCRemoteSwiftPackageReference)
+                        .map(&:repositoryURL)
+    expect(remote_urls).to include(swiftgen_url)
+
+    saved_target = saved.targets.first
+    expect(saved_target.package_product_dependencies.map(&:product_name)).to include('SwiftGenPlugin')
+  end
 end

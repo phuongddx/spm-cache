@@ -21,6 +21,12 @@ module SPMCache
           if fast_path?
             Core::UI.info 'No changes detected. Proxy package up to date.'
             with_build_lock do
+              # sync_lockfile is skipped on this branch, so it never assigns
+              # @lockfile -- populate it here (read-only, no save) so
+              # integrate_proxy_into_project's plugin_only_lockfile_urls sees
+              # the real lockfile instead of nil, which would otherwise strip
+              # every plugin-only package reference on each fast-path run.
+              @lockfile = Core::Lockfile.new(@config.lockfile_path)
               gen_supporting_files
               integrate_proxy_into_project
               gen_cachemap_viz
