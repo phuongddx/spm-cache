@@ -91,12 +91,18 @@ module SPMCache
         # resolution-incompatible status (Pitfall 2).
         def report_fidelity(name:, pkg_dir:, output_path:, seeded:, intended_pin_map:, config:, destinations:)
           unless seeded
-            # Generalizes CACHE-01's cleanup guarantee to every path that
-            # overwrites/replaces an xcframework, not just Class E's -- never
-            # leave a stale sidecar to lie about a rebuilt artifact. A no-op
-            # when no sidecar exists, so the nil-resolved_pins_file path stays
-            # byte-identical to v0.3.0 (D-07).
-            FileUtils.rm_f("#{output_path}.provenance.json")
+            # CACHE-02 (09-01): write an explicit not-graph-pinned sidecar
+            # with empty pins instead of deleting it. A totally-absent
+            # sidecar is what Cache.swift's hit() now treats as an
+            # unambiguous miss (the v0.3.0-upgrade signal, D-01/SC1) -- so
+            # deleting it here, unconditionally, on EVERY build of a
+            # vendored-.xcodeproj (Class E) or no-host-graph package would
+            # permanently defeat caching for that whole package class.
+            # hit()'s intersection-only comparison treats empty pins
+            # identically to a normal sidecar whose intersection happens to
+            # be empty, so this is safe and never a false hit.
+            write_provenance_sidecar(output_path, status: "not-graph-pinned", pins: {},
+                                                   config: config, destinations: destinations)
             return
           end
 

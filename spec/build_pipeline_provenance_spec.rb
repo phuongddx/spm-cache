@@ -330,7 +330,7 @@ RSpec.describe SPMCache::SPM::BuildPipeline, "write_provenance_sidecar never rai
   end
 end
 
-RSpec.describe SPMCache::SPM::BuildPipeline, "not-graph-pinned paths never write a provenance sidecar, and clean up any stale one" do
+RSpec.describe SPMCache::SPM::BuildPipeline, "not-graph-pinned paths write an explicit sidecar with empty pins (09-01, Pattern 3)" do
   let(:tmpdir) { Dir.mktmpdir }
   let(:pkg_dir) { File.join(tmpdir, "pkg") }
   let(:out_dir) { File.join(tmpdir, "out") }
@@ -373,7 +373,7 @@ RSpec.describe SPMCache::SPM::BuildPipeline, "not-graph-pinned paths never write
 
   after { FileUtils.rm_rf(tmpdir) }
 
-  it "vendored .xcodeproj checkout: writes no sidecar and removes a pre-existing stale one" do
+  it "vendored .xcodeproj checkout: writes an explicit not-graph-pinned sidecar with empty pins, overwriting any stale one" do
     FileUtils.mkdir_p(File.join(pkg_dir, "CryptoSwift.xcodeproj"))
     stale_sidecar = File.join(out_dir, "CryptoSwift.xcframework.provenance.json")
     File.write(stale_sidecar, '{"fidelity_status":"host-pinned"}')
@@ -387,10 +387,18 @@ RSpec.describe SPMCache::SPM::BuildPipeline, "not-graph-pinned paths never write
       config: "debug",
     )
 
-    expect(File.exist?(stale_sidecar)).to be false
+    expect(File.exist?(stale_sidecar)).to be true
+    parsed = JSON.parse(File.read(stale_sidecar))
+    expect(parsed).to eq(
+      "fidelity_status" => "not-graph-pinned",
+      "pins" => {},
+      "spm_cache_version" => SPMCache::VERSION,
+      "config" => "debug",
+      "destinations" => ["iphonesimulator"],
+    )
   end
 
-  it "nil resolved_pins_file (no host graph anywhere): writes no sidecar, prints no fidelity status line, removes a pre-existing stale one" do
+  it "nil resolved_pins_file (no host graph anywhere): writes an explicit not-graph-pinned sidecar with empty pins, prints no fidelity status line" do
     stale_sidecar = File.join(out_dir, "CryptoSwift.xcframework.provenance.json")
     File.write(stale_sidecar, '{"fidelity_status":"host-pinned"}')
 
@@ -404,7 +412,28 @@ RSpec.describe SPMCache::SPM::BuildPipeline, "not-graph-pinned paths never write
       )
     }.not_to output(/host-pinned|resolution-incompatible/).to_stdout
 
-    expect(File.exist?(stale_sidecar)).to be false
+    expect(File.exist?(stale_sidecar)).to be true
+    parsed = JSON.parse(File.read(stale_sidecar))
+    expect(parsed["fidelity_status"]).to eq("not-graph-pinned")
+    expect(parsed["pins"]).to eq({})
+  end
+
+  it "the not-graph-pinned sidecar's pins is exactly {} -- the shape Cache.swift's hit() treats as no evidence of drift, never malformed" do
+    FileUtils.mkdir_p(File.join(pkg_dir, "CryptoSwift.xcodeproj"))
+    sidecar = File.join(out_dir, "CryptoSwift.xcframework.provenance.json")
+
+    described_class.run(
+      name: "CryptoSwift",
+      pkg_dir: pkg_dir,
+      destinations: ["iphonesimulator"],
+      out_dir: out_dir,
+      resolved_pins_file: resolved_pins_file,
+      config: "debug",
+    )
+
+    parsed = JSON.parse(File.read(sidecar))
+    expect(parsed["pins"]).to eq({})
+    expect(parsed["pins"]).not_to be_nil
   end
 end
 
