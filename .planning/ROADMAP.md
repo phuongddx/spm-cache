@@ -123,8 +123,14 @@ repair the Homebrew release path so shipping stops requiring manual steps.
 
   - **M2 (consumed)** — the `resolution-incompatible` count from Phase 7's report-only run gates the policy commitment locked here. Confirm the count before committing; rescope if it is large.
 
-**Research**: Not needed — reuses the established `.shims.json` sidecar pattern and the `Core::Diagnostics` / `GraphEntry.Status` surfaces verbatim.
-**Plans**: TBD
+**Research**: Done 2026-08-29 (`08-RESEARCH.md`) — run despite this line's original "not needed" call
+because the roadmap's own claim about `Core::Diagnostics`/`GraphEntry.Status` reuse proved half
+misleading (neither is reachable from `build`/`cache list` output — both are doctor-only or
+Swift-side-only); the `.shims.json` sidecar-pattern reuse was confirmed correct.
+**Plans**: 2 plans across 2 waves
+
+- [ ] 08-01-PLAN.md — drift read-back, resolution-incompatible classification, provenance sidecar write/cleanup, build-output status line (FID-03, FID-04, CACHE-01, DIAG-02 build-output half)
+- [ ] 08-02-PLAN.md — `cache list` fidelity-status column, fixes pre-existing sidecar-as-spurious-entry bug (DIAG-02 cache-list half)
 
 ### Phase 9: Cache Identity & Invalidation
 

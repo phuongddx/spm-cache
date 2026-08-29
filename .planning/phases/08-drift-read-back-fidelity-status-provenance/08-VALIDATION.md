@@ -1,9 +1,9 @@
 ---
 phase: 8
 slug: drift-read-back-fidelity-status-provenance
-status: draft
-nyquist_compliant: false
-wave_0_complete: false
+status: planned
+nyquist_compliant: true
+wave_0_complete: true
 created: 2026-08-29
 ---
 
@@ -36,10 +36,13 @@ created: 2026-08-29
 
 ## Per-Task Verification Map
 
-*Filled in by the planner as tasks are defined — no plans exist yet for this phase.*
-
 | Task ID | Plan | Wave | Requirement | Threat Ref | Secure Behavior | Test Type | Automated Command | File Exists | Status |
 |---------|------|------|-------------|------------|-----------------|-----------|-------------------|-------------|--------|
+| 08-01 Task 1 | 08-01 | 1 | FID-03, FID-04, CACHE-01, DIAG-02 | T-08-01, T-08-02 | Drift read-back never hard-fails; status classified on success path only; sidecar carries exactly 5 keys | unit (tracer, starts red) | `bundle exec rspec spec/build_pipeline_provenance_spec.rb` | new file | planned |
+| 08-01 Task 2 | 08-01 | 1 | FID-03, FID-04, CACHE-01 | T-08-01 | Not-graph-pinned/Class E paths never write a stale or false sidecar | unit (tdd) | `bundle exec rspec spec/build_pipeline_provenance_spec.rb` | extend | planned |
+| 08-01 Task 3 | 08-01 | 1 | FID-03, FID-04, CACHE-01 | T-08-01, T-08-02 | Diff scoped to intersection only; nil-tolerant defaults; ignore_build_errors? cannot mask | unit (tdd) | `bundle exec rspec spec/build_pipeline_provenance_spec.rb && bundle exec rspec` | extend | planned |
+| 08-02 Task 1 | 08-02 | 2 | DIAG-02 | T-08-01, T-08-02 | Sidecar is display-only; malformed input never crashes | unit (tracer, starts red) | `bundle exec rspec spec/command_cache_list_spec.rb` | new file | planned |
+| 08-02 Task 2 | 08-02 | 2 | DIAG-02 | T-08-01 | Missing/malformed sidecar falls back to not-graph-pinned, never raises | unit (tdd) | `bundle exec rspec spec/command_cache_list_spec.rb && bundle exec rspec` | extend | planned |
 
 ---
 
@@ -57,11 +60,11 @@ All phase behaviors have automated verification. Drift read-back's core mechanis
 
 ## Validation Sign-Off
 
-- [ ] All tasks have `<automated>` verify or Wave 0 dependencies
-- [ ] Sampling continuity: no 3 consecutive tasks without automated verify
-- [ ] Wave 0 covers all MISSING references
-- [ ] No watch-mode flags
-- [ ] Feedback latency < 45s
-- [ ] `nyquist_compliant: true` set in frontmatter
+- [x] All tasks have `<automated>` verify or Wave 0 dependencies
+- [x] Sampling continuity: no 3 consecutive tasks without automated verify
+- [x] Wave 0 covers all MISSING references (both new spec files are created by their plan's Task 1, `type="tracer"`, starting red)
+- [x] No watch-mode flags
+- [x] Feedback latency < 45s (full suite ~40s)
+- [x] `nyquist_compliant: true` set in frontmatter
 
-**Approval:** pending
+**Approval:** planned — 08-01-PLAN.md, 08-02-PLAN.md
