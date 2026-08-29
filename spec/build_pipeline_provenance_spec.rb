@@ -483,6 +483,37 @@ RSpec.describe SPMCache::SPM::BuildPipeline, "Class E (copy_prebuilt_binary_targ
     expect(parsed["fidelity_status"]).to eq("host-pinned")
     expect(parsed["pins"]).to eq("FirebaseAnalytics" => "aaa")
   end
+
+  it "narrows the sidecar's destinations to the copied xcframework's actual slices, not the full request" do
+    File.write(resolved_pins_file,
+               JSON.generate("pins" => [{ "identity" => "FirebaseAnalytics", "state" => { "revision" => "aaa" } }]))
+
+    FileUtils.mkdir_p(out_dir)
+    build_root = File.join(tmpdir, "umbrella", ".build")
+    real_pkg_dir = File.join(build_root, "checkouts", "firebase-ios-sdk")
+    FileUtils.mkdir_p(real_pkg_dir)
+    prebuilt = File.join(build_root, "artifacts", "firebase-ios-sdk", "FirebaseAnalytics", "FirebaseAnalytics.xcframework")
+    # Device-only prebuilt artifact: no "simulator" slice, mirroring a
+    # vendor-published binaryTarget that never shipped a simulator build.
+    FileUtils.mkdir_p(File.join(prebuilt, "ios-arm64", "FirebaseAnalytics.framework", "Headers"))
+    File.write(File.join(prebuilt, "ios-arm64", "FirebaseAnalytics.framework", "Headers", "FIRAnalytics.h"), "// real header\n")
+    File.write(File.join(prebuilt, "Info.plist"), "<plist/>")
+
+    stub_desc_products(real_pkg_dir)
+
+    result = described_class.run(
+      name: "FirebaseAnalytics",
+      pkg_dir: real_pkg_dir,
+      destinations: ["iphonesimulator", "iphoneos"],
+      out_dir: out_dir,
+      resolved_pins_file: resolved_pins_file,
+      config: "release",
+    )
+
+    sidecar_path = "#{result}.provenance.json"
+    parsed = JSON.parse(File.read(sidecar_path))
+    expect(parsed["destinations"]).to eq(["iphoneos"])
+  end
 end
 
 RSpec.describe SPMCache::Installer::Build, "threads config: from @config_name into every SPM::BuildPipeline.run call" do

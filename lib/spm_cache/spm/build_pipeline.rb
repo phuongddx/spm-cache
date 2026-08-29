@@ -221,10 +221,13 @@ module SPMCache
           forwarded_target = resolve_forwarded_target(name, pkg_dir)
           if forwarded_target && forwarded_target["module_type"] == "BinaryTarget"
             # A direct copy of an already-resolved prebuilt xcframework, not a
-            # per-destination build loop -- there is no partial-slice-failure
-            # concept here, so the full requested `destinations` list is an
-            # honest description of what ended up in the copied artifact.
-            return [copy_prebuilt_binary_target(forwarded_target["name"], name, pkg_dir, out_dir), destinations]
+            # per-destination build loop -- but a vendor-published xcframework
+            # can legitimately ship fewer slices than requested (e.g.
+            # device-only, no simulator slice), so the requested `destinations`
+            # list is narrowed to what the copied artifact's own slices
+            # actually satisfy, mirroring Installer::Build#slice_satisfies?.
+            output_path = copy_prebuilt_binary_target(forwarded_target["name"], name, pkg_dir, out_dir)
+            return [output_path, actual_destinations_for(output_path, destinations)]
           end
 
           scheme = resolve_scheme(name, pkg_dir)
@@ -1042,6 +1045,23 @@ module SPMCache
           FileUtils.rm_f("#{output_path}.provenance.json")
 
           output_path
+        end
+
+        # Mirrors Installer::Build#slice_satisfies? -- narrows `requested` down
+        # to only the destinations the copied xcframework's own slice
+        # directories actually contain, so Class E's provenance sidecar never
+        # claims a slice a vendor-published prebuilt artifact doesn't have.
+        def actual_destinations_for(xcframework_path, requested)
+          slices = Dir.children(xcframework_path).select { |s| File.directory?(File.join(xcframework_path, s)) }
+          requested.select { |dest| slice_satisfies?(slices, dest) }
+        end
+
+        def slice_satisfies?(slices, dest_key)
+          case dest_key
+          when "iphonesimulator" then slices.any? { |s| s.include?("simulator") }
+          when "iphoneos" then slices.any? { |s| s.start_with?("ios") && !s.include?("simulator") }
+          else false
+          end
         end
 
         # SPM's standard convention for a resolved binaryTarget's unpacked
