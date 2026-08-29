@@ -66,6 +66,61 @@ struct PackageRefVersionRequirementTests {
     }
 }
 
+@Suite("PackageRef.pinValue")
+struct PackageRefPinValueTests {
+    @Test("revision present and non-empty returns the revision, not the version")
+    func revisionWinsOverVersion() {
+        let ref = Lockfile.PackageRef(
+            repositoryURL: "https://github.com/apple/swift-collections.git",
+            pathFromRoot: nil,
+            name: "swift-collections",
+            productName: nil,
+            version: "1.1.2",
+            revision: "3d2dc41a01f9e49d84f0a3925fb858bed64f702d"
+        )
+        #expect(ref.pinValue == "3d2dc41a01f9e49d84f0a3925fb858bed64f702d")
+    }
+
+    @Test("only version present returns the version")
+    func onlyVersion() {
+        let ref = Lockfile.PackageRef(
+            repositoryURL: "https://github.com/example/pkg.git",
+            pathFromRoot: nil,
+            name: "pkg",
+            productName: nil,
+            version: "1.2.3",
+            revision: nil
+        )
+        #expect(ref.pinValue == "1.2.3")
+    }
+
+    @Test("neither present returns nil")
+    func neitherPresent() {
+        let ref = Lockfile.PackageRef(
+            repositoryURL: "https://github.com/example/pkg.git",
+            pathFromRoot: nil,
+            name: "pkg",
+            productName: nil,
+            version: nil,
+            revision: nil
+        )
+        #expect(ref.pinValue == nil)
+    }
+
+    @Test("both present as empty strings returns nil")
+    func bothEmptyStrings() {
+        let ref = Lockfile.PackageRef(
+            repositoryURL: "https://github.com/example/pkg.git",
+            pathFromRoot: nil,
+            name: "pkg",
+            productName: nil,
+            version: "",
+            revision: ""
+        )
+        #expect(ref.pinValue == nil)
+    }
+}
+
 @Suite("UmbrellaGenerator transitive-only package skip")
 struct UmbrellaGeneratorTransitiveSkipTests {
     private func makePackage(

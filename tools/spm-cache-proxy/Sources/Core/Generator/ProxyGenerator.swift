@@ -116,7 +116,8 @@ struct ProxyGenerator {
             // ignored/excluded packages are always source, even when a cached
             // binary exists for one of their products.
             var productBuilds: [ProductBuild] = pkg.libraryProducts.map { product in
-                let cachedBinary = (ignored || excluded) ? nil : cache.hit(module: product.name)
+                let cachedBinary = (ignored || excluded) ? nil
+                    : cache.hit(module: product.name, identity: pkg.name ?? product.name, currentPin: pkg.pinValue)
                 let status: GraphEntry.Status
                 if excluded {
                     status = .excluded

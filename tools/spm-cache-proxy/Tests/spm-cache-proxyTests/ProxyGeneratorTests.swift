@@ -35,7 +35,12 @@ struct ProxyGeneratorTests {
         let cacheDir = tmp.appendingPathComponent("cache")
         try cacheDir.mkdir()
         // AppAuthCore is cached (a real xcframework dir exists); AppAuth has none.
+        // An empty-pins sidecar keeps this fixture's hit() decision
+        // unaffected by CACHE-02's identity/pin check (not-graph-pinned
+        // steady state -- intersection-only, no evidence of drift).
         try cacheDir.appendingPathComponent("AppAuthCore.xcframework").mkdir()
+        try JSONSerialization.data(withJSONObject: ["pins": [String: String]()])
+            .write(to: cacheDir.appendingPathComponent("AppAuthCore.xcframework.provenance.json"))
 
         let outputDir = tmp.appendingPathComponent("proxy")
         let pkg = Lockfile.PackageRef(
@@ -143,6 +148,10 @@ struct ProxyGeneratorTests {
         try cacheDir.appendingPathComponent("_NumericsShims.xcframework").mkdir()
         let sidecar = cacheDir.appendingPathComponent("RealModule.xcframework.shims.json")
         try JSONEncoder().encode(["_NumericsShims"]).write(to: sidecar)
+        // Empty-pins provenance sidecar: not-graph-pinned steady state, no
+        // evidence of drift against this fixture's CACHE-02 hit() decision.
+        try JSONSerialization.data(withJSONObject: ["pins": [String: String]()])
+            .write(to: cacheDir.appendingPathComponent("RealModule.xcframework.provenance.json"))
 
         let outputDir = tmp.appendingPathComponent("proxy")
         let pkg = Lockfile.PackageRef(
@@ -187,6 +196,10 @@ struct ProxyGeneratorTests {
         let cacheDir = tmp.appendingPathComponent("cache")
         try cacheDir.mkdir()
         try cacheDir.appendingPathComponent("Alamofire.xcframework").mkdir()
+        // Empty-pins provenance sidecar: not-graph-pinned steady state, no
+        // evidence of drift against this fixture's CACHE-02 hit() decision.
+        try JSONSerialization.data(withJSONObject: ["pins": [String: String]()])
+            .write(to: cacheDir.appendingPathComponent("Alamofire.xcframework.provenance.json"))
 
         let outputDir = tmp.appendingPathComponent("proxy")
         let pkg = Lockfile.PackageRef(
@@ -287,5 +300,62 @@ struct ProxyGeneratorTests {
 
         let rootManifest = try String(contentsOf: outputDir.appendingPathComponent("Package.swift"), encoding: .utf8)
         #expect(!rootManifest.contains("eh_oauth_sdk_ios_proxy"))
+    }
+
+    // Regression guard for Pitfall 3: the provenance sidecar's `pins` hash is
+    // keyed by PACKAGE identity (pkg.name), never by product name. A
+    // two-product package (realm-swift -> Realm + RealmSwift) with a sidecar
+    // whose `pins` records an AGREEING entry for the real identity
+    // ("realm-swift") but DISAGREEING entries for each product name ("Realm",
+    // "RealmSwift") must report BOTH products as hit: a correct
+    // implementation looks up pins["realm-swift"] and finds agreement, while
+    // a buggy implementation that looked up pins[product.name] instead would
+    // find a disagreeing entry and wrongly report both as missed. (A
+    // simpler "wrong key = identity totally absent" fixture would NOT
+    // distinguish the two implementations here, since this phase's
+    // intersection-only comparison rule treats an absent identity as a hit,
+    // not a miss -- see the `hit()` cases in CacheTests.swift and this
+    // plan's own must_haves.)
+    @Test("two-product package hit()s using the package identity (pkg.name), never a product name, as the pins lookup key")
+    func hitLooksUpByPackageIdentityNotProductName() throws {
+        let tmp = try makeTempDir()
+        defer { try? FileManager.default.removeItem(at: tmp) }
+
+        let cacheDir = tmp.appendingPathComponent("cache")
+        try cacheDir.mkdir()
+        try cacheDir.appendingPathComponent("Realm.xcframework").mkdir()
+        try cacheDir.appendingPathComponent("RealmSwift.xcframework").mkdir()
+
+        let pkg = Lockfile.PackageRef(
+            repositoryURL: "https://github.com/realm/realm-swift",
+            pathFromRoot: nil,
+            name: "realm-swift",
+            productName: nil,
+            version: "10.47.0",
+            revision: nil,
+            products: [
+                .init(name: "Realm", type: "library", targets: ["Realm"]),
+                .init(name: "RealmSwift", type: "library", targets: ["Realm", "RealmSwift"]),
+            ]
+        )
+
+        // Each product's own sidecar records the whole host graph's pins:
+        // the real package identity ("realm-swift") agrees with pkg.pinValue
+        // ("10.47.0"), but the product names themselves are ALSO present,
+        // recorded with a disagreeing value -- a lookup keyed on
+        // product.name (the bug) would find and disagree with these;
+        // a lookup keyed on pkg.name (correct) never sees them.
+        let pins: [String: String] = ["realm-swift": "10.47.0", "Realm": "1.0.0", "RealmSwift": "1.0.0"]
+        let sidecarPath = cacheDir.appendingPathComponent("Realm.xcframework.provenance.json")
+        try JSONSerialization.data(withJSONObject: ["pins": pins]).write(to: sidecarPath)
+        let sidecarPath2 = cacheDir.appendingPathComponent("RealmSwift.xcframework.provenance.json")
+        try JSONSerialization.data(withJSONObject: ["pins": pins]).write(to: sidecarPath2)
+
+        let outputDir = tmp.appendingPathComponent("proxy")
+        let generator = ProxyGenerator(cache: BinariesCache(dir: cacheDir), outputDir: outputDir)
+        let entries = try generator.generate(for: [pkg])
+
+        #expect(entries.first { $0.module == "Realm" }?.status == .hit)
+        #expect(entries.first { $0.module == "RealmSwift" }?.status == .hit)
     }
 }
