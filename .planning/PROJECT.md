@@ -43,6 +43,7 @@ Reduce Xcode clean build times by serving prebuilt SPM dependency binaries trans
 - ✓ GitHub Action (`action/` → `phuongddx/spm-cache-action`) — 6-input thin composite, `--default-config` wiring fixed, 12-example structural spec; publication is a release-checklist item — Phase 4 (v0.3.0)
 - ✓ `spm-cache watch` — mtime+size polling (user-accepted 2026-08-24, supersedes FSEvents design), debounce 2s, `--once`, signal-safe flush (INT/TERM masked during flush), self-trigger guard — Phase 5 (v0.3.0)
 - ✓ Package builds resolve transitive dependencies from the host project's resolved graph (fixes release-config cache builds linking stale transitive versions) — Phase 6 (canonical locator + lockfile reconciliation) + Phase 7 (host-graph seeding, vendored-project classification, no perf regression) (v0.4.0)
+- ✓ Realized versions are read back after resolution, drift is reported (never hard-failed), and every cached `.xcframework` carries a provenance sidecar (`fidelity_status`/pins/version/config/destinations); `cache list` surfaces per-package fidelity status — Phase 8 (v0.4.0)
 
 ### Active
 
@@ -92,6 +93,9 @@ Known state after v0.3.0: test CI runs the full suite on every PR/push (was: non
 | RubyGems publication deferred out of v0.4.0 | User decision 2026-08-27; Homebrew builds from the GitHub release tarball and needs no gem on RubyGems | — Pending |
 | Host graph seeded verbatim before first `swift package describe`, no `-onlyUsePackageVersionsFromResolvedFile` flag | Xcodebuild silently upgrades a seeded pin below a package's manifest floor rather than hard-failing; detecting that drift is Phase 8's job, not Phase 7's | ✓ Shipped Phase 7 — FID-02/FID-05 complete |
 | Shared `-clonedSourcePackagesDirPath` + process-level build lock | Verbatim host-graph seeding fans out per-package clones; a shared clone dir plus a lock closing the watch/build race were required to avoid a wall-clock/disk regression | ✓ Shipped Phase 7 — PERF-01: -40.6% wall-clock, -34% disk vs pre-seeding baseline on the reference project |
+| Single consolidated drift/provenance insertion point in `BuildPipeline.run` (right after the build succeeds), not duplicated across the three artifact-producing paths | Simpler, DRYer, and gives the Class E (`copy_prebuilt_binary_target`) path a correct provenance sidecar for free with no special-casing | ✓ Shipped Phase 8 |
+| Resolution-incompatible classification runs strictly on the success path, never via `raise` | Structurally unmaskable by `ignore_build_errors?` — a package that can't satisfy the host graph still builds and caches, just gets reported, never hard-fails | ✓ Shipped Phase 8 — FID-04 |
+| Provenance sidecar write is atomic (tempfile + rename) and never raises on I/O failure | A metadata-write failure must never be mistaken for a build failure — the xcframework it describes already built successfully | ✓ Shipped Phase 8 (WR-03 code-review fix) |
 
 ## Evolution
 
@@ -111,4 +115,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-08-29 after Phase 7*
+*Last updated: 2026-08-29 after Phase 8*
