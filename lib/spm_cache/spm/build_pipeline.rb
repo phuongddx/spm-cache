@@ -9,10 +9,12 @@ require "set"
 require "spm_cache/core/log"
 require "spm_cache/core/sh"
 require "spm_cache/core/config"
+require "spm_cache/core/package_resolved"
 require "spm_cache/spm/build"
 require "spm_cache/spm/desc/desc"
 require "spm_cache/spm/xcframework/xcframework"
 require "spm_cache/spm/resolved_graph"
+require "spm_cache/version"
 
 module SPMCache
   module SPM
@@ -40,13 +42,22 @@ module SPMCache
         #   passed to every xcodebuild invocation (PERF-01, D-03). nil (the
         #   default) omits the flag entirely -- byte-identical to
         #   pre-Plan-07-02 behavior.
+        # @param config [String, nil] the build configuration name
+        #   (debug/release), recorded verbatim in the provenance sidecar
+        #   (CACHE-01). Used only for that field -- never threaded anywhere
+        #   else.
         def run(name:, pkg_dir:, destinations:, out_dir:, library_evolution: true, resolved_pins_file: nil,
-                clones_dir: nil)
+                clones_dir: nil, config: nil)
           raise "Target name required" if name.nil? || name.empty?
 
           FileUtils.mkdir_p(out_dir)
 
           seed_snapshot, seeded = seed_host_graph(name, pkg_dir, resolved_pins_file)
+          # Captured immediately, from resolved_pins_file only -- never
+          # re-derived from pkg_dir/Package.resolved after perform_build runs,
+          # since that path may itself hold the realized (possibly drifted)
+          # content by the time it's read a second time (Pitfall 1).
+          intended_pin_map = seeded ? pin_value_map(Core::PackageResolved.pins_or_nil(resolved_pins_file)) : nil
 
           success = false
           begin
@@ -54,6 +65,8 @@ module SPMCache
                                     out_dir: out_dir, library_evolution: library_evolution,
                                     clones_dir: clones_dir)
             success = true
+            report_fidelity(name: name, pkg_dir: pkg_dir, output_path: result, seeded: seeded,
+                             intended_pin_map: intended_pin_map, config: config, destinations: destinations)
             result
           ensure
             ResolvedGraph.restore!(pkg_dir, seed_snapshot) if seeded && !success
@@ -61,6 +74,88 @@ module SPMCache
         end
 
         private
+
+        # Single consolidated insertion point (RESEARCH.md Pattern 2): drift
+        # read-back, resolution-incompatible classification, and provenance
+        # sidecar write all happen here, once, right after `perform_build`
+        # succeeds -- covering all three artifact-producing paths (direct
+        # xcframework build, run_with_scheme, copy_prebuilt_binary_target)
+        # uniformly, since all three return through `perform_build`'s return
+        # value back into `run`. Never raises -- this always runs on the
+        # success path, so `ignore_build_errors?` can never mask the
+        # resolution-incompatible status (Pitfall 2).
+        def report_fidelity(name:, pkg_dir:, output_path:, seeded:, intended_pin_map:, config:, destinations:)
+          return unless seeded
+
+          realized_pin_map = pin_value_map(
+            Core::PackageResolved.pins_or_nil(File.join(pkg_dir, ResolvedGraph::RESOLVED_FILENAME)),
+          )
+          drifted = drifted_identities(intended_pin_map, realized_pin_map)
+
+          drifted.each do |identity|
+            Core::UI.warn "  #{identity}: drift detected (intended #{intended_pin_map[identity]}, " \
+                          "realized #{realized_pin_map[identity]})"
+          end
+
+          status = drifted.empty? ? "host-pinned" : "resolution-incompatible"
+          suffix = status == "resolution-incompatible" ? " (built from source)" : ""
+          Core::UI.info "  #{name}: #{status}#{suffix}"
+
+          write_provenance_sidecar(output_path, status: status, pins: realized_pin_map || {},
+                                                 config: config, destinations: destinations)
+        end
+
+        # Diff scope is the INTERSECTION of intended and realized pin
+        # identities only -- an identity present on just one side carries no
+        # evidence of drift (seed! copies the entire host graph verbatim;
+        # SwiftPM narrows to this package's own transitive closure after a
+        # real resolve). nil on either side (unreadable/malformed
+        # Package.resolved) yields an empty drifted set rather than raising
+        # or asserting universal drift.
+        def drifted_identities(intended_pin_map, realized_pin_map)
+          return [] unless intended_pin_map && realized_pin_map
+
+          (intended_pin_map.keys & realized_pin_map.keys).select do |identity|
+            intended_pin_map[identity] != realized_pin_map[identity]
+          end
+        end
+
+        # Maps each pin's identity to its resolved value (revision wins over
+        # version, mirroring Core::Diagnostics#host_pin_value's precedence --
+        # the same precedence Lockfile.swift/UmbrellaGenerator.swift use, so
+        # this diff never disagrees with what actually gets pinned elsewhere).
+        # nil input (unreadable/malformed Package.resolved) -> nil.
+        def pin_value_map(pins)
+          return nil if pins.nil?
+
+          pins.each_with_object({}) do |pin, map|
+            identity = pin["identity"]
+            next unless identity
+
+            map[identity] = host_pin_value(pin)
+          end
+        end
+
+        def host_pin_value(pin)
+          state = pin["state"] || {}
+          revision = state["revision"]
+          revision.to_s.empty? ? state["version"] : revision
+        end
+
+        # Mirrors write_shim_sidecar's exact File.write/JSON.generate shape.
+        # Exactly the four CACHE-01-specified fields plus the computed
+        # fidelity status -- no absolute filesystem paths, usernames,
+        # hostnames, or build timestamps (the sidecar may travel through a
+        # shared/remote cache backend).
+        def write_provenance_sidecar(output_path, status:, pins:, config:, destinations:)
+          File.write("#{output_path}.provenance.json", JSON.generate(
+                                                           fidelity_status: status,
+                                                           pins: pins,
+                                                           spm_cache_version: SPMCache::VERSION,
+                                                           config: config,
+                                                           destinations: destinations,
+                                                         ))
+        end
 
         # Classifies `pkg_dir` before seeding anything (D-04): a vendored
         # `.xcodeproj` checkout ignores `Package.resolved` entirely (Pitfall
