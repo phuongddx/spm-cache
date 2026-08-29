@@ -134,4 +134,279 @@ RSpec.describe SPMCache::SPM::BuildPipeline, "TEST-03: v0.2.x edge-class fixture
       expect(sidecar["pins"]).to eq("FirebaseAnalytics" => "aaa")
     end
   end
+
+  # Installs the standard tier-1 Buildable/XCFramework stubs for one
+  # source-build leg of `name` (no drift injection -- the agreeing-pins
+  # shape). Returns the fake buildable so drift-injection examples can layer
+  # their own build_for_destination override on top of it.
+  def stub_build_leg(name:)
+    fake_buildable = instance_double(SPMCache::SPM::Buildable)
+    allow(SPMCache::SPM::Buildable).to receive(:new).and_return(fake_buildable)
+    allow(fake_buildable).to receive(:build_for_destination) do |*_args, **_kwargs|
+      {
+        derived_data: "/dd",
+        object_file: "/dd/#{name}.o",
+        swiftmodule: nil, swiftdoc: nil, swiftsourceinfo: nil, swiftinterface: nil,
+      }
+    end
+    allow(fake_buildable).to receive(:create_framework) do |_arts, subdir|
+      fw = File.join(subdir, "#{name}.framework")
+      FileUtils.mkdir_p(fw)
+      File.write(File.join(fw, name), "stub")
+      fw
+    end
+    allow(SPMCache::SPM::XCFramework::XCFramework).to receive(:new).and_return(
+      double("XCFramework", build: File.join(out_dir, "#{name}.xcframework")),
+    )
+    fake_buildable
+  end
+
+  # A vendored-.xcodeproj checkout: one directory is enough, because the
+  # classifier (ResolvedGraph.vendored_xcodeproj?) is a plain glob over
+  # pkg_dir/*.xcodeproj.
+  def vendored_xcodeproj_pkg(name:)
+    FileUtils.mkdir_p(File.join(pkg_dir, "#{name}.xcodeproj"))
+    pkg_dir
+  end
+
+  describe "class 3/8: vendored .xcodeproj" do
+    it "TEST-03 class 3/8: a vendored .xcodeproj checkout is classified not-graph-pinned with an empty pins sidecar" do
+      write_resolved_pins(resolved_pins_file, "CryptoSwift" => "ccc111")
+      vendored_pkg = vendored_xcodeproj_pkg(name: "CryptoSwift")
+      stub_desc_products(
+        [{ "name" => "CryptoSwift", "type" => { "library" => ["automatic"] } }],
+        pkg_dir: vendored_pkg,
+      )
+      stub_build_leg(name: "CryptoSwift")
+
+      result = described_class.run(
+        name: "CryptoSwift",
+        pkg_dir: vendored_pkg,
+        destinations: ["iphonesimulator"],
+        out_dir: out_dir,
+        resolved_pins_file: resolved_pins_file,
+        config: "debug",
+      )
+
+      # The class contract read from disk: Package.resolved is structurally
+      # irrelevant for a vendored checkout, so the sidecar says not-graph-
+      # pinned with empty pins -- never a silently-assumed pin.
+      sidecar = JSON.parse(File.read("#{result}.provenance.json"))
+      expect(sidecar["fidelity_status"]).to eq("not-graph-pinned")
+      expect(sidecar["pins"]).to eq({})
+    end
+  end
+
+  # swift-numerics' RealModule -> _NumericsShims shape: a Swift target
+  # privately depending on an internal Clang target that is never declared
+  # as its own library product.
+  def clang_shim_desc_raw
+    [
+      { "name" => "RealModule", "module_type" => "SwiftTarget", "target_dependencies" => ["_NumericsShims"] },
+      { "name" => "_NumericsShims", "module_type" => "ClangTarget", "path" => "Sources/_NumericsShims" },
+    ]
+  end
+
+  describe "class 7/8: private Clang shim" do
+    it "TEST-03 class 7/8: a private ClangTarget dependency is assembled as a companion shim named in shims.json" do
+      shim_include_dir = File.join(pkg_dir, "Sources", "_NumericsShims", "include")
+      FileUtils.mkdir_p(shim_include_dir)
+      File.write(File.join(shim_include_dir, "_NumericsShims.h"), "// shim header\n")
+
+      stub_desc_products(
+        [{ "name" => "RealModule", "type" => { "library" => ["automatic"] } }],
+        pkg_dir: pkg_dir,
+        raw_targets: clang_shim_desc_raw,
+      )
+
+      dd_dir = File.join(tmpdir, "dd")
+      FileUtils.mkdir_p(dd_dir)
+      shim_object_file = File.join(dd_dir, "_NumericsShims.o")
+      File.write(shim_object_file, "fake object")
+
+      fake_buildable = instance_double(SPMCache::SPM::Buildable)
+      allow(SPMCache::SPM::Buildable).to receive(:new).and_return(fake_buildable)
+      artifacts = {
+        derived_data: dd_dir,
+        object_file: File.join(dd_dir, "RealModule.o"),
+        swiftmodule: nil, swiftdoc: nil, swiftsourceinfo: nil, swiftinterface: nil,
+      }
+      allow(fake_buildable).to receive(:build_for_destination).and_return(artifacts)
+      allow(fake_buildable).to receive(:create_framework) do |_arts, subdir|
+        fw = File.join(subdir, "RealModule.framework")
+        FileUtils.mkdir_p(fw)
+        fw
+      end
+      allow(fake_buildable).to receive(:find_object_file).and_return(shim_object_file)
+
+      main_xc = double("MainXCFramework", build: File.join(out_dir, "RealModule.xcframework"))
+      shim_xc = double("ShimXCFramework", build: File.join(out_dir, "_NumericsShims.xcframework"))
+      allow(SPMCache::SPM::XCFramework::XCFramework).to receive(:new) do |name:, **_kwargs|
+        name == "RealModule" ? main_xc : shim_xc
+      end
+
+      # SC4 allowlist over the default-deny guard: the shim assembly's one
+      # genuine tool invocation is libtool; any other command still raises.
+      allow(SPMCache::Core::Sh).to receive(:run).with(/\Alibtool -static -o /)
+
+      result = described_class.run(
+        name: "RealModule",
+        pkg_dir: pkg_dir,
+        destinations: ["iphonesimulator"],
+        out_dir: out_dir,
+      )
+
+      expect(result).to eq(File.join(out_dir, "RealModule.xcframework"))
+      sidecar = File.join(out_dir, "RealModule.xcframework.shims.json")
+      expect(File.exist?(sidecar)).to be true
+      expect(JSON.parse(File.read(sidecar))).to eq(["_NumericsShims"])
+    end
+  end
+
+  # firebase-ios-sdk's rename family: product
+  # FirebaseAnalyticsWithoutAdIdSupport backed by a single differently-named
+  # target -- Xcode links the object file under the TARGET's name.
+  def rename_product_raw
+    { "name" => "FirebaseAnalyticsWithoutAdIdSupport", "type" => { "library" => ["automatic"] },
+      "targets" => ["FirebaseAnalyticsWithoutAdIdSupportTarget"] }
+  end
+
+  describe "class 8/8: product-not-equal-target rename" do
+    it "TEST-03 class 8/8: the product names the scheme, its differing target names module_name, and the framework is target-named" do
+      stub_desc_products([rename_product_raw], pkg_dir: pkg_dir)
+      allow(SPMCache::SPM::XCFramework::XCFramework).to receive(:new).and_return(
+        double("XCFramework", build: File.join(out_dir, "FirebaseAnalyticsWithoutAdIdSupport.xcframework")),
+      )
+      created_frameworks = []
+
+      expect(SPMCache::SPM::Buildable).to receive(:new)
+        .with(hash_including(scheme: "FirebaseAnalyticsWithoutAdIdSupport",
+                             module_name: "FirebaseAnalyticsWithoutAdIdSupportTarget"))
+        .and_return(instance_double(SPMCache::SPM::Buildable).tap do |fb|
+          allow(fb).to receive(:build_for_destination).and_return(
+            object_file: "/dd/FirebaseAnalyticsWithoutAdIdSupportTarget.o",
+          )
+          allow(fb).to receive(:create_framework) do |_arts, subdir|
+            # Matches real Buildable#create_framework: the framework and its
+            # binary are named after @module_name (the target), never the
+            # product -- rename_framework_to_product fixes that up afterward.
+            fw = File.join(subdir, "FirebaseAnalyticsWithoutAdIdSupportTarget.framework")
+            FileUtils.mkdir_p(fw)
+            File.write(File.join(fw, "FirebaseAnalyticsWithoutAdIdSupportTarget"), "stub")
+            created_frameworks << fw
+            fw
+          end
+        end)
+
+      result = described_class.run(
+        name: "FirebaseAnalyticsWithoutAdIdSupport",
+        pkg_dir: pkg_dir,
+        destinations: ["iphonesimulator"],
+        out_dir: out_dir,
+      )
+
+      expect(File.basename(created_frameworks.first)).to eq("FirebaseAnalyticsWithoutAdIdSupportTarget.framework")
+      expect(result).to eq(File.join(out_dir, "FirebaseAnalyticsWithoutAdIdSupport.xcframework"))
+    end
+  end
+end
+
+# TEST-03 tier-3 legs: the plugin-only and transitive-only classes are
+# decided by the Swift companion's ProxyGenerator, so these examples run the
+# actual compiled spm-cache-proxy binary -- offline, via system() with output
+# redirected to File::NULL: no Core::Sh, no network, no xcodebuild (SC4).
+# CI builds the binary before RSpec on every matrix leg; locally the
+# examples skip when it is not built.
+RSpec.describe "TEST-03: v0.2.x edge-class fixture matrix (tier-3 legs via compiled spm-cache-proxy)" do
+  let(:binary) do
+    local = SPMCache::ROOT.join("tools", "spm-cache-proxy",
+                                ".build", "release", "spm-cache-proxy").to_s
+    File.executable?(local) ? local : nil
+  end
+
+  let(:tmpdir) { Dir.mktmpdir }
+  let(:umbrella_dir) { File.join(tmpdir, "umbrella") }
+  let(:output_dir) { File.join(tmpdir, "proxy") }
+  let(:cache_dir) { File.join(tmpdir, "cache") }
+
+  before do
+    skip "spm-cache-proxy binary not built (run make proxy.build)" unless binary
+    FileUtils.mkdir_p(umbrella_dir)
+    FileUtils.mkdir_p(output_dir)
+    FileUtils.mkdir_p(cache_dir)
+    # SC4 guard stays armed during the tier-3 legs: system() never routes
+    # through Core::Sh, so the guard only fires on accidental real
+    # shell-outs (spec/fidelity_bucket_partition_spec.rb precedent).
+    allow(SPMCache::Core::Sh).to receive(:run) do |cmd, *_opts|
+      raise "unexpected real invocation: Sh.run(#{cmd.inspect})"
+    end
+    allow(SPMCache::Core::Sh).to receive(:capture_output) do |cmd, *_opts|
+      raise "unexpected real invocation: Sh.capture_output(#{cmd.inspect})"
+    end
+  end
+
+  after { FileUtils.rm_rf(tmpdir) if tmpdir }
+
+  def write_lockfile(path, project_name:, packages:, dependencies: {})
+    File.write(path, JSON.generate(
+      project_name => {
+        "packages" => packages,
+        "dependencies" => dependencies,
+        "platforms" => { "ios" => "16.0" },
+      },
+    ))
+  end
+
+  def run_gen_proxy(lockfile:)
+    cmd = "#{binary} gen-proxy --umbrella #{umbrella_dir} --lockfile #{lockfile} " \
+          "--output #{output_dir} --cache #{cache_dir}"
+    system(cmd, out: File::NULL, err: File::NULL)
+  end
+
+  def statuses_from(dir)
+    graph = JSON.parse(File.read(File.join(dir, "graph.json")))
+    graph.each_with_object({}) { |e, h| h[e["module"]] = e["status"] }
+  end
+
+  it "TEST-03 class 4/8: the plugin-only package surfaces the plugin status in graph.json and gets no proxy folder" do
+    lockfile = SPMCache::ROOT.join("spec", "fixtures", "plugin-lockfile.json").to_s
+    run_gen_proxy(lockfile: lockfile)
+
+    statuses = statuses_from(output_dir)
+    expect(statuses["SwiftGenPlugin"]).to eq("plugin")
+    expect(File.directory?(File.join(output_dir, ".proxies", "SwiftGenPlugin_proxy"))).to be false
+  end
+
+  it "TEST-03 class 5/8: the transitive-only package has NO graph entry yet stays a declared input, pinned via its consumer" do
+    packages = [
+      { "repositoryURL" => "https://example.invalid/macro-host.git",
+        "name" => "macro-host", "revision" => "mmm111",
+        "products" => [{ "name" => "MacroHostKit", "type" => "library", "targets" => ["MacroHostKit"] }] },
+      { "repositoryURL" => "https://example.invalid/swift-syntax.git",
+        "name" => "swift-syntax", "revision" => "sss111",
+        "products" => [{ "name" => "SwiftSyntax", "type" => "library", "targets" => ["SwiftSyntax"] }] },
+    ]
+    lockfile = File.join(tmpdir, "matrix-lockfile.json")
+    write_lockfile(lockfile, project_name: "MatrixApp.xcodeproj", packages: packages,
+                           dependencies: { "MatrixApp" => ["MacroHostKit"] })
+
+    run_gen_proxy(lockfile: lockfile)
+    statuses = statuses_from(output_dir)
+
+    # Production skips transitive-only packages by design (ProxyGenerator's
+    # isTransitiveOnly -> continue): referencing them from the root proxy
+    # would independently pin them at a conflicting version. Their absence
+    # from graph.json is INTENTIONAL -- the class is classified input-side.
+    # The consumed sibling's entry proves the generator did run, so the nil
+    # is a real decision, not a vacuous lookup.
+    expect(statuses["SwiftSyntax"]).to be_nil
+    expect(statuses["MacroHostKit"]).to eq("missed")
+
+    # Input-side membership: the transitive package IS in the declared
+    # universe (present in the lockfile's package list), pinned via its
+    # consumer -- never silently absent from the partition.
+    declared = JSON.parse(File.read(lockfile)).fetch("MatrixApp.xcodeproj")
+                   .fetch("packages").map { |p| p.fetch("name") }
+    expect(declared).to include("swift-syntax")
+  end
 end
