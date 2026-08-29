@@ -143,7 +143,7 @@ module SPMCache
 
       def build_for_destination(destination_key, derived_data_path: nil, **opts)
         dest = DESTINATIONS[destination_key] || destination_key
-        dd = xcodebuild(dest, derived_data_path: derived_data_path, opts: opts)
+        dd = xcodebuild(dest, derived_data_path: derived_data_path, **opts)
 
         # Find .o file in build products
         obj = find_object_file(dd)

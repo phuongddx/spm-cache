@@ -97,7 +97,7 @@ module SPMCache
         case dest_key
         when "iphonesimulator" then slices.any? { |s| s.include?("simulator") }
         when "iphoneos" then slices.any? { |s| s.start_with?("ios") && !s.include?("simulator") }
-        else true
+        else false
         end
       end
 
@@ -184,14 +184,7 @@ module SPMCache
 
       def resolve_destinations
         sdk = @config.default_sdk
-        case sdk
-        when "all"
-          SPM::Package::DEFAULT_DESTINATIONS
-        when "iphonesimulator", "iphoneos"
-          [sdk]
-        else
-          [sdk]
-        end
+        sdk == "all" ? SPM::Package::DEFAULT_DESTINATIONS : [sdk]
       end
     end
   end

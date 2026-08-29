@@ -282,7 +282,11 @@ module SPMCache
 
         def schemes_across_projects(pkg_dir)
           Dir.glob(File.join(pkg_dir, "*.xcodeproj")).flat_map do |proj|
-            list_output = Core::Sh.capture_output("xcodebuild -list -project '#{proj}'") rescue ""
+            list_output = begin
+              Core::Sh.capture_output("xcodebuild -list -project '#{proj}'")
+            rescue SPMCache::Core::GeneralError
+              ""
+            end
             list_output.split("\n").drop_while { |l| !l.match?(/Schemes:/) }
                        .drop(1)
                        .map(&:strip)
@@ -461,7 +465,7 @@ module SPMCache
           return [] unless target && target["module_type"] == "ClangTarget"
 
           Desc::Target.new(raw: target, pkg_dir: pkg_dir).header_paths
-        rescue StandardError
+        rescue SPMCache::Core::GeneralError, JSON::ParserError
           []
         end
 
@@ -515,38 +519,30 @@ module SPMCache
           end
 
           # Swift interface scanning: framework-wrapped case
-          Dir.glob(File.join(main_framework, "Modules", "*.swiftmodule", "*.swiftinterface")).each do |interface|
+          scan_swiftinterfaces(File.join(main_framework, "Modules", "*.swiftmodule", "*.swiftinterface"), names)
+
+          # Swift interface scanning: bare .swiftmodule case (SPM pure-Swift libs)
+          if products_dir && module_name
+            scan_swiftinterfaces(File.join(products_dir, "#{module_name}.swiftmodule", "*.swiftinterface"), names)
+          end
+
+          names
+        end
+
+        # Field bug: an umbrella product (e.g. Collections, re-exporting
+        # BitCollections/DequeModule/OrderedCollections/...) writes
+        # `@_exported import X` rather than a plain `import X` -- the
+        # unqualified anchor missed it entirely, so Collections never
+        # detected any of its companions as referenced at all.
+        def scan_swiftinterfaces(glob_pattern, names)
+          Dir.glob(glob_pattern).each do |interface|
             content = begin
               File.read(interface)
             rescue StandardError
               ""
             end
-            # Field bug: an umbrella product (e.g. Collections, re-exporting
-            # BitCollections/DequeModule/OrderedCollections/...) writes
-            # `@_exported import X` rather than a plain `import X` -- the
-            # unqualified anchor missed it entirely, so Collections never
-            # detected any of its companions as referenced at all.
             content.scan(/^\s*(?:@_exported\s+)?import\s+([A-Za-z0-9_]+)\s*$/) { |m| names << m[0] }
           end
-
-          # Swift interface scanning: bare .swiftmodule case (SPM pure-Swift libs)
-          if products_dir && module_name
-            Dir.glob(File.join(products_dir, "#{module_name}.swiftmodule", "*.swiftinterface")).each do |interface|
-              content = begin
-                File.read(interface)
-              rescue StandardError
-                ""
-              end
-              # Field bug: an umbrella product (e.g. Collections, re-exporting
-            # BitCollections/DequeModule/OrderedCollections/...) writes
-            # `@_exported import X` rather than a plain `import X` -- the
-            # unqualified anchor missed it entirely, so Collections never
-            # detected any of its companions as referenced at all.
-            content.scan(/^\s*(?:@_exported\s+)?import\s+([A-Za-z0-9_]+)\s*$/) { |m| names << m[0] }
-            end
-          end
-
-          names
         end
 
         # Deliberately narrow, to avoid bundling a copy of something the app
@@ -931,7 +927,11 @@ module SPMCache
         end
 
         def resolve_scheme_fallback(name, pkg_dir)
-          list_output = Core::Sh.capture_output("xcodebuild -list", cwd: pkg_dir) rescue ""
+          list_output = begin
+            Core::Sh.capture_output("xcodebuild -list", cwd: pkg_dir)
+          rescue SPMCache::Core::GeneralError
+            ""
+          end
           schemes = list_output.split("\n").drop_while { |l| !l.match?(/Schemes:/) }
                                  .drop(1)
                                  .map(&:strip)
