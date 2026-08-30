@@ -52,23 +52,13 @@ jobs:
 
       - name: Verify tap credentials are configured
         env:
-          TAP_APP_ID: ${{ secrets.TAP_APP_ID }}
-          TAP_APP_PRIVATE_KEY: ${{ secrets.TAP_APP_PRIVATE_KEY }}
+          TAP_DEPLOY_KEY: ${{ secrets.TAP_DEPLOY_KEY }}
         run: |
           set -euo pipefail
-          if [ -z "$TAP_APP_ID" ] || [ -z "$TAP_APP_PRIVATE_KEY" ]; then
-            echo "::error::Missing repo secrets TAP_APP_ID and/or TAP_APP_PRIVATE_KEY. Configure both (GitHub App: Contents read&write + Metadata read, installed on homebrew-spm-cache only)."
+          if [ -z "$TAP_DEPLOY_KEY" ]; then
+            echo "::error::Missing repo secret TAP_DEPLOY_KEY (write-access deploy key on phuongddx/homebrew-spm-cache)."
             exit 1
           fi
-
-      - name: Get app token
-        id: app-token
-        uses: actions/create-github-app-token@v3
-        with:
-          app-id: ${{ secrets.TAP_APP_ID }}
-          private-key: ${{ secrets.TAP_APP_PRIVATE_KEY }}
-          owner: phuongddx
-          repositories: homebrew-spm-cache
 
       - name: Download release tarball and compute sha256
         id: sha
@@ -88,7 +78,7 @@ jobs:
         uses: actions/checkout@v5
         with:
           repository: phuongddx/homebrew-spm-cache
-          token: ${{ steps.app-token.outputs.token }}
+          ssh-key: ${{ secrets.TAP_DEPLOY_KEY }}
           path: tap
 
       - name: Update formula

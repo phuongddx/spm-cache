@@ -4,7 +4,7 @@ require 'spec_helper'
 
 # Structural regression spec for the tap-publish workflow (Phase 11,
 # REL-04..09): parse .github/workflows/update-tap.yml with strict Psych and
-# pin every release-automation property the phase requires — app-token auth,
+# pin every release-automation property the phase requires — deploy-key auth,
 # the integrity-gated tarball download, anchored formula edits with
 # exactly-one enforcement, the explicit no-diff publish branch, and the
 # injection rule (trigger contexts reach run bodies through env mappings
@@ -117,7 +117,7 @@ RSpec.describe '.github/workflows/update-tap.yml' do
 
   it 'keeps the verify job anonymous — no token, secret, or app reference' do
     expect(verify_publish.to_yaml).not_to match(/token|secret/i),
-                                          'the tap is public and the minted token is auto-revoked at the first job end'
+                                          'the tap is public — the verify job needs no credentials at all'
   end
 
   it 'resolves the tag and version from the release ref via GITHUB_OUTPUT' do
@@ -157,48 +157,50 @@ RSpec.describe '.github/workflows/update-tap.yml' do
     expect(check.dig('env', 'TAG')).to eq('${{ steps.version.outputs.tag }}')
     expect(check['run']).to match(/^\s*gh release view "\$TAG"/)
     check_pos = steps.index(check)
-    mint = steps.find { |s| s['id'] == 'app-token' } or
-      raise "#{path} has no app-token step — ordering assertion broken"
+    guard = run_steps.find { |s| s['run'].include?('TAP_DEPLOY_KEY') } or
+      raise "#{path} has no credential guard step — ordering assertion broken"
     tap_checkout = steps.find { |s| s.dig('with', 'repository') == 'phuongddx/homebrew-spm-cache' } or
       raise "#{path} never checks out the tap repository — ordering assertion broken"
-    mint_pos = steps.index(mint)
+    guard_pos = steps.index(guard)
     tap_pos = steps.index(tap_checkout)
-    expect(check_pos).to be < mint_pos, 'a nonexistent tag must fail red before credentials are touched'
+    expect(check_pos).to be < guard_pos, 'a nonexistent tag must fail red before credentials are touched'
     expect(check_pos).to be < tap_pos, 'a nonexistent tag must fail red before the tap is touched'
   end
 
-  it 'mints a scoped GitHub App token and feeds it to the tap checkout (REL-04)' do
-    mint = steps.find { |s| s['uses'] == 'actions/create-github-app-token@v3' } or
-      raise "#{path} mints no app token — the dead classic-PAT path is still in place"
-    expect(mint['id']).to eq('app-token')
-    with = mint.fetch('with')
-    expect(with['app-id']).to eq('${{ secrets.TAP_APP_ID }}')
-    expect(with['private-key']).to eq('${{ secrets.TAP_APP_PRIVATE_KEY }}')
-    expect(with['owner']).to eq('phuongddx')
-    expect(with['repositories']).to eq('homebrew-spm-cache')
+  it 'authenticates the tap push with a write-access deploy key (REL-04 substitute)' do
+    expect(steps.map { |s| s['uses'] }.compact).not_to include('actions/create-github-app-token@v3'),
+           'the App-token mint is gone — the 2026-08-30 operator pivot replaced it with a deploy key'
 
     tap_checkout = steps.find { |s| s.dig('with', 'repository') == 'phuongddx/homebrew-spm-cache' } or
       raise "#{path} never checks out the tap repository"
     expect(tap_checkout['uses']).to eq('actions/checkout@v5')
-    expect(tap_checkout.dig('with', 'token')).to eq('${{ steps.app-token.outputs.token }}'),
-                                                 'the minted token must reach git config via the checkout token input'
+    expect(tap_checkout.dig('with', 'ssh-key')).to eq('${{ secrets.TAP_DEPLOY_KEY }}'),
+                                                 'the deploy key must reach git via the checkout ssh-key input'
+    expect(tap_checkout.fetch('with')).not_to have_key('token'),
+           'no token input — auth is the deploy key alone'
     expect(tap_checkout.dig('with', 'path')).to eq('tap')
     checkouts = steps.count { |s| s['uses'] == 'actions/checkout@v5' }
     expect(checkouts).to eq(1), 'exactly one checkout — the unused main-repo checkout is gone'
   end
 
-  it 'never references the dead classic-PAT secret' do
+  it 'never references the retired credential names' do
     expect(text).not_to include('TAP_REPO_TOKEN'),
                         'TAP_REPO_TOKEN is the dead classic PAT this phase retires (REL-04)'
+    expect(text).not_to include('TAP_APP_ID'),
+                        'TAP_APP_ID belongs to the abandoned App route (operator pivot to deploy key, 2026-08-30)'
+    expect(text).not_to include('TAP_APP_PRIVATE_KEY'),
+                        'TAP_APP_PRIVATE_KEY belongs to the abandoned App route (operator pivot to deploy key, 2026-08-30)'
   end
 
-  it 'fails loudly naming both app secrets when either is missing (REL-04)' do
-    guard = run_steps.find { |s| s['run'].include?('TAP_APP_ID') && s['run'].include?('TAP_APP_PRIVATE_KEY') } or
+  it 'fails loudly naming the deploy-key secret when it is missing (REL-04)' do
+    guard = run_steps.find { |s| s['run'].include?('TAP_DEPLOY_KEY') } or
       raise "#{path} has no credential guard step"
+    expect(guard.dig('env', 'TAP_DEPLOY_KEY')).to eq('${{ secrets.TAP_DEPLOY_KEY }}'),
+                                                 'the secret crosses the boundary via step env only'
     body = guard.fetch('run')
-    expect(body).to match(/^\s*if \[ -z "\$TAP_APP_ID" \] \|\| \[ -z "\$TAP_APP_PRIVATE_KEY" \]/)
-    expect(body).to match(/^\s*echo "::error::[^\n]*TAP_APP_ID[^\n]*TAP_APP_PRIVATE_KEY/),
-                    'the error annotation must NAME both secrets (never print values)'
+    expect(body).to match(/^\s*if \[ -z "\$TAP_DEPLOY_KEY" \]/)
+    expect(body).to match(/^\s*echo "::error::[^\n]*TAP_DEPLOY_KEY/),
+                    'the error annotation must NAME the secret (never print values)'
   end
 
   it 'gates the tarball download on retries, non-emptiness, and gzip magic before hashing (REL-05)' do
