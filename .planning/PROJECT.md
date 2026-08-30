@@ -45,10 +45,10 @@ Reduce Xcode clean build times by serving prebuilt SPM dependency binaries trans
 - ✓ Package builds resolve transitive dependencies from the host project's resolved graph (fixes release-config cache builds linking stale transitive versions) — Phase 6 (canonical locator + lockfile reconciliation) + Phase 7 (host-graph seeding, vendored-project classification, no perf regression) (v0.4.0)
 - ✓ Realized versions are read back after resolution, drift is reported (never hard-failed), and every cached `.xcframework` carries a provenance sidecar (`fidelity_status`/pins/version/config/destinations); `cache list` surfaces per-package fidelity status — Phase 8 (v0.4.0)
 - ✓ Cache identity is provenance-aware: a hit requires recorded pins matching the host graph (missing provenance = miss → one-time rebuild), two projects pinning different versions stop sharing one artifact, `cache clean` sweeps orphaned sidecars, and the default `spm-cache` command honors the invalidation — Phase 9 (v0.4.0)
+- ✓ The fidelity contract is pinned by hermetic specs (drift regression, six-bucket partition coverage, 8-class v0.2.x edge matrix — 416 examples green on the Ruby 3.1–3.3 CI matrix, no network, no real xcodebuild) — Phase 10 (v0.4.0)
 
 ### Active
 
-- [ ] Regression coverage proving transitive-version drift cannot silently return — v0.4.0
 - [ ] `update-tap.yml` publishes the Homebrew formula unattended (`TAP_REPO_TOKEN` valid) — v0.4.0
 
 ### Out of Scope
@@ -98,6 +98,7 @@ Known state after v0.3.0: test CI runs the full suite on every PR/push (was: non
 | Resolution-incompatible classification runs strictly on the success path, never via `raise` | Structurally unmaskable by `ignore_build_errors?` — a package that can't satisfy the host graph still builds and caches, just gets reported, never hard-fails | ✓ Shipped Phase 8 — FID-04 |
 | Provenance sidecar write is atomic (tempfile + rename) and never raises on I/O failure | A metadata-write failure must never be mistaken for a build failure — the xcframework it describes already built successfully | ✓ Shipped Phase 8 (WR-03 code-review fix) |
 | Missing provenance ⇒ unconditional cache miss; pin comparison is intersection-only (absence never drift); `fast_path?` version stamp forces one regen after any spm-cache upgrade | The only invalidation design that delivers the fidelity fix to existing users without needlessly emptying the cache on unrelated bumps | ✓ Shipped Phase 9 — CACHE-02/CACHE-03 verified, SC5 operator-PASS |
+| Regression coverage observes BOTH production surfaces (Ruby sidecar statuses + Swift graph.json) with fail-first mutation-proven assertions, not just passing examples | An implemented feature is not a done phase (v0.3.0 lesson) — a regression spec that can't fail is false assurance; the partition must catch zero-bucket AND double-bucket misses | ✓ Shipped Phase 10 — TEST-01/02/03 verified 23/23, review converged after WR-01/02 fixes |
 
 ## Evolution
 
@@ -117,4 +118,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-08-29 after Phase 9*
+*Last updated: 2026-08-30 after Phase 10*

@@ -2,13 +2,13 @@
 gsd_state_version: 1.0
 milestone: v0.4.0
 milestone_name: Build Fidelity & Release Automation
-current_phase: 10
-current_phase_name: Fidelity Regression Coverage
-status: verifying
-stopped_at: Completed 10-03-PLAN.md
-last_updated: "2026-08-29T16:38:46.726Z"
-last_activity: 2026-08-29
-last_activity_desc: Phase 09 complete (UAT 1/1 pass — SC5 operator PASS)
+current_phase: 11 — Homebrew Release Automation
+current_phase_name: Homebrew Release Automation
+status: planning
+stopped_at: Phase 10 complete, ready to plan Phase 11
+last_updated: "2026-08-30T00:23:21.931Z"
+last_activity: 2026-08-30
+last_activity_desc: Phase 10 complete (verified 23/23 + operator confirmation, security 12/12 closed)
 progress:
   total_phases: 6
   completed_phases: 5
@@ -21,7 +21,7 @@ state_head: 9935f0bf8f5006555f1215c102511d5006d74a07
 # Project State: spm-cache
 
 **Initialized:** 2026-08-10
-**Current Phase:** 10
+**Current Phase:** 11 — Homebrew Release Automation
 **Project Mode:** Horizontal Layers
 **Direction:** v0.4.0 Build fidelity (correctness) + release automation
 
@@ -125,7 +125,7 @@ MediaPicker 3.2.4 while the app resolves 3.3.2.
 | 7 | Host-Faithful Checkout Seeding | Complete (verified 5/5, code-review clean) | gsd/v0.4.0-build-fidelity-release-automation |
 | 8 | Drift Read-Back, Fidelity Status & Provenance | Complete (verified 8/8, code-review clean after 2 fix iterations) | gsd/v0.4.0-build-fidelity-release-automation |
 | 9 | Cache Identity & Invalidation | Complete (verified 4/5 + SC5 operator-PASS, UAT 1/1, code-review clean, security 5/5 closed) | gsd/v0.4.0-build-fidelity-release-automation |
-| 10 | Fidelity Regression Coverage | Not started | — |
+| 10 | Fidelity Regression Coverage | Complete (verified 23/23 + operator-confirmed assumption, code-review clean after WR-01/02 fixes, security 12/12 closed) | gsd/v0.4.0-build-fidelity-release-automation |
 | 11 | Homebrew Release Automation | Not started | — |
 
 Hard chain: 6 → 7 → 8 → 9. Phase 10 depends on 7–9 (fixtures authorable in parallel). Phase 11 is
@@ -209,12 +209,12 @@ Phase 11 (release automation) is unaffected — it is fully independent.
 See: .planning/PROJECT.md (updated 2026-08-29)
 
 **Core value:** Reduce Xcode clean build times by serving prebuilt SPM dependency binaries transparently, with fallback to source on cache miss.
-**Current focus:** Phase 10 — Fidelity Regression Coverage
+**Current focus:** Phase 11 — Homebrew Release Automation
 
 ## Session Continuity
 
-Last session: 2026-08-29T16:38:46.709Z
-Stopped at: Completed 10-03-PLAN.md
+Last session: 2026-08-30T00:23:46.709Z
+Stopped at: Phase 10 complete, ready to plan Phase 11
 Resume file: None
 
 ## Performance Metrics
@@ -261,6 +261,7 @@ Resume file: None
 - [Phase 07 — canonical verification + code review, 2026-08-29]: Re-planning found nothing left to plan (research independently re-derived all 5 success criteria from source, 341/0 suite) — user chose "view existing, skip replanning" over adding a plan or replanning from scratch. Code review then found 2 Critical + 6 Warning + 3 Info findings against the already-shipped Phase 7 code: CR-01 (`Installer::Use`'s build lock didn't cover trailing `gen_supporting_files`/`integrate_proxy_into_project`/`gen_cachemap_viz`) was only partially fixed by a fixer agent that crashed mid-run (transient API connection error) — its own commit left the fast-path branch of the same three calls unlocked and added a test asserting the wrong invariant ("nothing to protect against" on the fast path); a re-review caught this as CR-01b and it was closed by locking both branches identically. CR-02 (`slice_complete?` treating a hit-but-missing-from-disk xcframework as complete) was fixed cleanly with a new regression test. 5 of 6 warnings fixed (opts-splat bug, slice_satisfies? catch-all, duplicated swiftinterface scan, 3 overly-broad rescues narrowed, redundant resolve_destinations branches); WR-05 (sleep-based lock-contention timing specs) deliberately left unchanged after independent analysis found the flake risk low and the tests load-bearing. Final re-review (iteration 3 of the 3-iteration cap) converged clean. Canonical goal-backward verification then passed 5/5. `gsd-tools.cjs query phase.complete 7` itself had a bug (see Phase 7 Process Notes above) — computed `next_phase: 6` when Phase 6 was already complete; corrected manually to Phase 8 during transition.
 - [Phase 08 — Drift Read-Back, Fidelity Status & Provenance, 2026-08-29, autonomous execution]: Both plans executed sequentially (workflow.use_worktrees=false) via `/gsd-autonomous --from 8`. 08-01 shipped `BuildPipeline#report_fidelity` (drift read-back, host-pinned/resolution-incompatible classification, provenance sidecar write/cleanup) as a single consolidated insertion point covering all three artifact-producing paths uniformly; threaded `config:` into `Installer::Build`'s call site. 08-02 shipped `cache list`'s per-package fidelity-status column (`Dir.glob("*.xcframework")` replacing raw `Dir.entries`, fixing a pre-existing bug where sidecar files printed as spurious package entries). Deep code review (5 files) found 1 Critical + 3 Warning + 1 Info; a 2-iteration auto-fix loop closed all Critical/Warning findings (CR-01: reject non-Hash JSON + rescue SystemCallError in `cache list`'s TOCTOU race; WR-01: track actually-built destinations instead of the raw request; WR-02: move `intended_pin_map` capture inside the seed/restore exception boundary; WR-03: atomic tempfile-then-rename sidecar write, never raises) plus one finding the re-review itself surfaced mid-loop (WR-04: Class E's direct-copy path narrowed to actual xcframework slices via a new `slice_satisfies?`, mirroring `Installer::Build`'s existing predicate). Final re-review (iteration 3) converged at 0 Critical/0 Warning — 2 Info items (one pre-existing, one code-duplication note on the newly-added `slice_satisfies?`) deliberately left unfixed, out of `critical_warning` scope. Canonical goal-backward verification passed 8/8; full suite 342→368 (+26), 0 failures throughout. `gsd-tools.cjs query phase.complete 8` reproduced the SAME `next_phase` bug as the Phase 7 transition (returned `6` instead of `9`, both already complete) — corrected manually to Phase 9 again; still not filed upstream.
 - [Phase 09 — Cache Identity & Invalidation, 2026-08-29]: 09-01 made the Swift companion's `BinariesCache.hit()` provenance-aware (sidecar `pins[identity]` vs lockfile pin; intersection-only comparison — absence is never drift; any parse anomaly is an unconditional miss); 09-02 closed the default-command gap (`fast_path?` gains a `spm_cache_version` stamp guard so any spm-cache bump forces one full regen) and added `cache clean`'s orphan-sidecar sweep (D-10 paired survival); 09-03 authored the SC5 empirical DerivedData runbook. Verification 4/5 + SC5 operator-PASS via UAT; deep code review converged clean after CR-01 (drop pre-emptive provenance `rm_f` in `copy_prebuilt_binary_target`, preserving prior host-pinned pins per WR-03); security audit 5/5 threats closed (3 mitigated, 2 accepted); suites 387 Ruby / 36 Swift green. `phase.complete 9` computed `next_phase: 10` correctly this time. Tooling quirk (4th, unfixed upstream): any extra `*-VERIFICATION.md` sorting before the canonical report shadows status reads — `gsd-tools` reads only the first sorted candidate, so the SC5 runbook made every status surface report "missing"; resolved by giving the runbook accurate frontmatter (`status: passed`) rather than renaming it.
+- [Phase 10 — Fidelity Regression Coverage, 2026-08-29/30, autonomous execution]: Three test-only plans shipped hermetically (387→416 examples, 0 failures; zero production changes — verification confirmed via git-range audit): `spec/fidelity_drift_regression_spec.rb` (TEST-01, drift both directions, both injection sources, mutation-proven fail-first), `spec/fidelity_bucket_partition_spec.rb` + kitchen-sink fixture (TEST-02, hybrid two-surface observation — report_fidelity sidecars AND ProxyGenerator graph.json, since the CONTEXT's single-source premise was 3/6 true; completeness+disjointness both arms fail-first), `spec/fidelity_edge_matrix_spec.rb` (TEST-03, all 8 v0.2.x edge classes incl. the two no-analog shapes). Deep code review found 0 Critical/2 Warning (both false-assurance risks — tautological assertions); WR-01/WR-02 fixed with mutation proofs and re-review converged clean. Verification 23/23 with one operator-confirmed flagged assumption (resource-bundle class 6/8 baseline intent — accepted 2026-08-30); security 12/12 threats closed (L1 short-circuit). The one Rule-3 deviation worth remembering: class 6/8 drives `FrameworkSlice#copy_resource_bundles` via `send` because the class is unwired dead code with three pre-existing defects (private `resource_paths`, bare-`Sh` NameError at slice.rb:64, template mismatch) — logged in the phase's deferred-items.md and WINDOWS ledger as a future cleanup candidate. `phase.complete 10` computed next_phase 11 correctly. Cosmetic tooling note: phase.complete's file-reference warnings misread prose strings ("bundle exec rspec ...", "pkg_dir/Package.resolved") as missing paths — heuristic noise, no action.
 - [Phase ?]: Phase 10 Plan 01: one spec file, two describe blocks — tier-1 read-back legs under the default-deny Core::Sh guard (both entry points raise on unexpected invocation, SC4 as an executable assertion), tier-3 gen-proxy sidecar legs outside it
 - [Phase ?]: Phase 10 Plan 01: missing-realized-file edge simulated by the stub consuming the seeded Package.resolved — seed_host_graph necessarily creates it, so absence at read-back is only reachable via the build removing it
 - [Phase ?]: Phase 10 Plan 01: tier-3 lockfile fixture pins by revision (aaa111) not version, mirroring pinValue revision-over-version precedence so the sidecar drift compare is an exact string match
@@ -272,10 +273,10 @@ Resume file: None
 
 ## Current Position
 
-Phase: 10 (Fidelity Regression Coverage) — EXECUTING
-Plan: 3 of 3
-Status: Phase complete — ready for verification
-Last activity: 2026-08-29 — Phase 10 execution started
+Phase: 11 (Homebrew Release Automation) — READY TO PLAN
+Plan: Not started
+Status: Ready to plan
+Last activity: 2026-08-30 — Phase 10 complete, transitioned to Phase 11
 
 ### Historical position (Phase 6, prior to this update)
 
