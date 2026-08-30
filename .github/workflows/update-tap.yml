@@ -63,16 +63,29 @@ jobs:
       - name: Download release tarball and compute sha256
         id: sha
         env:
+          GH_TOKEN: ${{ github.token }}
           TAG: ${{ steps.version.outputs.tag }}
         run: |
           set -euo pipefail
-          TARBALL_URL="https://github.com/${GITHUB_REPOSITORY}/archive/refs/tags/${TAG}.tar.gz"
+          # Byte-stability: prefer an attached release asset (immutable bytes
+          # the operator controls); fall back to GitHub's auto-generated tag
+          # archive, whose bytes GitHub does not guarantee stable, behind a
+          # loud warning.
+          ASSET_URL="$(gh release view "$TAG" --repo "$GITHUB_REPOSITORY" --json assets --jq '[.assets[] | select(.name | endswith(".tar.gz"))][0].browser_download_url // empty' || true)"
+          if [ -n "$ASSET_URL" ]; then
+            TARBALL_URL="$ASSET_URL"
+            echo "Hashing attached release asset (byte-stable): ${TARBALL_URL}"
+          else
+            TARBALL_URL="https://github.com/${GITHUB_REPOSITORY}/archive/refs/tags/${TAG}.tar.gz"
+            echo "::warning::No attached .tar.gz asset on release ${TAG} — pinning GitHub's auto-generated tag archive, whose bytes are not guaranteed stable across regenerations. Attach a tarball asset at release time to make installs byte-stable."
+          fi
           curl -fL --retry 3 --retry-delay 2 -o release.tar.gz "$TARBALL_URL"
           test -s release.tar.gz || { echo "::error::tarball is empty"; exit 1; }
           magic=$(od -An -tx1 -N2 release.tar.gz | tr -d ' \n')
           [ "$magic" = "1f8b" ] || { echo "::error::not gzip (magic bytes: ${magic}) — likely an HTML/JSON error page"; exit 1; }
           SHA=$(shasum -a 256 release.tar.gz | awk '{print $1}')
           echo "sha256=${SHA}" >> "$GITHUB_OUTPUT"
+          echo "url=${TARBALL_URL}" >> "$GITHUB_OUTPUT"
 
       - name: Checkout tap repository
         uses: actions/checkout@v5
@@ -83,7 +96,7 @@ jobs:
 
       - name: Update formula
         env:
-          VERSION: ${{ steps.version.outputs.version }}
+          TARBALL_URL: ${{ steps.sha.outputs.url }}
           SHA256: ${{ steps.sha.outputs.sha256 }}
         run: |
           set -euo pipefail
@@ -101,11 +114,11 @@ jobs:
             replacement=$(printf '%s' "$replacement" | sed -e 's/[&,\\]/\\&/g')
             sed -i -E "s,$pattern,$replacement," "$FORMULA"
           }
-          URL_RE='^  url "https://github\.com/phuongddx/spm-cache/archive/refs/tags/[^"]+\.tar\.gz"$'
+          URL_RE='^  url "https://github\.com/phuongddx/spm-cache/(archive/refs/tags/[^"]+|releases/download/[^"]+)\.tar\.gz"$'
           SHA_RE='^  sha256 "[0-9a-f]{64}"$'
-          replace_exactly_one "$URL_RE" '  url "https://github.com/phuongddx/spm-cache/archive/refs/tags/v'"$VERSION"'.tar.gz"'
+          replace_exactly_one "$URL_RE" '  url "'"${TARBALL_URL}"'"'
           replace_exactly_one "$SHA_RE" '  sha256 "'"$SHA256"'"'
-          grep -Fqx "  url \"https://github.com/phuongddx/spm-cache/archive/refs/tags/v${VERSION}.tar.gz\"" "$FORMULA" \
+          grep -Fqx "  url \"${TARBALL_URL}\"" "$FORMULA" \
             || { echo "::error::url postcondition failed"; exit 1; }
           grep -Fqx "  sha256 \"${SHA256}\"" "$FORMULA" \
             || { echo "::error::sha256 postcondition failed"; exit 1; }
