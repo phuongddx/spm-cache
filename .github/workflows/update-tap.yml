@@ -4,48 +4,107 @@ on:
   release:
     types: [published]
 
+concurrency:
+  group: update-tap
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
 jobs:
   update-tap:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v5
-
-      - name: Get version from release
+      - name: Resolve tag
         id: version
-        run: echo "VERSION=${GITHUB_REF_NAME#v}" >> $GITHUB_OUTPUT
+        run: |
+          set -euo pipefail
+          TAG="$GITHUB_REF_NAME"
+          case "$TAG" in
+            v[0-9]*) ;;
+            *) echo "::error::tag '${TAG}' must look like v0.4.0"; exit 1 ;;
+          esac
+          echo "tag=${TAG}" >> "$GITHUB_OUTPUT"
+          echo "version=${TAG#v}" >> "$GITHUB_OUTPUT"
+
+      - name: Verify tap credentials are configured
+        env:
+          TAP_APP_ID: ${{ secrets.TAP_APP_ID }}
+          TAP_APP_PRIVATE_KEY: ${{ secrets.TAP_APP_PRIVATE_KEY }}
+        run: |
+          set -euo pipefail
+          if [ -z "$TAP_APP_ID" ] || [ -z "$TAP_APP_PRIVATE_KEY" ]; then
+            echo "::error::Missing repo secrets TAP_APP_ID and/or TAP_APP_PRIVATE_KEY. Configure both (GitHub App: Contents read&write + Metadata read, installed on homebrew-spm-cache only)."
+            exit 1
+          fi
+
+      - name: Get app token
+        id: app-token
+        uses: actions/create-github-app-token@v3
+        with:
+          app-id: ${{ secrets.TAP_APP_ID }}
+          private-key: ${{ secrets.TAP_APP_PRIVATE_KEY }}
+          owner: phuongddx
+          repositories: homebrew-spm-cache
 
       - name: Download release tarball and compute sha256
         id: sha
+        env:
+          TAG: ${{ steps.version.outputs.tag }}
         run: |
-          TARBALL_URL="https://github.com/${{ github.repository }}/archive/refs/tags/${GITHUB_REF_NAME}.tar.gz"
-          curl -L "$TARBALL_URL" -o release.tar.gz
+          set -euo pipefail
+          TARBALL_URL="https://github.com/${GITHUB_REPOSITORY}/archive/refs/tags/${TAG}.tar.gz"
+          curl -fL --retry 3 --retry-delay 2 -o release.tar.gz "$TARBALL_URL"
+          test -s release.tar.gz || { echo "::error::tarball is empty"; exit 1; }
+          magic=$(od -An -tx1 -N2 release.tar.gz | tr -d ' \n')
+          [ "$magic" = "1f8b" ] || { echo "::error::not gzip (magic bytes: ${magic}) — likely an HTML/JSON error page"; exit 1; }
           SHA=$(shasum -a 256 release.tar.gz | awk '{print $1}')
-          echo "SHA256=$SHA" >> $GITHUB_OUTPUT
+          echo "sha256=${SHA}" >> "$GITHUB_OUTPUT"
 
       - name: Checkout tap repository
         uses: actions/checkout@v5
         with:
           repository: phuongddx/homebrew-spm-cache
-          token: ${{ secrets.TAP_REPO_TOKEN }}
+          token: ${{ steps.app-token.outputs.token }}
           path: tap
 
       - name: Update formula
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+          SHA256: ${{ steps.sha.outputs.sha256 }}
         run: |
-          VERSION="${{ steps.version.outputs.VERSION }}"
-          SHA="${{ steps.sha.outputs.SHA256 }}"
+          set -euo pipefail
           FORMULA="tap/Formula/spm-cache.rb"
-
-          sed -i "s|url \".*archive/refs/tags/.*\\.tar\\.gz\"|url \"https://github.com/phuongddx/spm-cache/archive/refs/tags/v${VERSION}.tar.gz\"|" "$FORMULA"
-          sed -i "s|sha256 \".*\"|sha256 \"${SHA}\"|" "$FORMULA"
-          sed -i "s|version \".*\"|version \"${VERSION}\"|" "$FORMULA"
-
-          cat "$FORMULA"
+          replace_exactly_one() {
+            local pattern="$1" replacement="$2" count
+            count=$(grep -cE "$pattern" "$FORMULA" || true)
+            if [ "$count" -ne 1 ]; then
+              echo "::error::expected exactly 1 match for /$pattern/, got $count in $FORMULA"
+              exit 1
+            fi
+            sed -i -E "s|$pattern|$replacement|" "$FORMULA"
+          }
+          URL_RE='^url "https://github\.com/phuongddx/spm-cache/archive/refs/tags/[^"]+\.tar\.gz"$'
+          SHA_RE='^sha256 "[0-9a-f]{64}"$'
+          replace_exactly_one "$URL_RE" 'url "https://github.com/phuongddx/spm-cache/archive/refs/tags/v'"$VERSION"'.tar.gz"'
+          replace_exactly_one "$SHA_RE" 'sha256 "'"$SHA256"'"'
+          grep -Fqx "url \"https://github.com/phuongddx/spm-cache/archive/refs/tags/v${VERSION}.tar.gz\"" "$FORMULA" \
+            || { echo "::error::url postcondition failed"; exit 1; }
+          grep -Fqx "sha256 \"${SHA256}\"" "$FORMULA" \
+            || { echo "::error::sha256 postcondition failed"; exit 1; }
 
       - name: Commit and push
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
         run: |
+          set -euo pipefail
           cd tap
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git add Formula/spm-cache.rb
-          git commit -m "chore: update spm-cache to ${{ steps.version.outputs.VERSION }}" || exit 0
+          if git diff --cached --quiet; then
+            echo "::notice::Formula already at ${VERSION} — nothing to do (idempotent retry)."
+            exit 0
+          fi
+          git commit -m "chore: update spm-cache to ${VERSION}"
           git push
