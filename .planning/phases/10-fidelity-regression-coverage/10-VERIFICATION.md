@@ -1,11 +1,12 @@
 ---
 phase: 10-fidelity-regression-coverage
 verified: 2026-08-29T17:12:43Z
-status: human_needed
+status: passed
 score: 23/23 must-haves verified
 behavior_unverified: 0
 overrides_applied: 0
 human_verification:
+
   - test: "Confirm the 10-03 FLAGGED ASSUMPTION on the resource-bundle edge-class shape (operator intent confirmation — plan-mandated, 'never auto-resolved')"
     expected: "Operator confirms (or re-points) the assumed meaning: TEST-03 class 6/8 = a describe-JSON target whose `resources` array parses to real paths and whose *.bundle is delivered into the assembled framework by the real copy_resource_bundles semantics (current-production-behavior baseline per RESEARCH A2). If a different v0.2.x incident shape was intended, the single class 6/8 example in spec/fidelity_edge_matrix_spec.rb is re-pointed (one-example edit by design)."
     why_human: "The plan's must_haves carry one probe category the deterministic classifier could not classify; the assumption is about operator intent for the v0.2.x incident shape, which no code inspection can resolve. Verifier safety judgment: SAFE to accept — the assumed meaning is the only reading consistent with TEST-03's requirement text ('resource bundle' listed as a class, matrix 'does not regress' = current-behavior baseline), RESEARCH A2 derived it explicitly, and the example asserts real parser + real copy semantics rather than a stub. All other 22 truths and every automated gate pass; nothing else awaits human action."
@@ -167,6 +168,9 @@ Machine gate: `check.decision-coverage-verify` → skipped ("no trackable decisi
 10-REVIEW.md (deep): 0 Critical / 2 Warning / 7 Info. Both warnings fixed (WR-01 → commit `ebb757a`, SC4 audit re-anchored to two real production seams; WR-02 → commit `5b54277`, tracer bucket membership derived from independent sources) with documented mutation proofs; fixes verified present in the current files and behaviorally re-proven by this verifier's SC2 probe. Post-fix full suite 416/0 — reproduced.
 
 ### Human Verification Required
+
+> **Update 2026-08-30:** The operator confirmed the 10-03 FLAGGED ASSUMPTION — accepted as-is
+> ("All good", autonomous session). Status canonicalized to `passed`.
 
 ### 1. Confirm the 10-03 FLAGGED ASSUMPTION (resource-bundle edge-class intent)
 
