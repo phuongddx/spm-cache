@@ -13,7 +13,16 @@ findings:
   warning: 3
   info: 4
   total: 7
-status: issues_found
+status: fixed
+fixed_at: 2026-08-31
+fix_commits:
+  WR-01: ec51795
+  WR-02: c6df1a4
+  WR-03: a505521
+fix_summary:
+  resolved: 2
+  resolved-with-notes: 1
+  waived: 0
 ---
 
 # Phase 11: Code Review Report
@@ -21,7 +30,7 @@ status: issues_found
 **Reviewed:** 2026-08-30T16:50:11Z
 **Depth:** deep
 **Files Reviewed:** 4
-**Status:** issues_found
+**Status:** fixed — all 3 warnings addressed 2026-08-31 (2 resolved, 1 resolved-with-notes; info findings out of scope)
 
 ## Summary
 
@@ -76,6 +85,16 @@ fi
 `&`, `\`, `|`, `?`, `#`, and `$` outright). Alternatively, escape sed metacharacters in the
 replacement: `printf '%s' "$VERSION" | sed -e 's/[&|\\]/\\&/g'`.
 
+**Status (fix, 2026-08-31):** resolved (commit ec51795). Both halves fixed: the gate is
+now a strict bash-regex semver check (`^v[0-9]+\.[0-9]+\.[0-9]+([-+][0-9A-Za-z.-]+)?$` —
+rejects `&`, `\`, `|`, `?`, `#`, `$` outright), and the substitution is metacharacter-safe
+by construction: the s-expression delimiter moved to `,` and the replacement is sanitized
+with `sed -e 's/[&,\\]/\\&/g'` before sed sees it. Note: the reviewer's alternative escape
+(`s/[&|\\]/\\&/g` keeping the `|` delimiter) would not survive the widened URL anchor,
+whose ERE alternation requires `|` — hence the delimiter change. Hostile
+`&`/`|`/`,`/`\` values round-trip verbatim (behaviorally proven locally); both the strict
+gate and the escape ordering are pinned in `update_tap_workflow_spec.rb`.
+
 ### WR-02: Formula sha256 is pinned to a GitHub auto-generated archive, whose bytes GitHub does not guarantee
 
 **File:** `.github/workflows/update-tap.yml:69-75,102`
@@ -93,6 +112,16 @@ correct but orthogonal — they protect this run, not future installs.
 at the asset URL (`https://github.com/…/releases/download/v0.4.0/spm-cache-0.4.0.tar.gz`)
 and keep the same sha256 plumbing. The exactly-one anchors need only their pattern widened.
 
+**Status (fix, 2026-08-31):** resolved-with-notes (commit c6df1a4). The sha step now
+prefers an attached `.tar.gz` release asset (byte-stable) and falls back to the
+auto-generated archive behind a `::warning::` annotation; the hashed byte-source URL is
+published as a step output and the formula's `url` is pinned to exactly it, so hash and
+URL can no longer drift; the exactly-one anchor is widened to also match the
+`releases/download/` asset shape. **Recommendation (operator):** attach a tarball asset at
+release time (build `spm-cache-<ver>.tar.gz` once with `git archive` or
+`tar --owner=0 --group=0`, then `gh release upload`); until an asset exists, real runs
+still hash the auto-generated archive — loudly warned, never silent.
+
 ### WR-03: Credential-bearing workflow references `actions/checkout@v5` by mutable tag
 
 **File:** `.github/workflows/update-tap.yml:78`
@@ -107,6 +136,13 @@ the only `uses:` in the file, so the fix is one line.
 uses: actions/checkout@<full-length-commit-sha-of-v5>  # v5.x.y
 ```
 (Dependabot can keep the SHA-pinned reference updated via its `package-ecosystem: github-actions` support.)
+
+**Status (fix, 2026-08-31):** resolved (commit a505521). `actions/checkout` is pinned to
+`fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09` — the commit the `v5` major tag points at
+today (v5.1.0), resolved via the GitHub API (commit object; no annotated-tag peel
+needed) — with the version commented beside the SHA for readability. The spec now
+requires every `uses:` reference in the workflow to be a full 40-char commit SHA and
+pins the exact value.
 
 ## Info
 
