@@ -16,6 +16,10 @@ require 'spec_helper'
 # shell-body properties are asserted with line-anchored regexes over the step
 # text so a prose comment (leading #) can never satisfy a structural claim.
 RSpec.describe '.github/workflows/update-tap.yml' do
+  # actions/checkout@v5 resolved to its commit through the GitHub API
+  # (refs/tags/v5 -> this commit; Dependabot keeps the pin updated).
+  CHECKOUT_V5_SHA = 'fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09'
+
   let(:path) { '.github/workflows/update-tap.yml' }
   let(:workflow) { YAML.safe_load_file(path, permitted_classes: [], aliases: false) }
   let(:text) { File.read(path) }
@@ -180,14 +184,26 @@ RSpec.describe '.github/workflows/update-tap.yml' do
 
     tap_checkout = steps.find { |s| s.dig('with', 'repository') == 'phuongddx/homebrew-spm-cache' } or
       raise "#{path} never checks out the tap repository"
-    expect(tap_checkout['uses']).to eq('actions/checkout@v5')
+    expect(tap_checkout['uses']).to eq("actions/checkout@#{CHECKOUT_V5_SHA}"),
+                                    'pinned by full commit SHA — a mutable tag executes whatever it later points at'
     expect(tap_checkout.dig('with', 'ssh-key')).to eq('${{ secrets.TAP_DEPLOY_KEY }}'),
                                                    'the deploy key must reach git via the checkout ssh-key input'
     expect(tap_checkout.fetch('with')).not_to have_key('token'),
                                               'no token input — auth is the deploy key alone'
     expect(tap_checkout.dig('with', 'path')).to eq('tap')
-    checkouts = steps.count { |s| s['uses'] == 'actions/checkout@v5' }
+    checkouts = steps.count { |s| s['uses'] == "actions/checkout@#{CHECKOUT_V5_SHA}" }
     expect(checkouts).to eq(1), 'exactly one checkout — the unused main-repo checkout is gone'
+  end
+
+  it 'pins every action reference by full commit SHA (WR-03)' do
+    refs = jobs.values.flat_map { |j| Array(j['steps']) }.filter_map { |s| s['uses'] }
+    expect(refs).not_to be_empty, 'no action references found — assertion broken'
+    refs.each do |ref|
+      expect(ref).to match(%r{\A[0-9A-Za-z._/-]+@[0-9a-f]{40}\z}),
+                     "#{ref} must be pinned to a full 40-char commit SHA — this workflow hands the write-access deploy key to it"
+    end
+    expect(text).to include("#{CHECKOUT_V5_SHA} # v5.1.0"),
+                    'keep the human-readable version comment next to the SHA'
   end
 
   it 'never references the retired credential names' do

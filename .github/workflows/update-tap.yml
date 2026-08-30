@@ -88,7 +88,9 @@ jobs:
           echo "url=${TARBALL_URL}" >> "$GITHUB_OUTPUT"
 
       - name: Checkout tap repository
-        uses: actions/checkout@v5
+        # Pinned by full commit SHA: a mutable tag executes whatever it later
+        # points at, and this step receives the write-access deploy key.
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
         with:
           repository: phuongddx/homebrew-spm-cache
           ssh-key: ${{ secrets.TAP_DEPLOY_KEY }}
