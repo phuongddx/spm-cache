@@ -46,10 +46,21 @@ RSpec.describe '.github/workflows/update-tap.yml' do
     expect(jobs).to be_a(Hash)
   end
 
-  it 'pins the trigger surface to release[published] only (no fork-PR spoofing)' do
-    expect(triggers.keys).to eq(['release']),
-                             'the trigger key set is pinned — a pull_request trigger would let fork PRs run the publish path'
+  it 'pins the trigger surface to release[published] + workflow_dispatch (no fork-PR spoofing)' do
+    expect(triggers.keys.sort).to eq(%w[release workflow_dispatch]),
+                                 'the trigger key set is pinned — a pull_request trigger would let fork PRs run the publish path'
     expect(triggers.dig('release', 'types')).to eq(['published'])
+  end
+
+  it 'exposes a dispatch retry surface with a required string tag input (REL-09)' do
+    dispatch = triggers['workflow_dispatch']
+    expect(dispatch).to be_a(Hash), 'workflow_dispatch trigger missing — no retry without re-publishing'
+    tag = dispatch.dig('inputs', 'tag') or
+      raise "#{path} dispatch trigger declares no tag input — spec slicing broken"
+    expect(tag['type']).to eq('string')
+    expect(tag['required']).to eq(true)
+    expect(tag['description']).to be_a(String)
+    expect(tag['description']).not_to be_empty
   end
 
   it 'queues concurrent runs and keeps the ambient token minimal (REL-05)' do
@@ -77,6 +88,40 @@ RSpec.describe '.github/workflows/update-tap.yml' do
     expect(body).to match(/^\s*echo "tag=\$\{TAG\}" >> "\$GITHUB_OUTPUT"$/)
     expect(body).to match(/^\s*echo "version=\$\{TAG#v\}" >> "\$GITHUB_OUTPUT"$/),
                        'version must be derived by shell parameter expansion stripping the leading v'
+  end
+
+  it 'sources the dispatch tag via step env before the ref-name fallback (REL-09)' do
+    resolve = step_by_id('version')
+    expect(resolve.dig('env', 'DISPATCH_TAG')).to eq('${{ inputs.tag }}'),
+              'the dispatch input crosses the trigger-context boundary via step env only — never run-body interpolation'
+    body = resolve.fetch('run')
+    dispatch_pos = body.index('DISPATCH_TAG')
+    ref_pos = body.index('GITHUB_REF_NAME')
+    expect(dispatch_pos).not_to be_nil, 'resolve body never consults the dispatch input'
+    expect(ref_pos).not_to be_nil
+    expect(dispatch_pos).to be < ref_pos,
+              'dispatch branch takes precedence — under dispatch GITHUB_REF_NAME is the ref (branch), not the tag'
+    expect(body.scan('GITHUB_REF_NAME')).to eq(['GITHUB_REF_NAME']),
+              'the ref-name variable must remain reachable only inside the release fallback branch'
+  end
+
+  it 'proves the release exists before anything touches credentials or the tap (dispatch-only, REL-09)' do
+    check = run_steps.find { |s| s['run'].include?('gh release view') } or
+      raise "#{path} has no gh release view existence check"
+    expect(check['if']).to eq("${{ github.event_name == 'workflow_dispatch' }}"),
+                          'the existence check is dispatch-only — release events already carry the tag'
+    expect(check.dig('env', 'GH_TOKEN')).to eq('${{ github.token }}')
+    expect(check.dig('env', 'TAG')).to eq('${{ steps.version.outputs.tag }}')
+    expect(check['run']).to match(/^\s*gh release view "\$TAG"/)
+    check_pos = steps.index(check)
+    mint = steps.find { |s| s['id'] == 'app-token' } or
+      raise "#{path} has no app-token step — ordering assertion broken"
+    tap_checkout = steps.find { |s| s.dig('with', 'repository') == 'phuongddx/homebrew-spm-cache' } or
+      raise "#{path} never checks out the tap repository — ordering assertion broken"
+    mint_pos = steps.index(mint)
+    tap_pos = steps.index(tap_checkout)
+    expect(check_pos).to be < mint_pos, 'a nonexistent tag must fail red before credentials are touched'
+    expect(check_pos).to be < tap_pos, 'a nonexistent tag must fail red before the tap is touched'
   end
 
   it 'mints a scoped GitHub App token and feeds it to the tap checkout (REL-04)' do
