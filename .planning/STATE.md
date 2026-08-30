@@ -5,17 +5,17 @@ milestone_name: Build Fidelity & Release Automation
 current_phase: 11
 current_phase_name: Homebrew Release Automation
 status: executing
-stopped_at: Completed 11-02-PLAN.md (update-tap workflow rewrite + structural spec)
-last_updated: "2026-08-30T01:31:54.765Z"
+stopped_at: Completed 11-03-PLAN.md (operator gate + deploy-key pivot + live dispatch dry-run)
+last_updated: "2026-08-30T16:33:25.545Z"
 last_activity: 2026-08-30
-last_activity_desc: 11-02 complete — update-tap.yml two-trigger/two-job loud-failure rewrite + 20-example structural spec (438 examples green)
+last_activity_desc: Phase 11 plans complete (3/3) — pending phase verification
+state_head: 8a331477c80f8e0fe32143ac38ca41577dea8c4d
 progress:
   total_phases: 6
   completed_phases: 5
   total_plans: 18
-  completed_plans: 17
-  percent: 94
-state_head: 9935f0bf8f5006555f1215c102511d5006d74a07
+  completed_plans: 18
+  percent: 83
 ---
 
 # Project State: spm-cache
@@ -126,7 +126,7 @@ MediaPicker 3.2.4 while the app resolves 3.3.2.
 | 8 | Drift Read-Back, Fidelity Status & Provenance | Complete (verified 8/8, code-review clean after 2 fix iterations) | gsd/v0.4.0-build-fidelity-release-automation |
 | 9 | Cache Identity & Invalidation | Complete (verified 4/5 + SC5 operator-PASS, UAT 1/1, code-review clean, security 5/5 closed) | gsd/v0.4.0-build-fidelity-release-automation |
 | 10 | Fidelity Regression Coverage | Complete (verified 23/23 + operator-confirmed assumption, code-review clean after WR-01/02 fixes, security 12/12 closed) | gsd/v0.4.0-build-fidelity-release-automation |
-| 11 | Homebrew Release Automation | Executing (2/3 plans: 11-01 --version intercept, 11-02 update-tap rewrite; 11-03 operator gate pending) | gsd/v0.4.0-build-fidelity-release-automation |
+| 11 | Homebrew Release Automation | Complete (3/3 plans: 11-01 --version intercept, 11-02 update-tap rewrite, 11-03 operator gate + deploy-key pivot + live v0.3.0 dry-run; pending verification) | gsd/v0.4.0-build-fidelity-release-automation |
 
 Hard chain: 6 → 7 → 8 → 9. Phase 10 depends on 7–9 (fixtures authorable in parallel). Phase 11 is
 fully independent and schedulable anywhere.
@@ -213,8 +213,8 @@ See: .planning/PROJECT.md (updated 2026-08-29)
 
 ## Session Continuity
 
-Last session: 2026-08-30T01:31:54.750Z
-Stopped at: Completed 11-02-PLAN.md (update-tap workflow rewrite + structural spec)
+Last session: 2026-08-30T16:33:14.374Z
+Stopped at: Completed 11-03-PLAN.md (operator gate + deploy-key pivot + live dispatch dry-run)
 Resume file: None
 
 ## Performance Metrics
@@ -236,6 +236,7 @@ Resume file: None
 | Phase 10 P03 | 561s | 3 tasks | 1 files |
 | Phase 11 P01 | 7m | 2 tasks | 2 files |
 | Phase 11 P02 | 18m | 3 tasks | 2 files |
+| Phase 11 P03 | 30m | 3 tasks | 4 files |
 
 ## Decisions
 
@@ -276,13 +277,14 @@ Resume file: None
 - [Phase ?]: 11-02: update-tap.yml rewritten two-trigger/two-job with every failure loud - app-token auth (create-github-app-token@v3), integrity-gated download (curl -fL retry + 1f8b magic before hash), anchored exactly-one url/sha256 edits with grep -Fqx postconditions, explicit no-diff push replacing || exit 0, macOS brew verify; 20-example structural spec pins REL-04..09
 - [Phase ?]: 11-02: version asserted via URL-tag postcondition only - no version-field edit, no stanza added (live tap formula has none; Homebrew derives version from URL tag; old version sed was a silent zero-match no-op)
 - [Phase ?]: 11-02: verify-publish on macos-latest per locked CONTEXT; macos-15 pin is the documented one-line fallback if the first live run hits an OS-specific failure
+- [Phase 11]: 11-03 (2026-08-30): operator gate resolved via pivot — claimed UI-set App secrets verifiably absent, so the pre-authorized deploy-key substitute was applied API-first (write deploy key on the tap, TAP_DEPLOY_KEY the only repo secret, TAP_REPO_TOKEN deleted); REL-04 truth = long-lived machine credential (non-human, non-expiring). Live v0.3.0 dispatch: update-tap GREEN on the idempotent notice branch (REL-05/06/07/09), verify-publish RED at the version assertion per the documented pre-intercept fail-first proof (REL-08) after pinning macos-15; tap-formula Homebrew-Ruby-3.4 boot defect logged to deferred-items.md (fix needed before the v0.4.0 release's first green verify).
 
 ## Current Position
 
-Phase: 11 (Homebrew Release Automation) — EXECUTING
-Plan: 3 of 3
-Status: Ready to execute
-Last activity: 2026-08-30 — 11-02 executed (update-tap rewrite + structural spec, 6 commits, suite 438/0)
+Phase: 11 (Homebrew Release Automation) — ALL PLANS EXECUTED
+Plan: 3 of 3 complete (11-03 shipped the operator gate via deploy-key pivot + live dispatch dry-run)
+Status: Phase 11 plans complete; pending phase verification (`11-LIVE-RUN.md` holds the live-run evidence)
+Last activity: 2026-08-30 — 11-03: deploy-key pivot, 3 live dispatch runs, anchor/runner fixes, 438 examples 0 failures
 
 ### Historical position (Phase 6, prior to this update)
 
