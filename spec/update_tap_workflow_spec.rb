@@ -46,14 +46,14 @@ RSpec.describe '.github/workflows/update-tap.yml' do
     expect(workflow).to be_a(Hash)
     expect(workflow.fetch('name')).to eq('Update Homebrew Tap')
     expect(workflow['on']).to be_nil,
-                           'unquoted on: parses as boolean true under Psych — read triggers via workflow[true]'
+                              'unquoted on: parses as boolean true under Psych — read triggers via workflow[true]'
     expect(triggers).to be_a(Hash)
     expect(jobs).to be_a(Hash)
   end
 
   it 'pins the trigger surface to release[published] + workflow_dispatch (no fork-PR spoofing)' do
     expect(triggers.keys.sort).to eq(%w[release workflow_dispatch]),
-                                 'the trigger key set is pinned — a pull_request trigger would let fork PRs run the publish path'
+                                  'trigger set pinned — pull_request would let fork PRs run the publish path'
     expect(triggers.dig('release', 'types')).to eq(['published'])
   end
 
@@ -71,35 +71,35 @@ RSpec.describe '.github/workflows/update-tap.yml' do
   it 'queues concurrent runs and keeps the ambient token minimal (REL-05)' do
     conc = workflow['concurrency']
     expect(conc).to be_a(Hash),
-                   'workflow-level concurrency group missing — two releases would race on the tap push'
+                    'workflow-level concurrency group missing — two releases would race on the tap push'
     expect(conc['group']).to eq('update-tap')
     expect(conc['cancel-in-progress']).to eq(false),
-                                        'cancel-in-progress must be false: queue, never cancel mid-push'
+                                          'cancel-in-progress must be false: queue, never cancel mid-push'
     expect(workflow['permissions']).to eq('contents' => 'read')
   end
 
   it 'runs the edit job on ubuntu-latest and the verify job on macOS (GNU vs BSD sed)' do
-    expect(jobs.keys.sort).to eq(['update-tap', 'verify-publish'])
+    expect(jobs.keys.sort).to eq(%w[update-tap verify-publish])
     expect(update_tap['runs-on']).to eq('ubuntu-latest')
     expect(verify_publish['runs-on']).to match(/macos/),
-                                       'post-publish verification installs a macOS-only formula'
+                                         'post-publish verification installs a macOS-only formula'
   end
 
   it 'gates verify-publish on update-tap and plumbs the resolved version (REL-08)' do
     expect(verify_publish['needs']).to eq('update-tap')
     expect(update_tap['outputs']).to eq('version' => '${{ steps.version.outputs.version }}'),
-                                    'the resolve step version must become a job output'
+                                     'the resolve step version must become a job output'
     env = verify_publish.fetch('env')
     expect(env['EXPECTED_VERSION']).to eq('${{ needs.update-tap.outputs.version }}')
     expect(env['HOMEBREW_NO_AUTO_UPDATE']).to eq('1'),
-                                          'quoted string 1 — skip the slow nondeterministic brew update'
+                                              'quoted string 1 — skip the slow nondeterministic brew update'
   end
 
   it 'installs the published formula exactly as a user would (REL-08)' do
     install = verify_steps.find { |s| s['run'].to_s.include?('brew install') } or
       raise "#{path} verify job has no brew install step"
-    expect(install['run']).to match(/^\s*brew install phuongddx\/spm-cache\/spm-cache\b/),
-                             'user/repo/formula form — implicitly taps the published tap'
+    expect(install['run']).to match(%r{^\s*brew install phuongddx/spm-cache/spm-cache\b}),
+                              'user/repo/formula form — implicitly taps the published tap'
   end
 
   it 'asserts the installed version equals the released version whole-string (REL-08)' do
@@ -109,49 +109,50 @@ RSpec.describe '.github/workflows/update-tap.yml' do
     expect(body.lines.first.strip).to eq('set -euo pipefail')
     expect(body).to match(/^\s*brew list --versions /), 'log the installed versions for the run record'
     expect(body).to match(/^\s*ACTUAL="\$\(spm-cache --version \| tr -d '\[:space:\]'\)"/),
-                       'capture the installed version, whitespace deleted'
+                    'capture the installed version, whitespace deleted'
     expect(body).to match(/^\s*echo "installed: \$\{ACTUAL\}, expected: \$\{EXPECTED_VERSION\}"/)
     expect(body).to match(/^\s*\[ "\$ACTUAL" = "\$EXPECTED_VERSION" \]/),
-                       'whole-string equality — a mismatching version must fail the release run red'
+                    'whole-string equality — a mismatching version must fail the release run red'
   end
 
   it 'keeps the verify job anonymous — no token, secret, or app reference' do
     expect(verify_publish.to_yaml).not_to match(/token|secret/i),
-                                   'the tap is public and the minted token is auto-revoked at the first job end'
+                                          'the tap is public and the minted token is auto-revoked at the first job end'
   end
 
   it 'resolves the tag and version from the release ref via GITHUB_OUTPUT' do
     body = step_by_id('version').fetch('run')
     expect(body).to match(/^\s*TAG="\$GITHUB_REF_NAME"/),
-                       'release path: the tag comes from the ref-name ambient variable'
+                    'release path: the tag comes from the ref-name ambient variable'
     expect(body).to match(/^\s*case "\$TAG" in/), 'tag shape must be validated with a case statement'
     expect(body).to match(/^\s*v\[0-9\]\*\) ;;/)
     expect(body).to match(/^\s*\*\) echo "::error::/), 'shape failure must emit a red error annotation'
     expect(body).to match(/^\s*echo "tag=\$\{TAG\}" >> "\$GITHUB_OUTPUT"$/)
     expect(body).to match(/^\s*echo "version=\$\{TAG#v\}" >> "\$GITHUB_OUTPUT"$/),
-                       'version must be derived by shell parameter expansion stripping the leading v'
+                    'version must be derived by shell parameter expansion stripping the leading v'
   end
 
   it 'sources the dispatch tag via step env before the ref-name fallback (REL-09)' do
     resolve = step_by_id('version')
-    expect(resolve.dig('env', 'DISPATCH_TAG')).to eq('${{ inputs.tag }}'),
-              'the dispatch input crosses the trigger-context boundary via step env only — never run-body interpolation'
+    mapped = resolve.dig('env', 'DISPATCH_TAG')
+    expect(mapped).to eq('${{ inputs.tag }}'),
+                      'dispatch input crosses the trigger boundary via step env only'
     body = resolve.fetch('run')
     dispatch_pos = body.index('DISPATCH_TAG')
     ref_pos = body.index('GITHUB_REF_NAME')
     expect(dispatch_pos).not_to be_nil, 'resolve body never consults the dispatch input'
     expect(ref_pos).not_to be_nil
     expect(dispatch_pos).to be < ref_pos,
-              'dispatch branch takes precedence — under dispatch GITHUB_REF_NAME is the ref (branch), not the tag'
+                            'dispatch wins — under dispatch GITHUB_REF_NAME is the ref (branch), not the tag'
     expect(body.scan('GITHUB_REF_NAME')).to eq(['GITHUB_REF_NAME']),
-              'the ref-name variable must remain reachable only inside the release fallback branch'
+                                            'ref-name must remain reachable only inside the release fallback branch'
   end
 
   it 'proves the release exists before anything touches credentials or the tap (dispatch-only, REL-09)' do
     check = run_steps.find { |s| s['run'].include?('gh release view') } or
       raise "#{path} has no gh release view existence check"
     expect(check['if']).to eq("${{ github.event_name == 'workflow_dispatch' }}"),
-                          'the existence check is dispatch-only — release events already carry the tag'
+                           'the existence check is dispatch-only — release events already carry the tag'
     expect(check.dig('env', 'GH_TOKEN')).to eq('${{ github.token }}')
     expect(check.dig('env', 'TAG')).to eq('${{ steps.version.outputs.tag }}')
     expect(check['run']).to match(/^\s*gh release view "\$TAG"/)
@@ -180,15 +181,15 @@ RSpec.describe '.github/workflows/update-tap.yml' do
       raise "#{path} never checks out the tap repository"
     expect(tap_checkout['uses']).to eq('actions/checkout@v5')
     expect(tap_checkout.dig('with', 'token')).to eq('${{ steps.app-token.outputs.token }}'),
-                                                'the minted token must reach git config via the checkout token input'
+                                                 'the minted token must reach git config via the checkout token input'
     expect(tap_checkout.dig('with', 'path')).to eq('tap')
-    expect(steps.count { |s| s['uses'] == 'actions/checkout@v5' }).to eq(1),
-           'exactly one checkout — the unused main-repo checkout is gone'
+    checkouts = steps.count { |s| s['uses'] == 'actions/checkout@v5' }
+    expect(checkouts).to eq(1), 'exactly one checkout — the unused main-repo checkout is gone'
   end
 
   it 'never references the dead classic-PAT secret' do
     expect(text).not_to include('TAP_REPO_TOKEN'),
-                       'TAP_REPO_TOKEN is the dead classic PAT this phase retires (REL-04)'
+                        'TAP_REPO_TOKEN is the dead classic PAT this phase retires (REL-04)'
   end
 
   it 'fails loudly naming both app secrets when either is missing (REL-04)' do
@@ -197,13 +198,13 @@ RSpec.describe '.github/workflows/update-tap.yml' do
     body = guard.fetch('run')
     expect(body).to match(/^\s*if \[ -z "\$TAP_APP_ID" \] \|\| \[ -z "\$TAP_APP_PRIVATE_KEY" \]/)
     expect(body).to match(/^\s*echo "::error::[^\n]*TAP_APP_ID[^\n]*TAP_APP_PRIVATE_KEY/),
-                       'the error annotation must NAME both secrets (never print values)'
+                    'the error annotation must NAME both secrets (never print values)'
   end
 
   it 'gates the tarball download on retries, non-emptiness, and gzip magic before hashing (REL-05)' do
     body = step_by_id('sha').fetch('run')
     expect(body).to match(/^\s*curl -fL --retry 3 --retry-delay 2 /),
-                       'download must use curl -fL with --retry 3 --retry-delay 2'
+                    'download must use curl -fL with --retry 3 --retry-delay 2'
     expect(body).to match(/^\s*test -s release\.tar\.gz \|\| /), 'non-empty file gate missing'
     expect(body).to match(/^\s*magic=\$\(od -An -tx1 -N2 release\.tar\.gz/), 'gzip magic-byte read missing'
     magic_pos = body.index(/^\s*\[ "\$magic" = "1f8b" \]/)
@@ -211,14 +212,14 @@ RSpec.describe '.github/workflows/update-tap.yml' do
     digest_pos = body.index(/^\s*SHA=\$\(shasum -a 256 /)
     expect(digest_pos).not_to be_nil, 'sha256 digest computation missing'
     expect(magic_pos).to be < digest_pos,
-                        'the digest must run strictly AFTER the integrity gate — an error page must never be hashed'
+                         'the digest must run strictly AFTER the integrity gate — an error page must never be hashed'
   end
 
   it 'edits the formula with exactly-one-match anchors and full-line postconditions (REL-07)' do
     body = run_step_by_marker('replace_exactly_one').fetch('run')
     expect(body).to match(/^\s*count=\$\(grep -cE /), 'match-count check via grep -cE missing'
     expect(body).to match(/^\s*if \[ "\$count" -ne 1 \]/),
-                       'failure branch must fire on any count other than 1 (0 or >1 both fail red)'
+                    'failure branch must fire on any count other than 1 (0 or >1 both fail red)'
     expect(body).to match(/^\s*sed -i -E /), 'GNU in-place extended-regex sed missing'
 
     url_re = body.lines.find { |l| l =~ /^\s*URL_RE=/ } or
@@ -235,25 +236,25 @@ RSpec.describe '.github/workflows/update-tap.yml' do
 
     postconditions = body.lines.select { |l| l =~ /^\s*grep -Fqx / }
     expect(postconditions.size).to eq(2),
-                                 'expected exactly two full-line postconditions (url, sha256)'
+                                   'expected exactly two full-line postconditions (url, sha256)'
     joined = postconditions.join
     expect(joined).to include('${VERSION}'),
-                    'the url postcondition carries the new tag — the version assertion (no version stanza exists)'
+                      'the url postcondition carries the new tag — the version assertion (no version stanza exists)'
     expect(joined).to include('${SHA256}')
 
     expect(body).not_to include('version "'),
-                       'the live tap formula has no version stanza — a version-field edit is a silent zero-match no-op'
+                        'the live tap formula has no version stanza — a version-field edit is a silent zero-match no-op'
   end
 
   it 'publishes loudly: explicit no-diff branch, unguarded push, no suppression (REL-06)' do
     expect(text).not_to include('|| exit 0'),
-                       'the double-pipe-exit-zero sequence converts commit/push failures into green runs'
+                        'the double-pipe-exit-zero sequence converts commit/push failures into green runs'
     commit = run_steps.find { |s| s['run'].include?('git diff --cached --quiet') } or
       raise "#{path} commit step has no explicit no-diff detection"
     body = commit.fetch('run')
     expect(body).to match(/^\s*if git diff --cached --quiet; then/)
     expect(body).to match(/^\s*echo "::notice::/),
-                       'the already-current branch must succeed via a visible notice annotation'
+                    'the already-current branch must succeed via a visible notice annotation'
     expect(body).to match(/^\s*git push\s*$/), 'git push must be bare and unguarded'
   end
 

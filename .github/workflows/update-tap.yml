@@ -20,6 +20,8 @@ permissions:
 jobs:
   update-tap:
     runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.version.outputs.version }}
     steps:
       - name: Resolve tag
         id: version
@@ -129,3 +131,20 @@ jobs:
           fi
           git commit -m "chore: update spm-cache to ${VERSION}"
           git push
+
+  verify-publish:
+    needs: update-tap
+    runs-on: macos-latest
+    env:
+      HOMEBREW_NO_AUTO_UPDATE: "1"
+      EXPECTED_VERSION: ${{ needs.update-tap.outputs.version }}
+    steps:
+      - name: Install published formula from the tap
+        run: brew install phuongddx/spm-cache/spm-cache
+      - name: Assert installed version matches the release
+        run: |
+          set -euo pipefail
+          brew list --versions spm-cache
+          ACTUAL="$(spm-cache --version | tr -d '[:space:]')"
+          echo "installed: ${ACTUAL}, expected: ${EXPECTED_VERSION}"
+          [ "$ACTUAL" = "$EXPECTED_VERSION" ]
