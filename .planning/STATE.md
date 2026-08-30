@@ -5,16 +5,16 @@ milestone_name: Build Fidelity & Release Automation
 current_phase: 11
 current_phase_name: Homebrew Release Automation
 status: executing
-stopped_at: Completed 11-01-PLAN.md (spm-cache --version intercept, REL-08 CLI half)
-last_updated: "2026-08-30T01:09:51.183Z"
+stopped_at: Completed 11-02-PLAN.md (update-tap workflow rewrite + structural spec)
+last_updated: "2026-08-30T01:31:54.765Z"
 last_activity: 2026-08-30
-last_activity_desc: Phase 10 complete (verified 23/23 + operator confirmation, security 12/12 closed)
+last_activity_desc: 11-02 complete — update-tap.yml two-trigger/two-job loud-failure rewrite + 20-example structural spec (438 examples green)
 progress:
   total_phases: 6
   completed_phases: 5
   total_plans: 18
-  completed_plans: 15
-  percent: 83
+  completed_plans: 17
+  percent: 94
 state_head: 9935f0bf8f5006555f1215c102511d5006d74a07
 ---
 
@@ -126,7 +126,7 @@ MediaPicker 3.2.4 while the app resolves 3.3.2.
 | 8 | Drift Read-Back, Fidelity Status & Provenance | Complete (verified 8/8, code-review clean after 2 fix iterations) | gsd/v0.4.0-build-fidelity-release-automation |
 | 9 | Cache Identity & Invalidation | Complete (verified 4/5 + SC5 operator-PASS, UAT 1/1, code-review clean, security 5/5 closed) | gsd/v0.4.0-build-fidelity-release-automation |
 | 10 | Fidelity Regression Coverage | Complete (verified 23/23 + operator-confirmed assumption, code-review clean after WR-01/02 fixes, security 12/12 closed) | gsd/v0.4.0-build-fidelity-release-automation |
-| 11 | Homebrew Release Automation | Not started | — |
+| 11 | Homebrew Release Automation | Executing (2/3 plans: 11-01 --version intercept, 11-02 update-tap rewrite; 11-03 operator gate pending) | gsd/v0.4.0-build-fidelity-release-automation |
 
 Hard chain: 6 → 7 → 8 → 9. Phase 10 depends on 7–9 (fixtures authorable in parallel). Phase 11 is
 fully independent and schedulable anywhere.
@@ -213,8 +213,8 @@ See: .planning/PROJECT.md (updated 2026-08-29)
 
 ## Session Continuity
 
-Last session: 2026-08-30T01:09:51.161Z
-Stopped at: Completed 11-01-PLAN.md (spm-cache --version intercept, REL-08 CLI half)
+Last session: 2026-08-30T01:31:54.750Z
+Stopped at: Completed 11-02-PLAN.md (update-tap workflow rewrite + structural spec)
 Resume file: None
 
 ## Performance Metrics
@@ -235,6 +235,7 @@ Resume file: None
 | Phase 10 P02 | 831s | 3 tasks | 2 files |
 | Phase 10 P03 | 561s | 3 tasks | 1 files |
 | Phase 11 P01 | 7m | 2 tasks | 2 files |
+| Phase 11 P02 | 18m | 3 tasks | 2 files |
 
 ## Decisions
 
@@ -272,13 +273,16 @@ Resume file: None
 - [Phase ?]: Phase 10 Plan 03 (TEST-03): FrameworkSlice resource-bundle leg drives the REAL copy_resource_bundles semantics directly (send) against the slice's public framework_path — the class is unwired dead code (private resource_paths defeats the respond_to? guard, bare-Sh NameError, template binding mismatch); zero production changes honored, gap logged in deferred-items.md
 - [Phase ?]: Phase 10 Plan 03 (TEST-03): eight-class edge matrix shipped as one hermetic file — tier-1 legs under the default-deny Core::Sh guard (both entry points, libtool prefix-allowlisted for the shim leg), tier-3 plugin/transitive legs via the local compiled proxy only; class 2/8 macro kept as ONE example covering both pin directions so each class number appears exactly once as an example string; three fidelity specs combined 0.89s (2-3s target)
 - [Phase ?]: 11-01: --version intercepted in Main.run before CLAide dispatch (argv.first guard, prints SPMCache::VERSION from VERSION file); RED-then-GREEN per TDD plan
+- [Phase ?]: 11-02: update-tap.yml rewritten two-trigger/two-job with every failure loud - app-token auth (create-github-app-token@v3), integrity-gated download (curl -fL retry + 1f8b magic before hash), anchored exactly-one url/sha256 edits with grep -Fqx postconditions, explicit no-diff push replacing || exit 0, macOS brew verify; 20-example structural spec pins REL-04..09
+- [Phase ?]: 11-02: version asserted via URL-tag postcondition only - no version-field edit, no stanza added (live tap formula has none; Homebrew derives version from URL tag; old version sed was a silent zero-match no-op)
+- [Phase ?]: 11-02: verify-publish on macos-latest per locked CONTEXT; macos-15 pin is the documented one-line fallback if the first live run hits an OS-specific failure
 
 ## Current Position
 
 Phase: 11 (Homebrew Release Automation) — EXECUTING
-Plan: 2 of 3
+Plan: 3 of 3
 Status: Ready to execute
-Last activity: 2026-08-30 — Phase 11 execution started
+Last activity: 2026-08-30 — 11-02 executed (update-tap rewrite + structural spec, 6 commits, suite 438/0)
 
 ### Historical position (Phase 6, prior to this update)
 

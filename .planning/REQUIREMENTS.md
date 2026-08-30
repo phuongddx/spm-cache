@@ -37,12 +37,12 @@
 
 ### Release Automation
 
-- [ ] **REL-04**: The tap workflow authenticates without a human-owned expiring credential
-- [ ] **REL-05**: A tarball download failure fails the workflow loudly instead of hashing an error page into the formula
-- [ ] **REL-06**: A commit or push failure fails the workflow loudly — the `|| exit 0` silent-success path is removed
-- [ ] **REL-07**: Formula edits are anchored and post-condition-checked, so a zero-match or over-broad substitution cannot pass silently
+- [x] **REL-04**: The tap workflow authenticates without a human-owned expiring credential
+- [x] **REL-05**: A tarball download failure fails the workflow loudly instead of hashing an error page into the formula
+- [x] **REL-06**: A commit or push failure fails the workflow loudly — the `|| exit 0` silent-success path is removed
+- [x] **REL-07**: Formula edits are anchored and post-condition-checked, so a zero-match or over-broad substitution cannot pass silently
 - [x] **REL-08**: Post-publish verification installs the published formula and asserts `spm-cache --version` matches the released tag
-- [ ] **REL-09**: `workflow_dispatch` with a `tag` input allows retrying a transient failure without re-publishing a release
+- [x] **REL-09**: `workflow_dispatch` with a `tag` input allows retrying a transient failure without re-publishing a release
 
 ## Future Requirements
 
@@ -126,12 +126,12 @@ Which phases cover which requirements. Populated during roadmap creation.
 | TEST-02 | Phase 10 | Complete |
 | TEST-03 | Phase 10 | Complete |
 | PERF-01 | Phase 7 | Complete |
-| REL-04 | Phase 11 | Pending |
-| REL-05 | Phase 11 | Pending |
-| REL-06 | Phase 11 | Pending |
-| REL-07 | Phase 11 | Pending |
+| REL-04 | Phase 11 | Complete |
+| REL-05 | Phase 11 | Complete |
+| REL-06 | Phase 11 | Complete |
+| REL-07 | Phase 11 | Complete |
 | REL-08 | Phase 11 | Complete |
-| REL-09 | Phase 11 | Pending |
+| REL-09 | Phase 11 | Complete |
 
 **Coverage:**
 
