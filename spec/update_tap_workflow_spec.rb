@@ -124,9 +124,16 @@ RSpec.describe '.github/workflows/update-tap.yml' do
     body = step_by_id('version').fetch('run')
     expect(body).to match(/^\s*TAG="\$GITHUB_REF_NAME"/),
                     'release path: the tag comes from the ref-name ambient variable'
-    expect(body).to match(/^\s*case "\$TAG" in/), 'tag shape must be validated with a case statement'
-    expect(body).to match(/^\s*v\[0-9\]\*\) ;;/)
-    expect(body).to match(/^\s*\*\) echo "::error::/), 'shape failure must emit a red error annotation'
+    tag_re_line = body.lines.find { |l| l.start_with?('tag_re=') } or
+      raise "#{path} resolve step declares no strict tag shape gate — spec slicing broken"
+    expect(tag_re_line).to include('^v[0-9]+\\.[0-9]+\\.[0-9]+([-+][0-9A-Za-z.-]+)?$'),
+                           'strict semver shape — the old v[0-9]* glob accepted v1.2.3&calc (legal git tag, sed metacharacter)'
+    expect(body).to match(/^\s*if ! \[\[ "\$TAG" =~ \$tag_re \]\]; then/),
+                    'the shape gate must be the bash-regex check'
+    expect(body).to match(/^\s*echo "::error::tag '\$\{TAG\}' must look like v0\.4\.0"; exit 1/),
+                    'shape failure must emit a red error annotation'
+    expect(body).not_to match(/v\[0-9\]\*\)/),
+                        'the permissive prefix glob must be gone'
     expect(body).to match(/^\s*echo "tag=\$\{TAG\}" >> "\$GITHUB_OUTPUT"$/)
     expect(body).to match(/^\s*echo "version=\$\{TAG#v\}" >> "\$GITHUB_OUTPUT"$/),
                     'version must be derived by shell parameter expansion stripping the leading v'
@@ -251,6 +258,20 @@ RSpec.describe '.github/workflows/update-tap.yml' do
 
     expect(body).not_to include('version "'),
                         'the live tap formula has no version stanza — a version-field edit is a silent zero-match no-op'
+  end
+
+  it 'neuters sed metacharacters before every substitution (WR-01)' do
+    body = run_step_by_marker('replace_exactly_one').fetch('run')
+    escape = body.lines.find { |l| l.include?("replacement=$(printf '%s' \"$replacement\"") } or
+      raise "#{path} never sanitizes the sed replacement — & expands to the whole match and a delimiter char breaks the s expression"
+    expect(escape).to include("sed -e 's/[&,\\\\]/\\\\&/g'"),
+                      'escape &, backslash, and the s delimiter (,) in the replacement before sed sees it'
+    substitution = body.lines.find { |l| l =~ /^\s*sed -i -E / } or
+      raise "#{path} lost the GNU in-place extended-regex sed substitution"
+    expect(substitution).to include('"s,$pattern,$replacement,"'),
+                            'comma-delimited s expression — | cannot be the delimiter once the url anchor carries ERE alternation'
+    expect(body.index(escape)).to be < body.index(substitution),
+                                  'the sanitized replacement is the one sed consumes'
   end
 
   it 'publishes loudly: explicit no-diff branch, unguarded push, no suppression (REL-06)' do

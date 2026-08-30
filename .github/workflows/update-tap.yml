@@ -34,10 +34,10 @@ jobs:
           else
             TAG="$GITHUB_REF_NAME"
           fi
-          case "$TAG" in
-            v[0-9]*) ;;
-            *) echo "::error::tag '${TAG}' must look like v0.4.0"; exit 1 ;;
-          esac
+          tag_re='^v[0-9]+\.[0-9]+\.[0-9]+([-+][0-9A-Za-z.-]+)?$'
+          if ! [[ "$TAG" =~ $tag_re ]]; then
+            echo "::error::tag '${TAG}' must look like v0.4.0"; exit 1
+          fi
           echo "tag=${TAG}" >> "$GITHUB_OUTPUT"
           echo "version=${TAG#v}" >> "$GITHUB_OUTPUT"
 
@@ -95,7 +95,11 @@ jobs:
               echo "::error::expected exactly 1 match for /$pattern/, got $count in $FORMULA"
               exit 1
             fi
-            sed -i -E "s|$pattern|$replacement|" "$FORMULA"
+            # sed-safety: escape replacement metacharacters (&, backslash) and
+            # the s delimiter (,) so a validated value can never corrupt the
+            # substitution; patterns are static literals kept delimiter-free.
+            replacement=$(printf '%s' "$replacement" | sed -e 's/[&,\\]/\\&/g')
+            sed -i -E "s,$pattern,$replacement," "$FORMULA"
           }
           URL_RE='^  url "https://github\.com/phuongddx/spm-cache/archive/refs/tags/[^"]+\.tar\.gz"$'
           SHA_RE='^  sha256 "[0-9a-f]{64}"$'
