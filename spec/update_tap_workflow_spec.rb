@@ -24,6 +24,11 @@ RSpec.describe '.github/workflows/update-tap.yml' do
   let(:update_tap) { jobs.fetch('update-tap') }
   let(:steps) { update_tap.fetch('steps') }
   let(:run_steps) { steps.select { |s| s.key?('run') } }
+  let(:verify_publish) do
+    jobs['verify-publish'] or
+      raise "#{path} declares no verify-publish job — spec slicing broken"
+  end
+  let(:verify_steps) { verify_publish.fetch('steps') }
 
   # Loud-failure slicing: locate steps by stable markers and raise naming the
   # file instead of asserting against nil (action_spec.rb:25-28 idiom).
@@ -73,9 +78,46 @@ RSpec.describe '.github/workflows/update-tap.yml' do
     expect(workflow['permissions']).to eq('contents' => 'read')
   end
 
-  it 'declares a single update-tap job on ubuntu-latest (GNU sed — never BSD)' do
-    expect(jobs.keys).to eq(['update-tap'])
+  it 'runs the edit job on ubuntu-latest and the verify job on macOS (GNU vs BSD sed)' do
+    expect(jobs.keys.sort).to eq(['update-tap', 'verify-publish'])
     expect(update_tap['runs-on']).to eq('ubuntu-latest')
+    expect(verify_publish['runs-on']).to match(/macos/),
+                                       'post-publish verification installs a macOS-only formula'
+  end
+
+  it 'gates verify-publish on update-tap and plumbs the resolved version (REL-08)' do
+    expect(verify_publish['needs']).to eq('update-tap')
+    expect(update_tap['outputs']).to eq('version' => '${{ steps.version.outputs.version }}'),
+                                    'the resolve step version must become a job output'
+    env = verify_publish.fetch('env')
+    expect(env['EXPECTED_VERSION']).to eq('${{ needs.update-tap.outputs.version }}')
+    expect(env['HOMEBREW_NO_AUTO_UPDATE']).to eq('1'),
+                                          'quoted string 1 — skip the slow nondeterministic brew update'
+  end
+
+  it 'installs the published formula exactly as a user would (REL-08)' do
+    install = verify_steps.find { |s| s['run'].to_s.include?('brew install') } or
+      raise "#{path} verify job has no brew install step"
+    expect(install['run']).to match(/^\s*brew install phuongddx\/spm-cache\/spm-cache\b/),
+                             'user/repo/formula form — implicitly taps the published tap'
+  end
+
+  it 'asserts the installed version equals the released version whole-string (REL-08)' do
+    assertion = verify_steps.find { |s| s['run'].to_s.include?('EXPECTED_VERSION') } or
+      raise "#{path} verify job has no version assertion step"
+    body = assertion.fetch('run')
+    expect(body.lines.first.strip).to eq('set -euo pipefail')
+    expect(body).to match(/^\s*brew list --versions /), 'log the installed versions for the run record'
+    expect(body).to match(/^\s*ACTUAL="\$\(spm-cache --version \| tr -d '\[:space:\]'\)"/),
+                       'capture the installed version, whitespace deleted'
+    expect(body).to match(/^\s*echo "installed: \$\{ACTUAL\}, expected: \$\{EXPECTED_VERSION\}"/)
+    expect(body).to match(/^\s*\[ "\$ACTUAL" = "\$EXPECTED_VERSION" \]/),
+                       'whole-string equality — a mismatching version must fail the release run red'
+  end
+
+  it 'keeps the verify job anonymous — no token, secret, or app reference' do
+    expect(verify_publish.to_yaml).not_to match(/token|secret/i),
+                                   'the tap is public and the minted token is auto-revoked at the first job end'
   end
 
   it 'resolves the tag and version from the release ref via GITHUB_OUTPUT' do
