@@ -193,7 +193,7 @@ version-awareness gap (Pitfall 2), both incorporated into the plan below.
 
 **Operator gate**: The durable-token fix requires a one-time human step outside the repo — create a GitHub App owned by `phuongddx` (`Contents: read & write` + `Metadata: read`, installed on `homebrew-spm-cache` **only**, never `workflow` scope) and store its app id + private key as repo secrets. Autonomous execution pauses here. A deploy key with write access is the accepted lower-ceremony substitute.
 **Research**: Done 2026-08-29 (`11-RESEARCH.md`, HIGH confidence — amended 2026-08-30 from the original "not needed" call after discuss-phase surfaced the operator gate): found the `spm-cache --version` exit-1 blocker (CLAide default-subcommand routing — REL-08 cannot pass without a 3-line `Main.run` intercept), verified the live tap formula has **no `version` stanza** (the current version sed is a silent zero-match no-op), and confirmed `GITHUB_REF_NAME` is the dispatch ref, not the tag, under `workflow_dispatch`.
-**Plans**: 3 plans across 2 waves
+**Plans**: 0/3 plans executed across 2 waves
 **Wave 1** *(11-01 and 11-02 are file-disjoint — fully parallel)*
 
 - [ ] 11-01-PLAN.md — `spm-cache --version` intercept via TDD (REL-08 CLI half)
@@ -227,7 +227,7 @@ version-awareness gap (Pitfall 2), both incorporated into the plan below.
 | 8. Drift Read-Back, Fidelity Status & Provenance | v0.4.0 | 2/2 | Complete    | 2026-08-29 |
 | 9. Cache Identity & Invalidation | v0.4.0 | 3/3 | Complete    | 2026-08-29 |
 | 10. Fidelity Regression Coverage | v0.4.0 | 3/3 | Complete    | 2026-08-30 |
-| 11. Homebrew Release Automation | v0.4.0 | 0/3 | Planning complete | - |
+| 11. Homebrew Release Automation | v0.4.0 | 0/3 | Planned    |  |
 
 ## Coverage
 

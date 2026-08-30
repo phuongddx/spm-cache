@@ -2,11 +2,11 @@
 gsd_state_version: 1.0
 milestone: v0.4.0
 milestone_name: Build Fidelity & Release Automation
-current_phase: 11 — Homebrew Release Automation
+current_phase: 11
 current_phase_name: Homebrew Release Automation
 status: executing
-stopped_at: Phase 10 complete, ready to plan Phase 11
-last_updated: "2026-08-30T01:01:07.931Z"
+stopped_at: Completed 11-01-PLAN.md (spm-cache --version intercept, REL-08 CLI half)
+last_updated: "2026-08-30T01:09:51.183Z"
 last_activity: 2026-08-30
 last_activity_desc: Phase 10 complete (verified 23/23 + operator confirmation, security 12/12 closed)
 progress:
@@ -21,7 +21,7 @@ state_head: 9935f0bf8f5006555f1215c102511d5006d74a07
 # Project State: spm-cache
 
 **Initialized:** 2026-08-10
-**Current Phase:** 11 — Homebrew Release Automation
+**Current Phase:** 11
 **Project Mode:** Horizontal Layers
 **Direction:** v0.4.0 Build fidelity (correctness) + release automation
 
@@ -213,8 +213,8 @@ See: .planning/PROJECT.md (updated 2026-08-29)
 
 ## Session Continuity
 
-Last session: 2026-08-30T00:23:46.709Z
-Stopped at: Phase 10 complete, ready to plan Phase 11
+Last session: 2026-08-30T01:09:51.161Z
+Stopped at: Completed 11-01-PLAN.md (spm-cache --version intercept, REL-08 CLI half)
 Resume file: None
 
 ## Performance Metrics
@@ -234,6 +234,7 @@ Resume file: None
 | Phase 10 P01 | 10min | 3 tasks | 1 files |
 | Phase 10 P02 | 831s | 3 tasks | 2 files |
 | Phase 10 P03 | 561s | 3 tasks | 1 files |
+| Phase 11 P01 | 7m | 2 tasks | 2 files |
 
 ## Decisions
 
@@ -270,13 +271,14 @@ Resume file: None
 - [Phase ?]: Phase 10 Plan 02: partition is per-PACKAGE identity via a fixture-authored product->package ownership map (graph.json is per-product); the mixed hit+missed downgrade keeps multi-product packages at exactly one bucket (adjacency probe), and the local/path entry joins the observed excluded bucket rather than introducing a seventh bucket
 - [Phase ?]: Phase 10 Plan 03 (TEST-03): FrameworkSlice resource-bundle leg drives the REAL copy_resource_bundles semantics directly (send) against the slice's public framework_path — the class is unwired dead code (private resource_paths defeats the respond_to? guard, bare-Sh NameError, template binding mismatch); zero production changes honored, gap logged in deferred-items.md
 - [Phase ?]: Phase 10 Plan 03 (TEST-03): eight-class edge matrix shipped as one hermetic file — tier-1 legs under the default-deny Core::Sh guard (both entry points, libtool prefix-allowlisted for the shim leg), tier-3 plugin/transitive legs via the local compiled proxy only; class 2/8 macro kept as ONE example covering both pin directions so each class number appears exactly once as an example string; three fidelity specs combined 0.89s (2-3s target)
+- [Phase ?]: 11-01: --version intercepted in Main.run before CLAide dispatch (argv.first guard, prints SPMCache::VERSION from VERSION file); RED-then-GREEN per TDD plan
 
 ## Current Position
 
-Phase: 11 (Homebrew Release Automation) — READY TO PLAN
-Plan: Not started
+Phase: 11 (Homebrew Release Automation) — EXECUTING
+Plan: 2 of 3
 Status: Ready to execute
-Last activity: 2026-08-30 — Phase 10 complete, transitioned to Phase 11
+Last activity: 2026-08-30 — Phase 11 execution started
 
 ### Historical position (Phase 6, prior to this update)
 
