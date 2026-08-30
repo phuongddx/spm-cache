@@ -505,17 +505,19 @@ on:
 | A4 | `gh release view` works with `GH_TOKEN: ${{ github.token }}` under `permissions: contents: read` on the dispatch path | Pattern 5 | Existence check fails auth → loosen to contents: read+write at job level or drop check (integrity gate still catches missing tarball) |
 | A5 | `shasum -a 256` (perl) is present on ubuntu-latest (it is used by the current workflow's history) — alternatively `sha256sum` | Pattern 4 | Trivial: either utility exists on the image |
 
-## Open Questions
+## Open Questions (RESOLVED)
 
-1. **Verify-job runner label: `macos-latest` (macOS 26) vs pinned `macos-15`?**
+> All three resolved at planning time (2026-08-30); pointers inline. Recorded per the plan-checker advisory so future readers do not re-litigate.
+
+1. **Verify-job runner label: `macos-latest` (macOS 26) vs pinned `macos-15`?** — RESOLVED (2026-08-30, plan adoption): ship `macos-latest` per CONTEXT (11-02 Task 3); `macos-15` documented as the one-line fallback if the first live run hits an OS-specific failure.
    - What we know: CONTEXT names `macos-latest`; it resolves to macOS 26 arm64 (verified); ci.yml pins `macos-15`; runner docs recommend pinning to dodge gradual migrations.
    - What's unclear: whether the source-built formula (brewed ruby@3.3 + swift build) has any macOS 26 wrinkle.
    - Recommendation: ship with `macos-latest` per CONTEXT; if the first live run hits an OS-specific failure, pin `macos-15` as a one-line fix.
-2. **Explicit `version` stanza in the tap formula?**
+2. **Explicit `version` stanza in the tap formula?** — RESOLVED (2026-08-30, planner decision recorded in 11-02 must_haves/success criteria): anchor url+sha256 only, assert version via the URL-tag postcondition (matches the verified live formula shape; no out-of-repo manual step added). Adding a stanza later remains compatible with the postcondition block.
    - What we know: no stanza exists today (verified); Homebrew derives version from the URL tag; the current workflow's `version` sed is a live zero-match no-op.
    - What's unclear: whether the operator wants the visible-by-grep version field.
    - Recommendation: add `version "0.3.0"` to `Formula/spm-cache.rb` once (operator or first scripted edit), then anchor all three fields. If declined, anchor url+sha256 and assert version via the URL postcondition — both satisfy SC3's intent.
-3. **Sequencing of the operator gate vs merge.**
+3. **Sequencing of the operator gate vs merge.** — RESOLVED (2026-08-30, plan adoption): code+specs first (Wave 1: 11-01, 11-02), operator checkpoint + idempotent dispatch dry-run after (Wave 2: 11-03, depends_on both).
    - What we know: secrets don't exist yet (verified); structural specs and CLI fix are mergeable without them; the first live release (or dispatch dry-run of an existing tag, e.g. v0.3.0 — safe because idempotent no-diff) exercises the real path.
    - Recommendation: plan explicitly orders: code+specs → operator checkpoint (App + secrets + delete TAP_REPO_TOKEN) → live verification via `workflow_dispatch` with `tag: v0.3.0` (idempotent — formula already at v0.3.0, so the run exercises everything and lands on "already up to date" + brew verify, with zero side effects).
 
