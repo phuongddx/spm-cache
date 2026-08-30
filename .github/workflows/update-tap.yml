@@ -97,13 +97,13 @@ jobs:
             fi
             sed -i -E "s|$pattern|$replacement|" "$FORMULA"
           }
-          URL_RE='^url "https://github\.com/phuongddx/spm-cache/archive/refs/tags/[^"]+\.tar\.gz"$'
-          SHA_RE='^sha256 "[0-9a-f]{64}"$'
-          replace_exactly_one "$URL_RE" 'url "https://github.com/phuongddx/spm-cache/archive/refs/tags/v'"$VERSION"'.tar.gz"'
-          replace_exactly_one "$SHA_RE" 'sha256 "'"$SHA256"'"'
-          grep -Fqx "url \"https://github.com/phuongddx/spm-cache/archive/refs/tags/v${VERSION}.tar.gz\"" "$FORMULA" \
+          URL_RE='^  url "https://github\.com/phuongddx/spm-cache/archive/refs/tags/[^"]+\.tar\.gz"$'
+          SHA_RE='^  sha256 "[0-9a-f]{64}"$'
+          replace_exactly_one "$URL_RE" '  url "https://github.com/phuongddx/spm-cache/archive/refs/tags/v'"$VERSION"'.tar.gz"'
+          replace_exactly_one "$SHA_RE" '  sha256 "'"$SHA256"'"'
+          grep -Fqx "  url \"https://github.com/phuongddx/spm-cache/archive/refs/tags/v${VERSION}.tar.gz\"" "$FORMULA" \
             || { echo "::error::url postcondition failed"; exit 1; }
-          grep -Fqx "sha256 \"${SHA256}\"" "$FORMULA" \
+          grep -Fqx "  sha256 \"${SHA256}\"" "$FORMULA" \
             || { echo "::error::sha256 postcondition failed"; exit 1; }
 
       - name: Commit and push

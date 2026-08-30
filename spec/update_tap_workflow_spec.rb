@@ -169,15 +169,15 @@ RSpec.describe '.github/workflows/update-tap.yml' do
 
   it 'authenticates the tap push with a write-access deploy key (REL-04 substitute)' do
     expect(steps.map { |s| s['uses'] }.compact).not_to include('actions/create-github-app-token@v3'),
-           'the App-token mint is gone — the 2026-08-30 operator pivot replaced it with a deploy key'
+                                                       'the App-token mint is gone — the 2026-08-30 operator pivot replaced it with a deploy key'
 
     tap_checkout = steps.find { |s| s.dig('with', 'repository') == 'phuongddx/homebrew-spm-cache' } or
       raise "#{path} never checks out the tap repository"
     expect(tap_checkout['uses']).to eq('actions/checkout@v5')
     expect(tap_checkout.dig('with', 'ssh-key')).to eq('${{ secrets.TAP_DEPLOY_KEY }}'),
-                                                 'the deploy key must reach git via the checkout ssh-key input'
+                                                   'the deploy key must reach git via the checkout ssh-key input'
     expect(tap_checkout.fetch('with')).not_to have_key('token'),
-           'no token input — auth is the deploy key alone'
+                                              'no token input — auth is the deploy key alone'
     expect(tap_checkout.dig('with', 'path')).to eq('tap')
     checkouts = steps.count { |s| s['uses'] == 'actions/checkout@v5' }
     expect(checkouts).to eq(1), 'exactly one checkout — the unused main-repo checkout is gone'
@@ -196,7 +196,7 @@ RSpec.describe '.github/workflows/update-tap.yml' do
     guard = run_steps.find { |s| s['run'].include?('TAP_DEPLOY_KEY') } or
       raise "#{path} has no credential guard step"
     expect(guard.dig('env', 'TAP_DEPLOY_KEY')).to eq('${{ secrets.TAP_DEPLOY_KEY }}'),
-                                                 'the secret crosses the boundary via step env only'
+                                                  'the secret crosses the boundary via step env only'
     body = guard.fetch('run')
     expect(body).to match(/^\s*if \[ -z "\$TAP_DEPLOY_KEY" \]/)
     expect(body).to match(/^\s*echo "::error::[^\n]*TAP_DEPLOY_KEY/),
@@ -226,15 +226,20 @@ RSpec.describe '.github/workflows/update-tap.yml' do
 
     url_re = body.lines.find { |l| l =~ /^\s*URL_RE=/ } or
       raise "#{path} edit step defines no URL_RE"
-    expect(url_re).to include('^url "'), 'url pattern must be anchored to the full line'
+    expect(url_re).to include('^  url "'),
+                      'url pattern anchored to the full line INCLUDING the 2-space formula-class indent (live shape)'
     expect(url_re).to include('archive/refs/tags/')
     expect(url_re).to include('.tar\.gz"$')
 
     sha_re = body.lines.find { |l| l =~ /^\s*SHA_RE=/ } or
       raise "#{path} edit step defines no SHA_RE"
-    expect(sha_re).to include('^sha256 "'), 'sha256 pattern must be anchored to the full line'
+    expect(sha_re).to include('^  sha256 "'),
+                      'sha256 pattern anchored to the full line INCLUDING the 2-space formula-class indent (live shape)'
     expect(sha_re).to include('[0-9a-f]{64}')
     expect(sha_re).to include('"$')
+    expect(body).to match(/replace_exactly_one "\$URL_RE" '  url "/),
+                    'the replacement must reproduce the indentation — sed consumes it with the match'
+    expect(body).to match(/replace_exactly_one "\$SHA_RE" '  sha256 "/)
 
     postconditions = body.lines.select { |l| l =~ /^\s*grep -Fqx / }
     expect(postconditions.size).to eq(2),
