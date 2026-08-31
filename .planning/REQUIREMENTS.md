@@ -82,31 +82,31 @@ Which phases cover which requirements. Updated during roadmap creation.
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| WEB-01 | — | Pending |
-| WEB-02 | — | Pending |
-| WEB-03 | — | Pending |
-| WEB-04 | — | Pending |
-| DASH-01 | — | Pending |
-| DASH-02 | — | Pending |
-| DASH-03 | — | Pending |
-| LOGS-01 | — | Pending |
-| LOGS-02 | — | Pending |
-| LOGS-03 | — | Pending |
-| LOGS-04 | — | Pending |
-| LOGS-05 | — | Pending |
-| BLD-01 | — | Pending |
-| BLD-02 | — | Pending |
-| BLD-03 | — | Pending |
-| BLD-04 | — | Pending |
-| TOGL-01 | — | Pending |
-| TOGL-02 | — | Pending |
-| TOGL-03 | — | Pending |
+| WEB-01 | Phase 13 | Pending |
+| WEB-02 | Phase 13 | Pending |
+| WEB-03 | Phase 13 | Pending |
+| WEB-04 | Phase 13 | Pending |
+| DASH-01 | Phase 13 | Pending |
+| DASH-02 | Phase 13 | Pending |
+| DASH-03 | Phase 13 | Pending |
+| LOGS-01 | Phase 12 | Pending |
+| LOGS-02 | Phase 14 | Pending |
+| LOGS-03 | Phase 14 | Pending |
+| LOGS-04 | Phase 14 | Pending |
+| LOGS-05 | Phase 14 | Pending |
+| BLD-01 | Phase 15 | Pending |
+| BLD-02 | Phase 15 | Pending |
+| BLD-03 | Phase 15 | Pending |
+| BLD-04 | Phase 15 | Pending |
+| TOGL-01 | Phase 16 | Pending |
+| TOGL-02 | Phase 16 | Pending |
+| TOGL-03 | Phase 16 | Pending |
 
 **Coverage:**
 - v1 requirements: 19 total
-- Mapped to phases: 0
-- Unmapped: 19 ⚠️ (roadmap creation pending)
+- Mapped to phases: 19 ✓
+- Unmapped: 0
 
 ---
 *Requirements defined: 2026-08-31*
-*Last updated: 2026-08-31 after v0.5.0 milestone definition*
+*Last updated: 2026-08-31 after v0.5.0 roadmap creation (Phases 12–16, 19/19 mapped)*
