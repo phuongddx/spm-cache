@@ -63,7 +63,7 @@ Full phase detail: `milestones/v0.4.0-ROADMAP.md` · Audit: `v0.4.0-MILESTONE-AU
   3. Terminal output and exit codes are unchanged by the capture (tee is invisible), and `spm-cache web` itself never writes a run log
   4. Repeated runs accumulate logs without unbounded growth (retention policy caps old runs)
 
-**Plans**: 3/5 plans executed
+**Plans**: 4/5 plans executed
 
 Plans:
 **Wave 1**
@@ -77,7 +77,7 @@ Plans:
 
 **Wave 3** *(blocked on Wave 2 completion)*
 
-- [ ] 12-04-PLAN.md — Structured event vocabulary: package_start/package_end, phase markers (detect/integrate/build/fidelity), xcodebuild sink activation (D-04)
+- [x] 12-04-PLAN.md — Structured event vocabulary: package_start/package_end, phase markers (detect/integrate/build/fidelity), xcodebuild sink activation (D-04)
 
 **Wave 4** *(blocked on Wave 3 completion)*
 
@@ -163,7 +163,7 @@ Pitfall-to-phase mapping (full set in `research/PITFALLS.md`): CP3 → P12; CP7/
 
 | Phase | Milestone | Plans Complete | Status | Completed |
 |-------|-----------|----------------|--------|-----------|
-| 12. Run-Log Capture Foundation | v0.5.0 | 3/5 | In Progress|  |
+| 12. Run-Log Capture Foundation | v0.5.0 | 4/5 | In Progress|  |
 | 13. Server Skeleton + Read-Only Dashboard | v0.5.0 | 0/? | Not started | - |
 | 14. Live Log Streaming + Terminal/Watch Relay | v0.5.0 | 0/? | Not started | - |
 | 15. UI Build Controls | v0.5.0 | 0/? | Not started | - |
