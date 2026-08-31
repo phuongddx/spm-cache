@@ -242,6 +242,54 @@ RSpec.describe SPMCache::Core::RunLog do
       expect(lines.length).to eq(2) # header + the one pre-failure body; nothing appended after disable
       expect(described_class.current).to be_nil # finish still restores the seam
     end
+
+    # CR-05: with the tee installed on $stderr, an append failure's
+    # warn_once re-enters record_line through TeeIO#write. Before the
+    # buffer mutex (8642c51) that recursion was harmless; with it, the
+    # recursive @buffer_mutex.synchronize on the same thread raises
+    # ThreadError: deadlock -- escaping into the wrapped command (shape 1)
+    # or out of finish's ensure, masking the in-flight error (shape 2).
+    # The degradation warning must never be able to re-enter the log it is
+    # reporting on; the terminal leg must stay live throughout (SC3).
+    it 'degrades without deadlock when an append fails while the tee is installed on $stderr (CR-05 shape 1)' do
+      log = open_log
+      terminal = StringIO.new
+      old_err = $stderr
+      begin
+        $stderr = log.tee_err(terminal)
+        log.instance_variable_get(:@file).close # force the append failure
+
+        expect { warn('terminal line') }.not_to raise_error
+        expect(terminal.string).to include('terminal line') # terminal leg wrote through first
+        expect(terminal.string).to include('[warn] run log disabled') # warned once, on the real leg
+
+        $stderr = old_err
+        log.finish(0)
+        expect(File.read(log.path).lines.length).to eq(1) # header only: nothing appended after disable
+      ensure
+        $stderr = old_err
+      end
+    end
+
+    it 'never lets a flush failure inside finish mask the in-flight error when the tee is installed (CR-05 shape 2)' do
+      log = open_log
+      terminal = StringIO.new
+      old_err = $stderr
+      begin
+        $stderr = log.tee_err(terminal)
+        log.record_line('dangling partial', 'err') # buffered only -- no append attempted yet
+        log.instance_variable_get(:@file).close
+
+        expect do
+          raise 'in-flight failure'
+        ensure
+          log.finish(1) # flush_partial_buffers fails -> warn_once -> tee; ensure must not raise
+        end.to raise_error(RuntimeError, 'in-flight failure')
+        expect(terminal.string).to include('[warn] run log disabled')
+      ensure
+        $stderr = old_err
+      end
+    end
   end
 
   # Retention (SC4): count + size hybrid (D-06) applied at run start, after
