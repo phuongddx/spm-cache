@@ -468,12 +468,17 @@ module SPMCache
         # The only method Core::Watcher calls (watcher.rb:90-93) -- the
         # decorator is invisible to it by construction.
         def perform_install
+          scan = RunLog.pre_scan(@argv)
+          # D-03 at the watch surface (CR-04): --no-run-log means persist
+          # nothing for this invocation. Main honors it for the session log;
+          # the cycle layer must not defeat it by teeing cycles anyway.
+          return @installer.perform_install if scan.suppressed?
+
           # D-01 at the watch surface: `watch --log-dir=X` must not silently
           # write cycles to the default runs dir. The CLAide-parsed
           # --log-dir wins; the raw-argv pre-scan (same semantics as
           # Main.run) is the fallback. Cycle opens prune too -- D-07 applies
           # at every open (T-12-04: a long watch session stays bounded).
-          scan = RunLog.pre_scan(@argv)
           run_log = RunLog.open(
             runs_dir: @log_dir || scan.log_dir || Config.instance.runs_dir,
             command: 'watch',
