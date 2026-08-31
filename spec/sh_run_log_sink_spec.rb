@@ -93,6 +93,20 @@ RSpec.describe SPMCache::Core::Sh do
       result = described_class.run('echo ok-line; echo bad-line 1>&2', live_log_out: out_sink, live_log_err: err_sink)
       expect(result).to include(output: "ok-line\n", error: "bad-line\n", status: 0)
     end
+    # WR-03: the sink path's return value must honor the capture3 contract
+    # (FULL streams + real exitstatus). Returning the 60-line failure_detail
+    # tail as `output` silently clips data for the next caller that trusts
+    # the return value; the literal status: 0 masks any future non-zero
+    # success semantics.
+    it 'returns the FULL untruncated output with the real exit status (WR-03: capture3 contract parity)' do
+      result = described_class.run('for i in $(seq 1 120); do echo "line $i"; done', live_log_out: out_sink,
+                                                                                     live_log_err: err_sink)
+      expect(result[:status]).to eq(0)
+      lines = result[:output].lines
+      expect(lines.length).to eq(120) # not the 60-line tail
+      expect(lines.first).to eq("line 1\n")
+      expect(lines.last).to eq("line 120\n")
+    end
 
     it 'adds zero body lines for a zero-output subprocess and the file stays valid (EDGE empty)' do
       described_class.run('true', live_log_out: out_sink, live_log_err: err_sink)
