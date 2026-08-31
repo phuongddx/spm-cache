@@ -34,7 +34,16 @@ module SPMCache
 
         watcher = Core::Watcher.new(
           project_path: project_path,
-          installer_factory: ->(path) { Installer::Use.new(project: path) },
+          # D-09 (SC1/LOGS-01): every regeneration cycle is its own run log.
+          # The factory seam wraps Installer::Use in the per-cycle decorator
+          # so Core::Watcher itself stays untouched (factory.call +
+          # perform_install, watcher.rb:90-93) -- `watch --once` flows
+          # through run_once and the same factory, logging identically.
+          # Raw ARGV (not parsed flags) threads --log-dir into the wrapper
+          # so cycle files honor the override (D-01).
+          installer_factory: lambda { |path|
+            Core::RunLog.cycle_wrapper(Installer::Use.new(project: path), argv: ARGV)
+          },
           debounce: @debounce
         )
 

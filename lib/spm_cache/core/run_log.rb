@@ -149,6 +149,15 @@ module SPMCache
         nil
       end
 
+      # D-09 / SC1 (LOGS-01): the watch daemon writes ONE complete run log
+      # per regeneration cycle -- never a rolling session file. The factory
+      # seam Command::Watch injects wraps its installer in this decorator;
+      # Core::Watcher keeps calling factory.call + perform_install
+      # untouched (watcher.rb:90-93).
+      def self.cycle_wrapper(installer, argv:)
+        CycleWrapper.new(installer, argv: argv)
+      end
+
       def initialize(path:, file:, previous_current:)
         @path = path
         @file = file
@@ -409,6 +418,69 @@ module SPMCache
 
         def output(line)
           @run_log.record_text(line, @stream_tag)
+        end
+      end
+
+      # Decorator returned by .cycle_wrapper (D-09): opens a fresh cycle
+      # RunLog around perform_install, tees the streams, and lands its own
+      # exit line in an ensure -- the same three-shape contract Main.run
+      # applies to whole runs (Plan 12-01). Installing RunLog.current makes
+      # the cycle file the destination for Plan 12-02's sh events and Plan
+      # 12-04's phase markers emitted inside the cycle; finish() restores
+      # the previous current (Plan 12-01 save/restore).
+      class CycleWrapper
+        def initialize(installer, argv:)
+          @installer = installer
+          @argv = argv.to_a
+        end
+
+        # The only method Core::Watcher calls (watcher.rb:90-93) -- the
+        # decorator is invisible to it by construction.
+        def perform_install
+          # D-01 at the watch surface: `watch --log-dir X` must not silently
+          # write cycles to the default runs dir. argv is the watch
+          # invocation's own flags, pre-scanned raw exactly like Main.run
+          # (the tee installs before CLAide parses there; the cycle wrapper
+          # sits below parsing here). Cycle opens prune too -- D-07 applies
+          # at every open (T-12-04: a long watch session stays bounded).
+          scan = RunLog.pre_scan(@argv)
+          run_log = RunLog.open(
+            runs_dir: scan.log_dir || Config.instance.runs_dir,
+            command: 'watch',
+            argv: @argv,
+            trigger: 'watch',
+            cycle: true
+          )
+          # Nil-safe degrade (Plan 12-01): an unopenable runs dir disables
+          # logging but must never change the cycle (LOGS-01).
+          return @installer.perform_install unless run_log
+
+          old_out = $stdout
+          old_err = $stderr
+          status = 0
+          begin
+            $stdout = run_log.tee_out(old_out)
+            $stderr = run_log.tee_err(old_err)
+            @installer.perform_install
+          rescue SystemExit => e
+            status = e.status
+            raise
+          rescue Interrupt # probed: Ruby's top-level Interrupt handling exits 130
+            status = 130
+            raise
+          rescue StandardError => e # GeneralError carries exit_status (default 1)
+            status = e.respond_to?(:exit_status) && e.exit_status ? e.exit_status : 1
+            # Bare raise everywhere (Pitfall 2): the cycle's failure reaches
+            # Core::Watcher's continue-on-error rescue exactly as before
+            # (SC3 -- terminal bytes and exit codes unchanged); a mid-cycle
+            # interrupt still lands this cycle's run_end here, before
+            # Watcher's rescue Interrupt proceeds as today.
+            raise
+          ensure
+            $stdout = old_out
+            $stderr = old_err # restore streams BEFORE finishing the log
+            run_log.finish(status)
+          end
         end
       end
     end
