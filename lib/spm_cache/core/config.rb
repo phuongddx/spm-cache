@@ -1,10 +1,10 @@
 # frozen_string_literal: true
 
-require "singleton"
-require "fileutils"
-require "yaml"
+require 'singleton'
+require 'fileutils'
+require 'yaml'
 
-require "spm_cache/core/syntax/yml"
+require 'spm_cache/core/syntax/yml'
 
 module SPMCache
   module Core
@@ -13,18 +13,18 @@ module SPMCache
       include Syntax::YAMLRepresentable
 
       DEFAULT_CONFIG = {
-        "ignore" => [],
-        "cache_only" => [],
-        "ignore_local" => false,
-        "ignore_build_errors" => false,
-        "keep_pkgs_in_project" => false,
-        "default_sdk" => "iphonesimulator",
+        'ignore' => [],
+        'cache_only' => [],
+        'ignore_local' => false,
+        'ignore_build_errors' => false,
+        'keep_pkgs_in_project' => false,
+        'default_sdk' => 'iphonesimulator'
       }.freeze
 
-      SANDBOX_DIR = "spm-cache"
-      CACHE_DIR = File.expand_path("~/.spm-cache")
-      CONFIG_FILENAME = "spm-cache.yml"
-      LOCKFILE_FILENAME = "spm-cache.lock"
+      SANDBOX_DIR = 'spm-cache'
+      CACHE_DIR = File.expand_path('~/.spm-cache')
+      CONFIG_FILENAME = 'spm-cache.yml'
+      LOCKFILE_FILENAME = 'spm-cache.lock'
 
       attr_accessor :project_dir, :config_path
 
@@ -70,19 +70,19 @@ module SPMCache
       end
 
       def umbrella_dir
-        File.join(sandbox_dir, "packages", "umbrella")
+        File.join(sandbox_dir, 'packages', 'umbrella')
       end
 
       def proxy_dir
-        File.join(sandbox_dir, "packages", "proxy")
+        File.join(sandbox_dir, 'packages', 'proxy')
       end
 
       def metadata_dir
-        File.join(sandbox_dir, "metadata")
+        File.join(sandbox_dir, 'metadata')
       end
 
       def binaries_dir
-        File.join(sandbox_dir, "packages", "proxy", ".build", "artifacts")
+        File.join(sandbox_dir, 'packages', 'proxy', '.build', 'artifacts')
       end
 
       # A dedicated sibling of umbrella_dir/proxy_dir -- never a path under
@@ -92,22 +92,31 @@ module SPMCache
       # per-package builds don't each independently clone the whole host
       # graph (Pitfall 9).
       def clones_dir
-        File.join(sandbox_dir, "packages", "clones")
+        File.join(sandbox_dir, 'packages', 'clones')
       end
 
       # Stable, OUTSIDE sandbox_dir by construction (a project_dir-level
       # dotfile) so recreate_dirs' rm_rf(sandbox_dir) can never delete the
       # path a live flock is held on (Pitfall 15).
       def build_lock_path
-        File.join(project_dir, ".spm-cache-build.lock")
+        File.join(project_dir, '.spm-cache-build.lock')
+      end
+
+      # Run logs live under a project_dir-level dot-directory, OUTSIDE
+      # sandbox_dir (D-02): recreate_dirs rm_rf's sandbox_dir only
+      # (installer/use.rb), so a runs dir inside it would delete the
+      # current run's log mid-run (Pitfall 7). Same placement rationale
+      # as build_lock_path above.
+      def runs_dir
+        File.join(project_dir, '.spm-cache', 'runs')
       end
 
       def local_packages_dir
-        File.join(sandbox_dir, "local-packages")
+        File.join(sandbox_dir, 'local-packages')
       end
 
       def xcconfigs_dir
-        File.join(sandbox_dir, "xcconfigs")
+        File.join(sandbox_dir, 'xcconfigs')
       end
 
       def lockfile_path
@@ -115,32 +124,32 @@ module SPMCache
       end
 
       def remote_config(config)
-        remote = raw["remote"] || {}
+        remote = raw['remote'] || {}
         remote[config] || remote[config.to_s]
       end
 
       def ignore_list
-        raw["ignore"] || []
+        raw['ignore'] || []
       end
 
       def cache_only_list
-        raw["cache_only"] || []
+        raw['cache_only'] || []
       end
 
       def ignore_local?
-        raw["ignore_local"]
+        raw['ignore_local']
       end
 
       def ignore_build_errors?
-        raw["ignore_build_errors"]
+        raw['ignore_build_errors']
       end
 
       def keep_pkgs_in_project?
-        raw["keep_pkgs_in_project"]
+        raw['keep_pkgs_in_project']
       end
 
       def default_sdk
-        raw["default_sdk"] || "iphonesimulator"
+        raw['default_sdk'] || 'iphonesimulator'
       end
 
       def should_ignore?(package_name)

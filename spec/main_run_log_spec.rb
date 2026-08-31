@@ -191,8 +191,11 @@ RSpec.describe SPMCache::Main, 'run-log capture (LOGS-01)' do
       empty_dir = File.join(tmpdir, 'empty')
       FileUtils.mkdir_p(empty_dir)
       Dir.chdir(empty_dir) do
+        # The = form: CLAide rejects the space-separated '--log-dir X' form
+        # outright (Unknown option), which would surface a Help-driven
+        # SystemExit instead of the raw RuntimeError under test.
         expect do
-          with_swapped_streams { SPMCache::Main.run(['--log-dir', tmpdir, 'use']) }
+          with_swapped_streams { SPMCache::Main.run(["--log-dir=#{tmpdir}", 'use']) }
         end.to raise_error(StandardError, /No \.xcodeproj found/)
       end
 
