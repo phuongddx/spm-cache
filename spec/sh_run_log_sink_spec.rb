@@ -120,4 +120,28 @@ RSpec.describe SPMCache::Core::Sh do
       expect(spy.lines.sort).to eq(%W[a-line\n b-line\n])
     end
   end
+
+  describe '.capture_output sh events (Pitfall 5 / A2)' do
+    it 'records one {event: sh, ts, cmd, status} line per completed capture, returned value unchanged' do
+      expect(described_class.capture_output('echo hi')).to eq('hi')
+      log.finish(0)
+      events = read_lines(log.path).select { |entry| entry['event'] == 'sh' }
+      expect(events.length).to eq(1)
+      expect(events.first).to include('event' => 'sh', 'cmd' => 'echo hi', 'status' => 0)
+      expect(events.first['ts']).to match(/\A\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z\z/)
+    end
+
+    it 'records the real exit status before the raise on a failing capture (EDGE empty: zero output, status recorded)' do
+      expect { described_class.capture_output('false') }.to raise_error(SPMCache::Core::GeneralError)
+      log.finish(0)
+      events = read_lines(log.path).select { |entry| entry['event'] == 'sh' }
+      expect(events).to contain_exactly(include('cmd' => 'false', 'status' => 1))
+    end
+
+    it 'records nothing when RunLog.current is nil (nil-disables)' do
+      expect(SPMCache::Core::RunLog.current).to be_nil
+      expect(described_class.capture_output('echo nil-case')).to eq('nil-case')
+      expect(Dir.children(runs_dir)).to be_empty
+    end
+  end
 end
