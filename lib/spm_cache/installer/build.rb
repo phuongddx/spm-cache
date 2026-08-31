@@ -1,16 +1,16 @@
 # frozen_string_literal: true
 
-require "fileutils"
+require 'fileutils'
 
-require "spm_cache/installer"
-require "spm_cache/spm/build_pipeline"
-require "spm_cache/spm/checkout_resolver"
-require "spm_cache/spm/resolved_graph"
+require 'spm_cache/installer'
+require 'spm_cache/spm/build_pipeline'
+require 'spm_cache/spm/checkout_resolver'
+require 'spm_cache/spm/resolved_graph'
 
 module SPMCache
   class Installer
     class Build < Installer
-      def initialize(project:, config: "debug", targets: [])
+      def initialize(project:, config: 'debug', targets: [])
         super(project: project, config: config)
         @requested_targets = targets
       end
@@ -27,13 +27,11 @@ module SPMCache
           missed = @cachemap.missed.dup
           missed.concat(@cachemap.hit.select { |m| !slice_complete?(cache_out, m, destinations) })
 
-          if @requested_targets.any?
-            filter_requested_targets!(missed)
-          end
+          filter_requested_targets!(missed) if @requested_targets.any?
           missed.uniq!
 
           if missed.empty?
-            Core::UI.info "No targets to build."
+            Core::UI.info 'No targets to build.'
             return
           end
 
@@ -44,7 +42,7 @@ module SPMCache
           # detector could disagree again (06-05-SUMMARY.md).
           resolved_pins_file = SPM::ResolvedGraph.source_for(
             umbrella_dir: @config.umbrella_dir,
-            host_graph_path: host_graph_detector.host_graph_path,
+            host_graph_path: host_graph_detector.host_graph_path
           )
           FileUtils.mkdir_p(cache_out)
 
@@ -89,14 +87,15 @@ module SPMCache
       def slice_complete?(cache_dir, module_name, destinations)
         fw = File.join(cache_dir, "#{module_name}.xcframework")
         return false unless File.directory?(fw)
+
         slices = Dir.children(fw).select { |s| File.directory?(File.join(fw, s)) }
         destinations.all? { |d| slice_satisfies?(slices, d) }
       end
 
       def slice_satisfies?(slices, dest_key)
         case dest_key
-        when "iphonesimulator" then slices.any? { |s| s.include?("simulator") }
-        when "iphoneos" then slices.any? { |s| s.start_with?("ios") && !s.include?("simulator") }
+        when 'iphonesimulator' then slices.any? { |s| s.include?('simulator') }
+        when 'iphoneos' then slices.any? { |s| s.start_with?('ios') && !s.include?('simulator') }
         else false
         end
       end
@@ -133,20 +132,20 @@ module SPMCache
       def expand_target_aliases(requested)
         identity_to_products = {}
         @lockfile&.projects&.each_value do |proj_data|
-          (proj_data["packages"] || []).each do |pkg|
+          (proj_data['packages'] || []).each do |pkg|
             slug = slug_for(pkg)
-            products = pkg["products"]
+            products = pkg['products']
             names = if products && !products.empty?
-                      products.select { |p| p["type"] == "library" }.map { |p| p["name"] }.compact
+                      products.select { |p| p['type'] == 'library' }.map { |p| p['name'] }.compact
                     else
-                      [pkg["product_name"] || pkg["name"] || slug]
+                      [pkg['product_name'] || pkg['name'] || slug]
                     end
             # A plugin-only package (no library product) has nothing to
             # expand to -- leave it unmapped so its identity passes through
             # unchanged, rather than vanishing from `requested` silently.
             next if names.empty?
 
-            identity_to_products[pkg["name"]] = names if pkg["name"]
+            identity_to_products[pkg['name']] = names if pkg['name']
             identity_to_products[slug] = names
           end
         end
@@ -172,20 +171,22 @@ module SPMCache
             resolved_pins_file: resolved_pins_file,
             clones_dir: clones_dir,
             config: @config_name,
+            # D-04/LOGS-01: thread the active run log (nil when no run log is
+            # open) so the pipeline brackets this package and activates the
+            # xcodebuild live sinks.
+            run_log: Core::RunLog.current
           )
           Core::UI.info "  Cached: #{result}"
-        rescue => e
-          if @config.ignore_build_errors?
-            Core::UI.warn "  #{target_name} build failed (continuing): #{e.message}"
-          else
-            raise
-          end
+        rescue StandardError => e
+          raise unless @config.ignore_build_errors?
+
+          Core::UI.warn "  #{target_name} build failed (continuing): #{e.message}"
         end
       end
 
       def resolve_destinations
         sdk = @config.default_sdk
-        sdk == "all" ? SPM::Package::DEFAULT_DESTINATIONS : [sdk]
+        sdk == 'all' ? SPM::Package::DEFAULT_DESTINATIONS : [sdk]
       end
     end
   end

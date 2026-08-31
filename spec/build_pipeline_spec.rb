@@ -1248,18 +1248,23 @@ RSpec.describe SPMCache::SPM::BuildPipeline do
       # pipeline (a subprocess standing in for xcodebuild, core_spec.rb:6-31
       # precedent): the xcodebuild forwarding, Core::Sh's popen3 reader
       # threads, and StreamSink writes are all the real production path.
-      real_buildable = SPMCache::SPM::Buildable.new(name: 'Alamofire', module_name: 'Alamofire', pkg_dir: pkg_dir)
-      allow(real_buildable).to receive(:build_command) do |_dest, dd_path, _opts|
-        "echo 'pipeline-live-out' && echo 'pipeline-live-err' 1>&2 && " \
-          "mkdir -p '#{dd_path}/Build/Products' && touch '#{dd_path}/Build/Products/Alamofire.o'"
+      # and_wrap_original is required because the before-block above already
+      # replaced .new with an instance_double -- only the wrap reaches the
+      # real constructor.
+      allow(SPMCache::SPM::Buildable).to receive(:new).and_wrap_original do |method, **kwargs|
+        buildable = method.call(**kwargs)
+        allow(buildable).to receive(:build_command) do |_dest, dd_path, _opts|
+          "echo 'pipeline-live-out' && echo 'pipeline-live-err' 1>&2 && " \
+            "mkdir -p '#{dd_path}/Build/Products' && touch '#{dd_path}/Build/Products/Alamofire.o'"
+        end
+        allow(buildable).to receive(:create_framework) do |_arts, subdir|
+          fw = File.join(subdir, 'Alamofire.framework')
+          FileUtils.mkdir_p(fw)
+          File.write(File.join(fw, 'Alamofire'), 'stub')
+          fw
+        end
+        buildable
       end
-      allow(real_buildable).to receive(:create_framework) do |_arts, subdir|
-        fw = File.join(subdir, 'Alamofire.framework')
-        FileUtils.mkdir_p(fw)
-        File.write(File.join(fw, 'Alamofire'), 'stub')
-        fw
-      end
-      allow(SPMCache::SPM::Buildable).to receive(:new).and_return(real_buildable)
 
       with_run_log do |log|
         result = described_class.run(

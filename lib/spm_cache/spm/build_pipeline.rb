@@ -47,9 +47,26 @@ module SPMCache
         #   (debug/release), recorded verbatim in the provenance sidecar
         #   (CACHE-01). Used only for that field -- never threaded anywhere
         #   else.
+        # @param run_log [Core::RunLog, nil] active run log receiving D-04's
+        #   structured events (package_start/package_end brackets around this
+        #   run, the fidelity phase marker) and threaded into the Buildable
+        #   opts so Buildable#xcodebuild forwards live_log_out:/live_log_err:
+        #   StreamSinks to Core::Sh (SC2). nil (the default) disables all of
+        #   it -- byte-identical to pre-Plan-12-04 behavior, so every caller
+        #   that passes nothing (all existing specs, `pkg build` without an
+        #   active log) is unaffected.
         def run(name:, pkg_dir:, destinations:, out_dir:, library_evolution: true, resolved_pins_file: nil,
-                clones_dir: nil, config: nil)
+                clones_dir: nil, config: nil, run_log: nil)
           raise "Target name required" if name.nil? || name.empty?
+
+          # D-04/SC2 (LOGS-01): package brackets at the single consolidated
+          # insertion point shared by Installer::Build's per-package loop and
+          # `pkg build` -- every run invocation is bracketed exactly once
+          # here, never at the three artifact-producing paths inside
+          # perform_build. After the name guard so a nameless call raises
+          # before logging anything.
+          emit_run_log_event(run_log, "package_start", name: name)
+
 
           FileUtils.mkdir_p(out_dir)
 
@@ -67,10 +84,12 @@ module SPMCache
             # after this line.
             intended_pin_map = seeded ? pin_value_map(Core::PackageResolved.pins_or_nil(resolved_pins_file)) : nil
             result, built_destinations = perform_build(name: name, pkg_dir: pkg_dir, destinations: destinations,
-                                                         out_dir: out_dir, library_evolution: library_evolution,
-                                                         clones_dir: clones_dir)
+                                                       out_dir: out_dir, library_evolution: library_evolution,
+                                                       clones_dir: clones_dir, run_log: run_log)
             success = true
             begin
+              # D-04: fidelity phase marker immediately before report_fidelity.
+              emit_run_log_event(run_log, "phase", name: "fidelity")
               report_fidelity(name: name, pkg_dir: pkg_dir, output_path: result, seeded: seeded,
                                intended_pin_map: intended_pin_map, config: config, destinations: built_destinations)
             rescue StandardError => e
@@ -84,11 +103,30 @@ module SPMCache
             end
             result
           ensure
+            # D-04: the bracket close lives in the ensure so a raise AND a
+            # success both land package_end; status derives from the existing
+            # success flag. Emitted before the seeded-checkout restore so the
+            # event is written even if the restore itself raises.
+            emit_run_log_event(run_log, "package_end", name: name, status: success ? "ok" : "failed")
             ResolvedGraph.restore!(pkg_dir, seed_snapshot) if seeded && !success
           end
         end
 
         private
+
+        # D-04/LOGS-01: the single guarded emission point for this module's
+        # run-log events. nil run_log disables (the resolved_pins_file
+        # nil-disables precedent); the rescue-to-warn mirrors report_fidelity's
+        # below -- logging is metadata and must never mask, fail, or alter the
+        # operation it surrounds (RunLog's own safe_append already degrades;
+        # this guard covers a broken sink object too).
+        def emit_run_log_event(run_log, event_name, **fields)
+          return if run_log.nil?
+
+          run_log.event(event_name, **fields)
+        rescue StandardError => e
+          Core::UI.warn "  could not emit #{event_name} run-log event: #{e.message}"
+        end
 
         # Single consolidated insertion point (RESEARCH.md Pattern 2): drift
         # read-back, resolution-incompatible classification, and provenance
@@ -257,7 +295,7 @@ module SPMCache
         # extracted so `run` can wrap it in a single success-flag + ensure
         # region (seeded checkout restored on any failure/interrupt, left in
         # place on success -- Phase 8's future read-back source).
-        def perform_build(name:, pkg_dir:, destinations:, out_dir:, library_evolution:, clones_dir: nil)
+        def perform_build(name:, pkg_dir:, destinations:, out_dir:, library_evolution:, clones_dir: nil, run_log: nil)
           # Class E: a product whose own declared target is a trivial
           # forwarding wrapper (Google's "SwiftPM-PlatformExclude" convention)
           # terminating in a `.binaryTarget` has no source to build at all --
@@ -303,7 +341,7 @@ module SPMCache
             Core::UI.info "  Building #{name} for #{dest_key}..."
             dd = derived_data_dir_for(pkg_dir, dest_key)
             begin
-              artifacts = buildable.build_for_destination(dest_key, derived_data_path: dd)
+              artifacts = buildable.build_for_destination(dest_key, derived_data_path: dd, run_log: run_log)
             rescue => e
               Core::UI.warn "#{dest_key} build failed: #{e.message}"
               next
@@ -336,7 +374,7 @@ module SPMCache
               Core::UI.info "  Retrying with scheme '#{alt}'..."
               return run_with_scheme(name: name, scheme: alt, pkg_dir: pkg_dir,
                                      destinations: destinations, out_dir: out_dir,
-                                     library_evolution: library_evolution, clones_dir: clones_dir)
+                                     library_evolution: library_evolution, clones_dir: clones_dir, run_log: run_log)
             end
             raise "No slices were built successfully for #{name}"
           end
@@ -355,7 +393,8 @@ module SPMCache
           [result, built_destinations]
         end
 
-        def run_with_scheme(name:, scheme:, pkg_dir:, destinations:, out_dir:, library_evolution:, clones_dir: nil)
+        def run_with_scheme(name:, scheme:, pkg_dir:, destinations:, out_dir:, library_evolution:, clones_dir: nil,
+                            run_log: nil)
           header_paths = resolve_public_headers(name, name, pkg_dir)
 
           buildable = Buildable.new(
@@ -377,7 +416,7 @@ module SPMCache
             Core::UI.info "  Building #{name} (scheme #{scheme}) for #{dest_key}..."
             dd = derived_data_dir_for(pkg_dir, dest_key)
             begin
-              artifacts = buildable.build_for_destination(dest_key, derived_data_path: dd)
+              artifacts = buildable.build_for_destination(dest_key, derived_data_path: dd, run_log: run_log)
             rescue => e
               Core::UI.warn "#{dest_key} build failed: #{e.message}"
               next

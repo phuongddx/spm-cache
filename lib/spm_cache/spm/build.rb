@@ -1,11 +1,11 @@
 # frozen_string_literal: true
 
-require "fileutils"
-require "tmpdir"
-require "tempfile"
-require "spm_cache/core/sh"
-require "spm_cache/swift/sdk"
-require "spm_cache/swift/swiftc"
+require 'fileutils'
+require 'tmpdir'
+require 'tempfile'
+require 'spm_cache/core/sh'
+require 'spm_cache/swift/sdk'
+require 'spm_cache/swift/swiftc'
 
 module SPMCache
   module SPM
@@ -15,10 +15,10 @@ module SPMCache
 
       # Destinations supported for multi-slice builds
       DESTINATIONS = {
-        "iphonesimulator" => "generic/platform=iOS Simulator",
-        "iphoneos" => "generic/platform=iOS",
-        "ios_simulator" => "generic/platform=iOS Simulator",
-        "ios_device" => "generic/platform=iOS",
+        'iphonesimulator' => 'generic/platform=iOS Simulator',
+        'iphoneos' => 'generic/platform=iOS',
+        'ios_simulator' => 'generic/platform=iOS Simulator',
+        'ios_device' => 'generic/platform=iOS'
       }.freeze
 
       # Field bug: some vendored checkouts (AppAuth-iOS, FSPagerView -- both
@@ -42,10 +42,10 @@ module SPMCache
       # narrow, error-triggered retry rather than a blanket floor applied to
       # every build (which could silently lower an already-correct higher
       # deployment target for packages that build fine as-is).
-      LOW_DEPLOYMENT_TARGET_RETRY_VALUE = "13.0"
-      LOW_DEPLOYMENT_TARGET_ERROR_PATTERN = /SDK does not contain 'libarclite'|is only available in iOS \d+\.\d+ or newer/.freeze
+      LOW_DEPLOYMENT_TARGET_RETRY_VALUE = '13.0'
+      LOW_DEPLOYMENT_TARGET_ERROR_PATTERN = /SDK does not contain 'libarclite'|is only available in iOS \d+\.\d+ or newer/
 
-      def initialize(name:, module_name: nil, pkg_dir:, config: "debug", library_evolution: true, scheme: nil,
+      def initialize(name:, pkg_dir:, module_name: nil, config: 'debug', library_evolution: true, scheme: nil,
                      header_paths: [], clones_dir: nil)
         @name = name
         @module_name = module_name || name
@@ -73,17 +73,32 @@ module SPMCache
       # pure permission grant with no build-behavior side effects for
       # packages that don't have a write-back script phase.
       def xcodebuild(destination, derived_data_path: nil, **opts)
-        dd = derived_data_path || File.join(@pkg_dir, "DerivedData")
+        dd = derived_data_path || File.join(@pkg_dir, 'DerivedData')
         cmd = build_command(destination, dd, opts)
-        FileUtils.chmod_R("u+w", @pkg_dir)
+        FileUtils.chmod_R('u+w', @pkg_dir)
+
+        # D-04/SC2 (LOGS-01): when the pipeline threads an active run log in
+        # (opts[:run_log], landing here through build_for_destination's
+        # **opts), wrap it in per-stream StreamSinks -- a single live_log
+        # object cannot attribute stdout vs stderr (Pitfall 4) -- and forward
+        # them as live_log_out:/live_log_err: to Core::Sh, activating Plan
+        # 12-02's sinks from the real build path. nil forwards nothing:
+        # byte-identical to today, so every caller that passes no run_log
+        # keeps the exact Sh.run opts it had before. The legacy live_log:
+        # pass-through is untouched.
+        sinks = {}
+        if opts[:run_log]
+          sinks[:live_log_out] = Core::RunLog::StreamSink.new(opts[:run_log], 'out')
+          sinks[:live_log_err] = Core::RunLog::StreamSink.new(opts[:run_log], 'err')
+        end
 
         begin
-          SPMCache::Core::Sh.run(cmd, cwd: @pkg_dir, live_log: opts[:live_log])
+          SPMCache::Core::Sh.run(cmd, { cwd: @pkg_dir, live_log: opts[:live_log] }.merge(sinks))
         rescue SPMCache::Core::GeneralError => e
           raise unless e.message.match?(LOW_DEPLOYMENT_TARGET_ERROR_PATTERN)
 
           retry_cmd = "#{cmd} IPHONEOS_DEPLOYMENT_TARGET=#{LOW_DEPLOYMENT_TARGET_RETRY_VALUE}"
-          SPMCache::Core::Sh.run(retry_cmd, cwd: @pkg_dir, live_log: opts[:live_log])
+          SPMCache::Core::Sh.run(retry_cmd, { cwd: @pkg_dir, live_log: opts[:live_log] }.merge(sinks))
         end
         dd
       end
@@ -97,18 +112,17 @@ module SPMCache
       # dynamic value in this command was already quoted (-destination,
       # -project); the scheme was the one place that wasn't.
       def build_command(destination, dd, opts = {})
-        cmd = "xcodebuild build"
+        cmd = 'xcodebuild build'
         cmd += project_disambiguation_flag
         cmd += " -scheme '#{@scheme}'"
         cmd += " -destination '#{destination}'"
         cmd += " -derivedDataPath #{dd}"
         cmd += " -clonedSourcePackagesDirPath '#{@clones_dir}'" if @clones_dir
-        cmd += " CODE_SIGNING_ALLOWED=NO"
+        cmd += ' CODE_SIGNING_ALLOWED=NO'
         cmd += library_evolution_flags if @library_evolution
         cmd += " #{opts[:extra_args]}" if opts[:extra_args]
         cmd
       end
-
 
       # Field bug: SVGKit's checkout carries THREE committed .xcodeproj
       # files at its root (the library itself plus two demo apps) alongside
@@ -123,19 +137,19 @@ module SPMCache
       # empirically, unaffected by this method (0 or 1 candidates: returns
       # "" immediately, matching prior behavior exactly).
       def project_disambiguation_flag
-        candidates = Dir.glob(File.join(@pkg_dir, "*.xcodeproj"))
-        return "" if candidates.length < 2
+        candidates = Dir.glob(File.join(@pkg_dir, '*.xcodeproj'))
+        return '' if candidates.length < 2
 
         match = candidates.find { |proj| project_has_scheme?(proj, @scheme) }
-        match ? " -project '#{match}'" : ""
+        match ? " -project '#{match}'" : ''
       end
 
       def project_has_scheme?(project_path, scheme_name)
         list_output = Core::Sh.capture_output("xcodebuild -list -project '#{project_path}'")
         schemes = list_output.split("\n").drop_while { |l| !l.match?(/Schemes:/) }
-                              .drop(1)
-                              .map(&:strip)
-                              .reject(&:empty?)
+                                         .drop(1)
+                             .map(&:strip)
+                             .reject(&:empty?)
         schemes.any? { |s| s.casecmp(scheme_name).zero? }
       rescue SPMCache::Core::GeneralError
         false
@@ -158,13 +172,13 @@ module SPMCache
           swiftmodule: find_file(dd, "#{@module_name}.swiftmodule"),
           swiftdoc: find_file(dd, "#{@module_name}.swiftdoc"),
           swiftsourceinfo: find_file(dd, "#{@module_name}.swiftsourceinfo"),
-          swiftinterface: find_file(dd, "#{@module_name}.swiftinterface"),
+          swiftinterface: find_file(dd, "#{@module_name}.swiftinterface")
         }
       end
 
       def find_object_file(derived_data)
-        Dir.glob(File.join(derived_data, "**", "Products", "**", "#{@module_name}.o")).first ||
-          Dir.glob(File.join(derived_data, "**", "#{@module_name}.o")).first
+        Dir.glob(File.join(derived_data, '**', 'Products', '**', "#{@module_name}.o")).first ||
+          Dir.glob(File.join(derived_data, '**', "#{@module_name}.o")).first
       end
 
       # Field bug: Xcode only compiles a target's Swift sources into a SINGLE
@@ -200,9 +214,9 @@ module SPMCache
       def find_object_files(derived_data, marker = nil)
         marker ||= find_object_file(derived_data)
         return [] unless marker
-        return [marker] unless marker.include?("Objects-normal")
+        return [marker] unless marker.include?('Objects-normal')
 
-        Dir.glob(File.join(File.dirname(marker), "*.o"))
+        Dir.glob(File.join(File.dirname(marker), '*.o'))
       end
 
       # Field bug: CryptoSwift's checkout carries its own committed
@@ -217,12 +231,12 @@ module SPMCache
       # Only reached when no `.o` was found, so packages that DO build via
       # the normal SPM/object-file path are unaffected.
       def find_framework(derived_data)
-        Dir.glob(File.join(derived_data, "**", "Products", "**", "#{@module_name}.framework")).first
+        Dir.glob(File.join(derived_data, '**', 'Products', '**', "#{@module_name}.framework")).first
       end
 
       def find_file(derived_data, basename)
-        Dir.glob(File.join(derived_data, "**", "Objects-normal", "arm64", basename)).first ||
-          Dir.glob(File.join(derived_data, "**", basename)).first
+        Dir.glob(File.join(derived_data, '**', 'Objects-normal', 'arm64', basename)).first ||
+          Dir.glob(File.join(derived_data, '**', basename)).first
       end
 
       # Archives one or more object files into a single static library.
@@ -233,7 +247,7 @@ module SPMCache
       def create_static_library(object_files, output_path = nil)
         output_path ||= File.join(Dir.mktmpdir, @module_name)
         object_files = Array(object_files)
-        filelist = Tempfile.new(["objs", ".txt"])
+        filelist = Tempfile.new(['objs', '.txt'])
         filelist.write(object_files.join("\n"))
         filelist.close
         SPMCache::Core::Sh.run("libtool -static -o '#{output_path}' -filelist '#{filelist.path}'")
@@ -256,10 +270,10 @@ module SPMCache
         end
 
         # 2. Info.plist
-        File.write(File.join(fw_dir, "Info.plist"), framework_info_plist)
+        File.write(File.join(fw_dir, 'Info.plist'), framework_info_plist)
 
         # 3. Modules
-        modules_dir = File.join(fw_dir, "Modules")
+        modules_dir = File.join(fw_dir, 'Modules')
         FileUtils.mkdir_p(modules_dir)
 
         # Swiftmodule directory with swiftinterface
@@ -315,7 +329,7 @@ module SPMCache
         destination = File.join(modules_dir, expected_basename || File.basename(source))
         if File.directory?(source)
           FileUtils.mkdir_p(destination)
-          FileUtils.cp_r(Dir.glob(File.join(source, "*")), destination)
+          FileUtils.cp_r(Dir.glob(File.join(source, '*')), destination)
         else
           FileUtils.cp(source, destination)
         end
@@ -339,7 +353,7 @@ module SPMCache
       def create_objc_module(fw_dir)
         headers = @header_paths.flat_map do |path|
           if File.directory?(path)
-            Dir.glob(File.join(path, "**", "*.h"))
+            Dir.glob(File.join(path, '**', '*.h'))
           elsif File.file?(path)
             [path]
           else
@@ -348,7 +362,7 @@ module SPMCache
         end
         return if headers.empty?
 
-        headers_dir = File.join(fw_dir, "Headers")
+        headers_dir = File.join(fw_dir, 'Headers')
         FileUtils.mkdir_p(headers_dir)
         headers.each { |h| FileUtils.cp(h, File.join(headers_dir, File.basename(h))) }
 
@@ -359,9 +373,9 @@ module SPMCache
           File.write(umbrella_path, "#{listed.join("\n")}\n")
         end
 
-        modules_dir = File.join(fw_dir, "Modules")
+        modules_dir = File.join(fw_dir, 'Modules')
         FileUtils.mkdir_p(modules_dir)
-        File.write(File.join(modules_dir, "module.modulemap"), <<~MODULEMAP)
+        File.write(File.join(modules_dir, 'module.modulemap'), <<~MODULEMAP)
           framework module #{@module_name} {
             umbrella header "#{umbrella_name}"
             export *
@@ -372,11 +386,11 @@ module SPMCache
       end
 
       def destination_arch(artifacts)
-        dd = artifacts[:derived_data] || ""
-        if dd.include?("Simulator") || dd.include?("sim") || dd.include?("Sim")
-          "arm64-apple-ios-simulator.swiftinterface"
+        dd = artifacts[:derived_data] || ''
+        if dd.include?('Simulator') || dd.include?('sim') || dd.include?('Sim')
+          'arm64-apple-ios-simulator.swiftinterface'
         else
-          "arm64-apple-ios.swiftinterface"
+          'arm64-apple-ios.swiftinterface'
         end
       end
 
@@ -412,7 +426,7 @@ module SPMCache
       # fine (YES is themselves idempotent for schemes that already do this).
       def library_evolution_flags
         " OTHER_SWIFT_FLAGS='-enable-library-evolution -emit-module-interface -no-verify-emitted-module-interface'" \
-          " BUILD_LIBRARY_FOR_DISTRIBUTION=YES"
+          ' BUILD_LIBRARY_FOR_DISTRIBUTION=YES'
       end
     end
   end
