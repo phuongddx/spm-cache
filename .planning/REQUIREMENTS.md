@@ -23,7 +23,7 @@ Requirements for milestone v0.5.0. Each maps to roadmap phases (traceability bel
 
 ### Live log streaming
 
-- [ ] **LOGS-01**: Every CLI run (build/use/watch) writes a JSONL run log (header/body/exit lines) under the project run dir, outside the sandbox
+- [x] **LOGS-01**: Every CLI run (build/use/watch) writes a JSONL run log (header/body/exit lines) under the project run dir, outside the sandbox
 - [ ] **LOGS-02**: Browser shows a single live log stream with per-package anchors while a build runs
 - [ ] **LOGS-03**: Loading mid-build replays the run from the start; reconnects resume without lost lines (Last-Event-ID; never 204)
 - [ ] **LOGS-04**: Terminal- and `watch`-initiated runs stream into the same browser view as UI-triggered runs
@@ -89,7 +89,7 @@ Which phases cover which requirements. Updated during roadmap creation.
 | DASH-01 | Phase 13 | Pending |
 | DASH-02 | Phase 13 | Pending |
 | DASH-03 | Phase 13 | Pending |
-| LOGS-01 | Phase 12 | Pending |
+| LOGS-01 | Phase 12 | Complete |
 | LOGS-02 | Phase 14 | Pending |
 | LOGS-03 | Phase 14 | Pending |
 | LOGS-04 | Phase 14 | Pending |
@@ -103,6 +103,7 @@ Which phases cover which requirements. Updated during roadmap creation.
 | TOGL-03 | Phase 16 | Pending |
 
 **Coverage:**
+
 - v1 requirements: 19 total
 - Mapped to phases: 19 ✓
 - Unmapped: 0

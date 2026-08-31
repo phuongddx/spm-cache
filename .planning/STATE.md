@@ -4,17 +4,17 @@ milestone: v0.5.0
 milestone_name: Web Interface
 current_phase: 12
 current_phase_name: Run-Log Capture Foundation
-status: executing
-stopped_at: Completed 12-04-PLAN.md
-last_updated: "2026-08-31T17:42:54.210Z"
+status: verifying
+stopped_at: Completed 12-05-PLAN.md (LOGS-01 complete — all five plans landed)
+last_updated: "2026-08-31T17:57:52.805Z"
 last_activity: 2026-08-31
 last_activity_desc: Phase 12 execution started
-state_head: 25d86082beddf4f123777088cdb4b5b7cbf85196
+state_head: cfea674da11b4f064f4b28625f300e930123ae95
 progress:
   total_phases: 5
   completed_phases: 0
   total_plans: 5
-  completed_plans: 4
+  completed_plans: 5
   percent: 0
 ---
 
@@ -38,7 +38,7 @@ v0.4.0 shipped and released 2026-08-31 (first fully-green tap publish in project
 
 Phase: 12 (Run-Log Capture Foundation) — EXECUTING
 Plan: 5 of 5
-Status: Ready to execute
+Status: Phase complete — ready for verification
 Last activity: 2026-08-31 — Phase 12 execution started
 
 Progress: [░░░░░░░░░░] 0%
@@ -86,6 +86,7 @@ Trend: stable (typical plan 10–35 min; outliers involve real xcodebuild runs).
 | Phase 12 P02 | 15min | 2 tasks | 2 files |
 | Phase 12 P03 | 14min | 3 tasks | 7 files |
 | Phase 12 P04 | 11min | 2 tasks | 8 files |
+| Phase 12 P05 | 10min | 2 tasks | 4 files |
 
 ## Decisions
 
@@ -105,6 +106,8 @@ Full log: PROJECT.md Key Decisions table. Roadmap decisions (2026-08-31):
 - [Phase 12]: D-04 event vocabulary frozen for Phase 14: package_start/package_end + phase markers (detect/integrate/build/fidelity) emitted from the pipeline's single choke point and the installers' existing boundaries (Plan 12-04)
 - [Phase 12]: Build marker emits BEFORE the missed.empty? early return so a zero-pins run still records the phase (plan action text placed it after the 'Building N' line, unreachable on empty missed — resolved for behavior bullet + EDGE truth) (Plan 12-04)
 - [Phase 12]: Buildable#xcodebuild activates Plan 12-02's sinks: per-stream live_log_out/live_log_err StreamSinks forwarded on both Sh.run calls when run_log is threaded; nil forwards no sink keys at all (byte-identical) (Plan 12-04)
+- [Phase 12]: [Phase 12]: Watch cycles log via RunLog.cycle_wrapper at Command::Watch's factory seam — Core::Watcher untouched; each cycle is its own file (command watch / trigger watch / cycle true) with runs_dir resolved per cycle from pre_scan(argv).log_dir || Config#runs_dir (D-01 live at the watch surface) (Plan 12-05)
+- [Phase 12]: [Phase 12]: D-08 no-allowlist spec-proven — exclusion set is exactly {web, watch} + --no-run-log (future-verb row mutation-proven); A6 legacy 'use --watch' = session-level 'use' run; A5 inter-cycle narrative terminal-only (D-09) (Plan 12-05)
 
 ## Deferred Items
 
@@ -119,6 +122,6 @@ Items acknowledged and deferred at milestone close, most recent first:
 
 ## Session Continuity
 
-Last session: 2026-08-31T17:42:47.412Z
-Stopped at: Completed 12-04-PLAN.md
+Last session: 2026-08-31T17:57:52.787Z
+Stopped at: Completed 12-05-PLAN.md (LOGS-01 complete — all five plans landed)
 Resume file: None
