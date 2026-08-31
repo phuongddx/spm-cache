@@ -344,6 +344,47 @@ RSpec.describe SPMCache::Core::RunLog, 'cycle_wrapper (D-09 per-cycle run logs)'
         expect(body_texts(read_jsonl(file))).to eq(["cycle body line\n"])
       end
     end
+
+    # Research A5 (Plan 12-05, recorded decision): Core::Watcher's
+    # inter-cycle narrative ("Watching ...", "[watch] SPM graph changed...")
+    # is terminal-only BY DESIGN -- D-09 forbids a session file, and the
+    # cycle tee is active only inside perform_install. The watcher's own
+    # info mechanism (its @out, bound before any cycle swap) is driven
+    # here so the assertion covers the real write path between cycles.
+    it 'A5: inter-cycle Watcher narrative is terminal-only -- it is emitted but lands in no cycle file (D-09: no session file)' do
+      config.project_dir = tmpdir
+      runs = File.join(tmpdir, '.spm-cache', 'runs')
+
+      proj = File.join(tmpdir, 'App.xcodeproj')
+      swiftpm = File.join(proj, 'project.xcworkspace/xcshareddata/swiftpm')
+      FileUtils.mkdir_p(swiftpm)
+      File.write(File.join(swiftpm, 'Package.resolved'), '{"pins":[],"version":1}')
+
+      narrative = StringIO.new
+      installer = CycleDouble.new
+      watcher = SPMCache::Core::Watcher.new(
+        project_path: proj,
+        installer_factory: ->(_path) { described_class.cycle_wrapper(installer, argv: ['watch']) },
+        debounce: 0,
+        out: narrative
+      )
+
+      with_swapped_streams do
+        watcher.run_once
+        watcher.send(:info, "Watching #{proj} for changes (Ctrl-C to stop)...") # exactly Watcher#run's banner
+        watcher.send(:info, "\n[watch] SPM graph changed, re-integrating...") # exactly Watcher#run's mid-loop line
+        watcher.run_once
+      end
+
+      # The narrative WAS emitted (terminal leg) yet persists nowhere:
+      # each cycle file carries only its own output.
+      expect(narrative.string).to include('SPM graph changed, re-integrating')
+      files = cycle_files(runs)
+      expect(files.length).to eq(2)
+      files.each do |file|
+        expect(body_texts(read_jsonl(file))).to eq(["cycle body line\n"])
+      end
+    end
   end
 end
 

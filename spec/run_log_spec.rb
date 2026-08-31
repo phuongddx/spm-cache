@@ -256,6 +256,73 @@ RSpec.describe SPMCache::Core::RunLog do
       expect(File.read(log.path).lines.length).to eq(2) # the run proceeded normally
     end
   end
+
+  # D-08 (Plan 12-05): ALL verbs log via the Main.run tee -- exactly two
+  # verb exclusions (web by SC3, watch by D-09 per-cycle files) plus the
+  # --no-run-log flag. This truth table asserts the exclusion decision is
+  # verb-SET based, structurally NOT an allowlist: the future-verb row
+  # below (['frobnicate']) logs with no code change -- an implementation
+  # enumerating allowed verbs would fail it.
+  describe '.pre_scan truth table (D-08: no allowlist)' do
+    it 'every real verb logs: use/build/doctor/cache/rollback/remote/pkg/init' do
+      {
+        ['use'] => 'use',
+        %w[build Alamofire] => 'build',
+        ['doctor'] => 'doctor',
+        %w[cache list] => 'cache',
+        ['rollback'] => 'rollback',
+        %w[remote push] => 'remote',
+        %w[pkg build X] => 'pkg',
+        ['init'] => 'init'
+      }.each do |argv, verb|
+        scan = described_class.pre_scan(argv)
+        expect(scan.verb).to eq(verb)
+        expect(scan.main_log_skipped?).to be(false)
+        expect(scan.suppressed?).to be(false)
+      end
+    end
+
+    it 'a future verb logs with no code change -- the exclusion set is {web, watch}, not a membership list' do
+      scan = described_class.pre_scan(['frobnicate'])
+      expect(scan.verb).to eq('frobnicate')
+      expect(scan.main_log_skipped?).to be(false)
+      expect(scan.suppressed?).to be(false)
+    end
+
+    it 'excludes exactly web and watch at Main level (SC3 / D-09)' do
+      expect(described_class.pre_scan(['web']).main_log_skipped?).to be(true)
+      expect(described_class.pre_scan(['watch']).main_log_skipped?).to be(true)
+    end
+
+    it 'suppresses on --no-run-log wherever it appears (D-03)' do
+      expect(described_class.pre_scan(['--no-run-log', 'use']).suppressed?).to be(true)
+      expect(described_class.pre_scan(['use', '--no-run-log']).suppressed?).to be(true)
+    end
+
+    it "legacy 'use --watch' logs as ONE session-level use run at Main level" \
+      ' (A6 / Open Question 1: D-09 per-cycle mandate targets the watch daemon;' \
+      ' the legacy loop is CLI-only per CP5)' do
+      scan = described_class.pre_scan(['use', '--watch'])
+      expect(scan.verb).to eq('use')
+      expect(scan.main_log_skipped?).to be(false)
+    end
+
+    it 'reads both --log-dir forms for any logging verb (D-01)' do
+      scan = described_class.pre_scan(['--log-dir', '/tmp/x', 'build'])
+      expect(scan.log_dir).to eq('/tmp/x')
+      expect(scan.verb).to eq('build')
+
+      scan = described_class.pre_scan(['--log-dir=/tmp/x', 'build'])
+      expect(scan.log_dir).to eq('/tmp/x')
+      expect(scan.verb).to eq('build')
+    end
+
+    it 'watch + --log-dir: no Main session file, and the override still routes cycle files (D-01 consumed by RunLog.cycle_wrapper)' do
+      scan = described_class.pre_scan(['--log-dir', '/tmp/x', 'watch'])
+      expect(scan.main_log_skipped?).to be(true)
+      expect(scan.log_dir).to eq('/tmp/x')
+    end
+  end
 end
 
 RSpec.describe SPMCache::Core::RunLog::TeeIO do
