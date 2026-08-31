@@ -1,294 +1,187 @@
 # Project Research Summary
 
-**Project:** spm-cache
-**Milestone:** v0.4.0 — Build Fidelity & Release Automation
-**Domain:** SwiftPM/xcodebuild binary-dependency caching (Ruby CLI + Swift companion, macOS-only) + cross-repo GitHub Actions release automation
-**Researched:** 2026-08-27
-**Confidence:** HIGH (build fidelity — empirically reproduced on Xcode 26.3 / Swift 6.2.4 by three independent researchers plus orchestrator source-verification) / MEDIUM (release automation — vendor-documented, not exercised end-to-end)
+**Project:** spm-cache — v0.5.0 "Web Interface"
+**Domain:** Localhost developer-tool web dashboard layered onto an existing macOS Ruby CLI + Swift companion (SPM binary caching)
+**Researched:** 2026-08-31
+**Confidence:** HIGH
 
 ## Executive Summary
 
-spm-cache builds each cached package **in isolation**, as a root SwiftPM package, with no representation of the consuming app's resolved dependency graph anywhere in the build call chain. The symptom the milestone exists to close — a cached `ExyteChat.xcframework` compiled against MediaPicker 3.2.4 while the host app resolves 3.3.2 — is not one bug but **two independent drift mechanisms feeding the same failure**, and the dominant one is not the one the milestone originally hypothesized. The original hypothesis ("the isolated build resolves from the package's own committed `Package.resolved`") is **falsified**: `exyte/Chat` commits no such file (HTTP 404 at both canonical paths, probed 2026-08-27), and 0 of 24 surveyed upstream packages commit one either. The real dominant cause is a **never-refreshed lockfile**: `installer.rb:165-166` early-returns whenever `spm-cache.lock` exists, so every package's `version`/`revision` is frozen at first-run forever; the umbrella is generated from that lockfile (`installer.rb:241`), `Lockfile.swift:118-126` converts a held revision into an exact `revision:` pin, `UmbrellaGenerator.swift:73` emits it, and `swift package resolve` materializes checkouts at that stale commit. That chain — and only that chain — explains a **downward** pin to an older version, which pure fresh-upward drift cannot.
+spm-cache v0.5.0 adds a local web dashboard (`spm-cache web`) to a deliberately zero-web-dependency Ruby CLI. The comparable-tool evidence (Dozzle, Vitest UI, Playwright UI Mode, Renovate, BuildBuddy/Develocity) converges on one shape: a localhost, single-user, foreground process; a single live log stream over SSE (one-way server→client; actions are plain POSTs); no persistence beyond the current run; no auth; fully offline assets. No SPM competitor (Scipio, xccache, Rugby, XCRemoteCache) ships any web UI at all, so even the table-stakes version is a niche first, and the headline differentiator — "start a build in your terminal, watch it live in the browser" — has no competition.
 
-The recommended approach is deliberately unglamorous and Ruby-side: **refresh the lockfile so the graph is current, seed the host's `Package.resolved` verbatim into every checkout before the first `swift package describe`, read back what was actually realized, and invalidate cached artifacts whose recorded provenance no longer matches the host graph.** Empirical probing established that a superset resolved file is honored verbatim (extra pins pruned, missing pins filled in, `originHash` ignored), which removes the need for per-package filtering, format synthesis, or manifest parsing. The competitive landscape corroborates the shape: xccache and XCRemoteCache both achieve fidelity *structurally*, and Rugby and XCRemoteCache both propagate transitive changes into cache keys — while **neither SPM-native competitor invalidates on transitive drift**, making that the highest-leverage differentiator available here.
+The recommended approach: **the server is a stateless file reader plus a run-log tailer plus a CLI-subprocess spawner — never a second source of truth.** Every dashboard mutation spawns the ordinary `spm-cache` verb (inheriting the existing flock and all code paths); every read re-derives state from the same files the CLI reads (config, sidecars, graph.json, run logs); the build flock stays the only mutex (server probes it, never holds it). Stack verdict (STACK.md): exactly **one** new runtime dependency — `webrick >= 1.8, < 2` — and its gemspec declaration is **load-bearing, not optional**: machine-verified that `require "webrick"` fails on rbenv 3.2.3 and Homebrew ruby 3.3/4.0 without it (bundled-but-not-installed; gone from the bundled set in Ruby 4.0). SSE rides WEBrick's chunked responses; the frontend is vanilla ES2020, vendored, offline; live logs flow through JSONL run-log files at `<project>/.spm-cache/runs/` (outside the sandbox, which is `rm_rf`'d on every slow-path run) written by every CLI run via a tee at `Main.run` plus the existing-but-dormant `Core::Sh` popen3 sink.
 
-The two dominant risks are both about the fix being invisible or actively worse. First, `Cache.swift`'s `hit(module:)` is a bare name + file-existence check against a **global** `~/.spm-cache`, so without an invalidation mechanism a perfectly correct fix reaches **zero existing users** and cross-project poisoning persists. Second, seeding without verification converts "wrong version, deterministically" into "wrong version, silently, with the injected file overwritten" — xcodebuild silently discards an out-of-range pin, rewrites the file, and reports `BUILD SUCCEEDED`. The mitigation for both is the same artifact: a **post-resolve read-back compared against separately-retained intended pins**, emitted as a provenance sidecar that doubles as the cache-invalidation key. Policy on violation is settled: **warn and fall back to source compilation, never hard-fail** — consistent with the project's Core Value and with all four comparable tools, none of which aborts a build on inconsistency.
+Key risks, all with phase-assigned mitigations: the **three-channel output capture problem** (UI puts, `Sh` reader threads, buffered `capture3` — the capture sink at the `Core::UI`/`Sh` boundary is the keystone prerequisite for every streaming feature); **config writeback races** (Singleton `@raw` + bare non-atomic `File.write` — toggles must do fresh-load → delta → atomic rename through mutators shared with `spm-cache off`); **SSE transport traps** (HTTP 204 permanently kills EventSource reconnect — always 503 + `Retry:`; Last-Event-ID replay and bounded per-client queues are required, not nice-to-haves); **localhost is not a trust boundary** (drive-by CSRF and DNS-rebinding against destructive endpoints — Host/Origin validation, per-launch token, array-argv spawns); **unreaped child processes** (Core::Sh never kills xcodebuild/swift children when a run is interrupted — the server's job manager must own process-tree lifecycle from day one); and the **embedded cachemap is a repair job, not a wiring job** — see the discrepancy verdict below.
+
+## Research Discrepancy Resolved (machine-verified verdict)
+
+**Conflict:** FEATURES.md claims `graph.json` has NO edges ("`dependencies: []` verified post-v0.4.0"); ARCHITECTURE.md claims "graph.json already carries cytoscape edges, written by the Swift `GraphGenerator.generate()`" and the template is a husk. Both cannot be true.
+
+**Verdict: FEATURES.md is correct on substance; ARCHITECTURE.md's graph.json claim is FALSE (it cites dead code), though its "template is a husk" claim is TRUE.** Evidence, read directly in this repo 2026-08-31:
+
+1. **`graph.json` is written by `ProxyGenerator.generateGraphJSON`, not `GraphGenerator`.** `GenProxy.swift:56` calls `generator.generateGraphJSON(entries: entries)`, which `JSONEncoder`-encodes the raw `[GraphEntry]` array (ProxyGenerator.swift:247-254). The output shape is `[{"module":…, "status":…, "hasMacro":…, "dependencies":[]}, …]` — **not** the cytoscape `{data: {…}}` elements form.
+2. **Both `GraphEntry` construction sites hard-code `dependencies: []`** — ProxyGenerator.swift:90 and :170. Nothing populates dependencies anywhere.
+3. **`GraphGenerator.swift` is dead code.** Its cytoscape-shaped node/edge writer exists but has **zero callers** across `Sources/` and `Tests/`. ARCHITECTURE.md's "already a complete cytoscape elements array: nodes *and* edges" describes code that never runs.
+4. **The Ruby consumer confirms the raw shape:** `cache/cachemap.rb#depgraph_for_viz` reads `entry["module"]`/`entry["status"]` directly (no `["data"]` unwrap) and maps *every* entry to a node — so it both expects the raw shape and would corrupt edge entries if edges existed.
+5. **The template husk claim is confirmed:** `cachemap.html.template` contains the malformed ERB tag `< %= data % >` (spaces inside the tags → renders as literal text; proven by executing the ERB render) and has **no rendering library and no render call** — no cytoscape script tag, no vendored file.
+
+**Roadmap consequence — "embed graph" is two separable work items, and only the first is small:**
+
+- **(a) Repaired nodes view (small, v0.5):** transform the raw entries array → cytoscape elements (server- or client-side), vendor cytoscape.js into `assets/web/`, and render it as a dashboard panel (the standalone template is beyond patching — replace, don't fix, its inline script).
+- **(b) Real edges (separate, cross-language, post-v0.5):** populate `GraphEntry.dependencies` in ProxyGenerator.swift (requires deriving package-dependency data that the current generation pipeline never assembles — genuinely unresearched), then revive or delete the dead `GraphGenerator`, extend the live writer to emit edge entries, and update `depgraph_for_viz`/Ruby consumers to stop mapping edge entries as nodes. Plan a spike before committing this to a phase.
+
+**Second, smaller disagreement adjudicated here:** STACK.md recommends a UDS NDJSON relay for terminal/`watch` runs; ARCHITECTURE.md rejects UDS in favor of append-only JSONL run-log files the server tails. **Recommend ARCHITECTURE.md's file-tail transport**: replay from byte 0 on connect (UDS loses everything before connection), works when the CLI run predates the server, survives server restarts (orphan adoption via run-log header pid + liveness), CLI behavior unchanged when no server exists, and it makes UI-triggered and terminal runs *one* mechanism — the UI-triggered build is just a spawned CLI subprocess writing the same run log. Keep UDS as the documented fallback (sandboxed environments that forbid socket files). Note this overrides STACK.md's UDS recommendation; its other verdicts stand.
 
 ## Key Findings
 
-### ⚠ SUPERSEDED BY FIELD MEASUREMENT (M1, 2026-08-27)
+### Recommended Stack (from STACK.md, as amended above)
 
-> **⚠ CORRECTION 2026-08-27 (post-verification).** The falsifier below claiming *"no committed revision
-> of the canonical file ever held AnchoredPopup 1.1.3"* is **FALSE**. Four commits hold it —
-> `893fb8b`, `3bf9e91`, `64e960d`, `9075971` — and the nested "wrong file" is **byte-identical** to
-> canonical@`9075971`. The original check produced a false negative: the path was passed without a
-> leading `./`, so `git show` resolved it against the repo root and failed on every revision, and a
-> swallowed exception rendered the failures as "not found".
->
-> **Consequence:** the wrongly-picked file IS an old canonical snapshot, so *which file the lock matches*
-> cannot distinguish H-lock from H-wrongfile. **The `H-wrongfile 25 · H-lock 0` scoring is unsupported;
-> both mechanisms remain consistent with the evidence.**
->
-> **What still holds:** `H-float = 0` is sound and independent — every package is emitted as an exact
-> `revision:` pin, leaving no range to float within. The Phase 7 rescope rests on H-float, not on the
-> H-lock/H-wrongfile split, so that decision stands. Phase 6 fixed BOTH candidate mechanisms (FID-06
-> canonical locator + FID-01 reconciliation), so there is no code consequence — only this record.
-> Evidence: `.planning/phases/06-graph-authority-lockfile-reconciliation/06-VERIFICATION.md`.
+One new runtime gem, everything else stdlib and reuse:
 
+- **webrick `>= 1.8, < 2`** — the only new dependency (pure Ruby, zero transitive deps, ruby/org-maintained). The gemspec `add_dependency` line is **load-bearing**: `require` fails on every target runtime without it (CP8); add a smoke spec asserting the require succeeds outside a Bundler context. `HTTPResponse#chunked=` (verified in 1.9.2 source) provides SSE streaming.
+- **SSE (`text/event-stream`), not WebSocket** — logs are one-way; `EventSource` gives auto-reconnect, `retry`, and `Last-Event-ID` resume natively. WebSocket would mean hand-rolled RFC 6455 framing or a second gem for a problem the dashboard doesn't have.
+- **JSONL run logs at `<project_dir>/.spm-cache/runs/`** — header line (`run`, `command`, `argv`, `pid`, `started_at`), body lines (`ts`, `stream`, `text`), exit line. Written by *every* CLI run (tee at `Main.run`, skipping `web` itself) + the `Core::Sh` popen3 branch as file-only sink. **Location is deliberate: outside the sandbox**, which `recreate_dirs` destroys mid-run (same reason the build lock lives at project level).
+- **Vanilla ES2020 JS, vendored, offline** — no npm, no CDN, no build step; gemspec already ships `assets/**/*`.
+- **Reuse, don't rebuild:** UI-triggered builds spawn the real CLI via Open3 (inherit flock + code paths); toggles call `Core::Config` mutators shared with `off`; cache table reuses the `cache list` glob+sidecar scan (sizes are a trivial addition); doctor reuses `Diagnostics.run_all` + extracted JSON payload; busy state = non-blocking flock probe; `cachemap.html.template`'s data contract informs the vendored-graph panel.
+- **Rejected:** Puma/Falcon (native-ext compile under keg-only ruby / 12+ transitive deps), Sinatra/Roda (weight for ~10 endpoints — revisit past ~15), `websocket-driver`, Redis/any broker, htmx 4 (3 days old), any Swift-side HTTP server (GCDWebServer unmaintained; Ruby must own config/lockfile/flock), and hand-rolled `TCPServer` HTTP (fallback only if the webrick declaration is forbidden).
 
+### Expected Features (from FEATURES.md)
 
-**The ranking below is FALSIFIED.** Phase 6's M1 measurement scored **H-wrongfile 25 · H-lock 0 · H-float 0**.
-Surface #1 ("never-refreshed lockfile") was ranked DOMINANT here and is now excluded by provenance: the
-reference project's lock holds AnchoredPopup `1.1.3/2fb9d1ac101b`, a value that appears in **none** of the
-9 committed revisions of the canonical `Package.resolved` — so the lock is not a frozen read of the host
-graph at all. It is a *faithful* read of the WRONG file. The locator (`Dir.glob(...).find`) selects a stale
-git-ignored nested copy (8 pins, 2026-07-12) over the canonical file (17 pins, 2026-08-13). Surface #2
-(fresh upward re-resolution) was observed **zero** times in the field — all 8 packages are emitted as exact
-`revision:` pins, leaving no range to float within.
+**Must have (table stakes — all P1 for v0.5):**
+- `spm-cache web`: localhost server (127.0.0.1 hard-coded, no `--host` flag), port probe skipping 5000/7000 (AirPlay), marker-file idempotent relaunch, browser auto-open, watch-style signal contract
+- Single live build-log stream with per-package anchors (build loop is sequential — N panes would be N empty boxes), replay-on-load, auto-reconnect without lost lines, visible stale/connection state
+- Run identity (trigger source UI/terminal/watch, config, started-at, running/success/failure) + external-run detection via the existing `.spm-cache-build.lock` flock
+- Build/Rebuild with scope (all/packages) + busy/queued state + failure banner and highlighted errors
+- Per-package toggles writing the **same** config `ignore` list `spm-cache off` writes (one source of truth, one code path), with visible "saved ≠ applied" semantics + "Apply now (re-sync)" button
+- WHY-not-toggleable reasons per package (ignored-by-pattern / plugin / binary-target / excluded / fidelity — a join of data that all already exists)
+- Cache state table: package × config, sizes (new, trivial), cached/source, fidelity status from provenance sidecars
+- Doctor panel: on-demand `run_all`, statuses + fix hints + summary, cached-with-timestamp (checks shell out for seconds), data-driven (8 checks today — never hard-code)
+- Origin/Host validation on every mutating endpoint; fully offline vendored assets
+- Repaired graph **nodes** view (vendored cytoscape + raw-entries→elements transform)
 
-**Corrected ranking:** (1) stale-locator selection [FID-06] — DOMINANT, sole field cause;
-(2) never-refreshed lockfile [FID-01] — real mechanism, hardening, and *actively harmful without FID-06*
-(reconciling from the wrong file writes the phantom graph back onto itself, converting a visible diff into
-a false green); (3) fresh upward re-resolution [Phase 7] — real in isolation, unobserved in the field.
+**Should have (differentiators — mostly v1.x):**
+- Relayed terminal/`watch` runs live in the browser — *the* headline; with the file-tail transport this falls largely out of the run-log + SSE work (identity attribution and watcher hygiene remain)
+- Fidelity status surfaced everywhere (table column, node color, toggle reasons) — pure presentation join over existing data
+- Graph edges (Swift `GraphEntry.dependencies` populated) + cache-state overlay during runs
+- "Rebuild what drifted" prefill (DiffDetector), doctor fix-hints as copy/deep-link (never auto-execute)
 
-See `.planning/phases/06-graph-authority-lockfile-reconciliation/06-M1-MEASUREMENT.md`.
+**Anti-features (declined, with reasons):** N per-package log panes (sequential loop); run-history DB with search (Dozzle deliberately stores nothing); remote access/auth (hard localhost-only constraint; new milestone if ever); general yml editor (structured controls for `ignore` only); cross-process build cancellation (cancel UI-triggered runs only — killing other processes' xcodebuild trees races the flock); animated graph re-layout mid-run (passive recolor at fixed positions); notifications (tab title + banner suffice); multi-project server (per-project ports).
 
-### The Root-Cause Model (as originally researched — see the correction above before relying on this ranking)
+### Architecture Approach (from ARCHITECTURE.md, as amended above)
 
-Contributing surfaces, **ranked by dominance**:
+The server adds a layer *around* an unchanged pipeline. It reads the files the CLI reads, probes the lock the CLI holds, and spawns the CLI to act — restartable at any moment because all truth is on disk.
 
-| # | Surface | Direction | Evidence | Dominance |
-|---|---------|-----------|----------|-----------|
-| **1** | **Never-refreshed lockfile → revision-pinned umbrella → stale checkouts** | **Downward** (older than host) | Fully source-verified 5-link chain: `installer.rb:165-166` early return → `installer.rb:241` `gen_umbrella --lockfile` → `Lockfile.swift:118-126` `revision:` pin → `UmbrellaGenerator.swift:73` emission → `swift package resolve` materializes | **DOMINANT.** The only mechanism that explains the motivating downward drift. `DiffDetector` correctly *detects* the change and forces regeneration, which then re-runs the early-returning generator — the diff is computed but never applied. |
-| **2** | **Fresh upward re-resolution in isolated per-package builds** | **Upward** (newest satisfying `from:`) | Reproduced: swift-argument-parser resolved 1.2.0 → **1.8.2**, exit 0, no warning. No resolved-graph parameter exists anywhere in `BuildPipeline.run` → `Buildable#build_command`. | **REAL, secondary.** Applies to every package the umbrella does not pin — including plugin-only and transitive-only packages the umbrella omits *by design* (`UmbrellaGenerator.swift:42`, `:64-67`). |
-| **3** | **`swift package describe` also reads the drifted graph** | Both | `BuildPipeline` constructs `Desc::Description.new(pkg_dir:)` at `:190, 271, 360, 389, 408` — `describe` resolves too | **AMPLIFIER.** Product/target/scheme metadata is currently read from the drifted graph, not just the binary. Any fix must seed **before the first `describe`**. |
-| **4** | **Name-only cache key over a global cache dir** | N/A | `Cache.swift:19-22` is `fileExists`; `CACHE_DIR = ~/.spm-cache` is global | **DELIVERY BLOCKER.** Not a drift cause, but the reason a fix would reach nobody. |
-| **5** | **DerivedData reuse keyed only by checkout path** | N/A | `derived_data_dir_for` = `SHA256(pkg_dir)`, no graph component | **RESIDUAL.** Survives the fix; can reuse `.swiftmodule`s built against the old graph. |
+**Major components (new):**
+1. `Command::Web` — foreground CLAide entry (auto-registered; no `command.rb` edit); `--port`, `--no-open`; marker file `<project_dir>/.spm-cache/web.json` with pid-liveness for idempotent relaunch; TERM/INT → cleanup → exit 0 (copied from `watch`'s contract)
+2. `Web::Server` — thin HTTP adapter + router (webrick under the adapter seam so the stack stays swappable); Host/Origin/token checks as middleware
+3. `Web::Api` — read-model endpoints (`/api/state`, `/api/packages`, `/api/doctor[+/run]`, `/api/cachemap/graph`) + action endpoints (`/api/build`, `/api/toggle`); fresh reads per request, never cached across requests
+4. `Web::Events` — runs-dir tailer (mtime polling, `Core::Watcher` precedent) → SSE broadcaster with byte-offset event ids, `Last-Event-ID` replay, ~15s heartbeats, bounded per-client queues (drop-oldest + explicit notice)
+5. `Web::Jobs` — single-slot build launcher: `Process.spawn` array-argv of the CLI, pid/status tracking, orphan re-adoption from run-log headers, 409 on a second UI build
+6. `Core::RunLog` — JSONL writer + `$stdout`/`$stderr` tee installer; implements the exact `output(line)` contract `Core::Sh` already expects
 
-**A false premise to delete from the codebase:** the comment at `UmbrellaGenerator.swift:57-63` justifies revision-pinning as reproducing "the host's resolved graph (`Package.resolved` is consistent, so the commit satisfies every parent's range by construction)". That holds **only if the lockfile is fresh — and it never is.** This also explains the field note that v0.2.8's transitive-pinning fix was "necessary, not sufficient": it made revision-pinning *more* prevalent, hardening the staleness rather than relieving it.
+**Modified (small, deliberate):** `main.rb` (tee, skipped for `web` argv), `core/sh.rb` (popen3 branch as file-only sink; fix its discarded-capture gap so `failure_detail` regains detail — behavior-preserving for the terminal, which never showed raw xcodebuild output), `core/config.rb` (`runs_dir`, `web_dir`, `disable_caching!/enable_caching!`, atomic tempfile+rename save), `command/off.rb` (route through the mutator — clean cutover), `command/init.rb` (gitignore `.spm-cache/`), `command/cache/list.rb` + `command/doctor.rb` (extract read-models both CLI and server share), one "waiting for build lock…" line in the Installer so queued UI builds are visible. **Not modified:** pipeline internals, watcher, Swift companion (except the future edges work).
 
-### Conflict Resolution: `-onlyUsePackageVersionsFromResolvedFile`
+**Concurrency stance:** the flock is the only mutex. Server never holds it; UI builds block on it exactly like terminal builds; second UI build → 409; terminal-vs-UI collisions keep today's blocking semantics with a visible "waiting" line; toggle mid-build is an atomic write that applies next regen; server killed mid-build → subprocess orphans *by design* and the restarted server re-derives state from run logs.
 
-STACK.md and ARCHITECTURE.md reached opposite conclusions. **They are not contradictory — they probed different failure inputs**, and both results are correct:
+### Critical Pitfalls (with phase assignment — full set in PITFALLS.md; CP14 is a grounded addition not present in PITFALLS.md)
 
-| Input | Without the flag | With the flag |
-|---|---|---|
-| Pin **out of range** of the package's manifest | Silently discarded, re-resolved to latest, checkout's `Package.resolved` **rewritten**, `BUILD SUCCEEDED`, exit 0 (STACK V2 / ARCH §2.1 / PITFALLS V2) | **exit 74**, explicit `an out-of-date resolved file was detected`, file untouched (STACK V3 / PITFALLS V3) |
-| Pin **missing** for a dependency (incl. test-only deps of the root package) | Filled in fresh, other pins preserved (ARCH §2.1) | **Hard failure** — and the umbrella *systematically* omits every package's external test dependencies, because SwiftPM skips test-only deps of non-root packages (ARCH §2.4, reproduced) |
+1. **CP3 — three-channel output capture (CRITICAL, foundation keystone):** visible output lives in `Core::UI` puts (non-injectable), `Sh` reader threads, and buffered `capture3`; `LiveLog` is unbounded and prints TTY cursor codes unconditionally. Build the injectable sink at the `Core::UI` boundary + file-only `Sh` sink + ring buffer first — every streaming feature consumes it. Thread-safety: one writer thread per SSE response, sized `Queue`s.
+2. **CP8 — webrick unavailable without declaration (CRITICAL, foundation):** machine-verified `require` failure on rbenv 3.2.3 / Homebrew 3.3 / 4.0. Gemspec runtime dep + post-install smoke spec, before the first `require`.
+3. **CP14 — child processes are not reaped on interrupt (NEW — grounded addition contributed by the orchestrator from the original pitfalls researcher; verified here against `core/sh.rb:21-35`):** `Core::Sh`'s popen3 branch has no signal handling, no `Process.kill`, and no `pgroup` spawn option — interrupting a run (Ctrl-C, kill, server shutdown racing a subprocess) orphans the xcodebuild/swift tree, which keeps running and writing artifacts with nobody watching. Two consequences for the web layer: (a) `Web::Jobs` must spawn UI-triggered builds with `pgroup: true` and own process-group termination (`Process.kill(-pgid, …)`) so a future UI-run cancel is *possible* at all — cancel scope stays "UI-triggered only" per the anti-features list, but the mechanism must exist from Phase 4; (b) a run-log whose header pid died without an exit line may still have live grandchildren — the tailer's pid-liveness signal marks the run dead while work continues (Phase 3 detection nuance: surface "run ended, children may linger" rather than claiming clean completion).
+4. **CP1/CP2 — config integrity (UI actions; seam in foundation):** stale-singleton writeback through non-atomic `File.write` clobbers concurrent CLI edits; any UI-side toggle store forks the source of truth. Fresh-load → delta → tempfile+rename, under the shared `disable_caching!/enable_caching!` mutators that `off` also calls.
+5. **CP11 — SSE transport hazards (relay phase):** 204 stops reconnect *permanently* (503 + `Retry:` instead); buffering, reconnect storms, lost failure lines on reconnect, and unbounded backpressure are each independently fatal. Heartbeats, monotonic ids + `Last-Event-ID` replay from the ring buffer/run log, bounded queues.
+6. **CP13 — localhost is not trusted (foundation + UI actions):** any public page can POST to `127.0.0.1:<port>`; endpoints here are destructive (build, rollback `rm_rf`, config writes). Host/Origin validation + per-launch token on mutations; array-argv spawns; validate package/target names against the project's known packages.
+7. **CP4 — rollback runs without the build lock (UI actions):** wrap `Installer::Rollback` in the flock before any rollback button ships; decide busy-vs-queue for Build (recommend: busy, derived from the lock — never silent queueing from a stray click).
+8. **CP9 — loopback binding traps (foundation):** `localhost` resolves `::1` first on this Mac; AirPlay owns 5000/7000. Bind explicit `127.0.0.1`, print the exact URL, probe/skip ports, persist the choice.
 
-**RECOMMENDED DIRECTION: do NOT enable the flag by default. Seed verbatim without it, and detect drift by explicit post-resolve comparison of realized versions against separately-retained intended pins.**
-
-Rationale:
-
-1. The missing-pin hard failure is **guaranteed, broad, and structural** — any package with an external test dependency (Quick, Nimble, swift-testing, SwiftCheck) or a build-tool plugin (SwiftLint, SwiftGen, swift-protobuf) breaks. That is a large fraction of a 59–70 package graph, and it converts a silent-correctness bug into a loud build breakage across paid-for v0.2.x edge classes.
-2. The flag would also hard-fail, which the **locked fidelity policy forbids** (warn + source fallback, never hard-fail).
-3. **STACK.md's "evidence is destroyed" objection does not survive the design.** Evidence is only destroyed if detection depends on re-reading the file spm-cache itself wrote. It must not. Retain the intended pin set in memory (and in the provenance sidecar), and compare it against the realized state read back **after** resolution. The rewrite is then not evidence destruction — it is the free, authoritative read-back source, since xcodebuild rewrites `<pkg_dir>/Package.resolved` in place with what it actually resolved (verified in every probe). Where `-clonedSourcePackagesDirPath` is in play, `workspace-state.json` is the equivalent source.
-4. Keep the flag as an **opt-in strict/CI mode**, worth enabling only once the sidecar makes "complete pins" a checkable property.
-
-**What would falsify this recommendation:** evidence that xcodebuild does *not* write back realized versions on some real code path — specifically the vendored-`.xcodeproj` path (`run_with_scheme`), or when `-clonedSourcePackagesDirPath` redirects the write away from both `<pkg_dir>/Package.resolved` and a readable `workspace-state.json`. If read-back has no reliable source on a given path, detection on that path must fall back to the flag (accepting hard failure) or that path must be reported as *not graph-pinned*. **Probe this on the real project during Phase 2 before committing.**
-
-### Cache-Invalidation Constraint (carried forward — non-negotiable)
-
-`BinariesCache.hit(module:)` (`tools/spm-cache-proxy/Sources/Core/Cache.swift:19-22`) is `fileExists(atPath: "<module>.xcframework")` — no version, revision, graph, toolchain, or spm-cache version participates. `CACHE_DIR` is the global `~/.spm-cache` (`core/config.rb:25`), not per-project. Three consequences, all live and all made *worse* by fixing resolution:
-
-- **The fix reaches zero existing users.** Every v0.3.0-era artifact built against the wrong graph remains a hit under v0.4.0. Users upgrade, observe nothing, and correctly conclude the fix does not work.
-- **Cross-project poisoning.** Project A on Alamofire 5.8 and Project B on 5.10 share one artifact; whoever built first wins for both, silently.
-- **Version bumps never invalidate.** `Installer::Build` bypasses a hit only for slice incompleteness (`slice_complete?`), never for graph identity.
-
-**Minimum viable v0.4.0 mechanism (full content-addressing stays deferred to v0.5):** a `<module>.xcframework.provenance.json` sidecar — reusing the proven `.shims.json` pattern — recording the **realized** pins (read back post-build, not the intended ones) plus spm-cache version, config, and destination set. Extend the hit check so a hit requires provenance to match the current host graph; **missing provenance ⇒ miss**, which is exactly the one-time rebuild that delivers the fix to existing users. Compare only the **intersection** of recorded pins with current host pins, keyed by identity on `revision` (falling back to `version`) — invalidating on any churn anywhere in a 70-package graph would make the cache worthless after the first bump. Precedent for the demotion hook already exists at `installer/build.rb:25` alongside `slice_complete?`.
-
-Known scope line: `gen-proxy` runs *before* this demotion, so a bare `spm-cache use` with no subsequent build still serves a stale binary for one cycle — identical to today's slice-incompleteness behavior, and acceptable for v0.4.0. Closing it fully means moving adjudication into Swift `BinariesCache`, which is v0.5 territory.
-
-### Recommended Stack
-
-Ruby-side, Xcode-26.3-verified, no companion-binary release required for the core fix.
-
-**Core technologies:**
-- **`Package.resolved` v3, copied verbatim into `<pkg_dir>/Package.resolved`** — the *only* thing that actually changes which version is built. Package-root path, not `.swiftpm/xcode/...` (spm-cache builds a bare package dir). Superset pins tolerated and pruned; missing pins filled in; `originHash` verified not enforced. No synthesis, no filtering, no format branching needed.
-- **Post-resolve read-back diff** — the correctness *proof*, and the milestone's second requirement. Free, since xcodebuild rewrites the file with realized versions.
-- **`xcodebuild -clonedSourcePackagesDirPath <dedicated sibling dir>`** — cost mechanism and secondary fidelity reinforcement (verified to preserve versions via `workspace-state.json` even with no resolved file). **Must NOT point at `{umbrella}/.build`** — that is where `locate_prebuilt_xcframework` (`build_pipeline.rb:873-882`) reads Class-E binaryTarget artifacts from, and it is SwiftPM's live umbrella state.
-- **GitHub App installation token via `actions/create-github-app-token@v3`** — for the tap push. 1-hour tokens minted per run; removes the recurring-expiry failure class entirely. Deploy key (`ssh-key:` on `actions/checkout`) is the lower-ceremony substitute.
-
-**Explicitly rejected:** SwiftPM mirrors (URL→URL only, carry no version information); `--replace-scm-with-registry`; `-packageCachePath` as a fidelity lever; building through the umbrella workspace (destroys three field-proven invariants — per-checkout DerivedData isolation, per-invocation library-evolution flags, vendored-`.xcodeproj` handling — re-litigating ~12 documented field bugs); re-minting a classic PAT (restores the status quo *including* the one-year auto-deletion that caused the outage); hard-failing on fidelity violation.
-
-### Expected Features
-
-**Must have (table stakes):**
-- Lockfile version reconciliation on every non-fast-path run — the dominant root cause; without it everything downstream is faithful to an abandoned graph
-- Per-package builds resolve transitive deps from the host graph, not their own requirements — the correctness floor
-- Dependent artifacts invalidated when a transitive resolved version changes — without it the fix is invisible
-- Degrade to source compilation on genuine conflict, never abort — settled policy; all four competitors degrade
-- Per-package build output states which resolution was used — an invisible decision is unauditable
-- Regression coverage pinning the fidelity contract — explicit milestone requirement; the v0.3.0 retrospective ("an implemented feature is not a done phase", 4 of 5 phases harbored defects) makes it non-optional
-- Homebrew formula published unattended, and the tap workflow **fails loudly** on token/push/commit failure
-
-**Should have (competitive):**
-- **Transitive-aware cache keys** — Rugby and XCRemoteCache have this; *neither SPM competitor does* (xccache's miss propagation is commented out; Scipio's VersionFile is single-package). Same work as the table-stakes invalidation row: sequence once, claim twice.
-- `doctor` fidelity check — a static `spm-cache.lock` vs `Package.resolved` comparison, no build required, plugging into the existing `Core::Diagnostics.register` registry. Rugby's `doctor` is a static text checklist; this would be a real assertion no competitor has.
-- Named per-package fidelity status (`host-pinned` / `resolution-incompatible → source`) as a new `GraphEntry.Status` case
-- Post-publish release verification (`brew install --build-from-source` + `--version` assertion) — the real definition of "published"
-
-**Defer (v2+ / v0.5):**
-- Content-addressed cache keys (Merkle-over-resolved-versions gets ~90% of the benefit; forward-compatible key *shape*)
-- Per-graph partitioning of `~/.spm-cache` (detecting collisions is the v0.4.0 obligation; partitioning is v0.5)
-- Cachemap real dependency edges (every `GraphEntry` is constructed `dependencies: []` today — nodes render, no edges)
-- Moving hit/miss adjudication into Swift `BinariesCache`
-- Parallelizing the build loop (`Core::Parallel`) — a correctness-class data race over shared checkouts
-
-**Anti-features (explicitly rejected):** hard-failing on fidelity violation; silently preferring the host graph with no report; skipping the cache whenever any pin disagrees (disagreement is the *normal* case, this would delete the product's value); `brew bump-formula-pr` fork-and-PR flow for a self-owned tap (reintroduces the manual merge step the milestone exists to remove).
-
-### Architecture Approach
-
-Ruby-only, additive, default-nil-preserves-today's-behavior. One new component is added *beneath* the existing ones; no responsibility moves between existing components.
-
-**Major components:**
-1. **`Core::PackageResolved`** (NEW) — single locator + parser for the host's `Package.resolved`. Collapses the same glob currently duplicated **five times** (`installer.rb:169`, `diff_detector.rb:150-155`, `core/watcher.rb:118`, `command/init.rb:196`, `command/use.rb:83`), which also makes the new pin source share a code path with the change detector that must agree with it.
-2. **`SPM::ResolvedGraph`** (NEW) — `source_for` / `pins` / `seed!` / `drift`. Pure filesystem + JSON, zero shell-out, zero network, trivially spec'd.
-3. **`SPM::BuildPipeline`** (MODIFIED) — new `resolved_pins_file:` / `clones_dir:` kwargs; seed **before** `resolve_forwarded_target` (i.e. before the first `describe`); post-build read-back diff; emit the provenance sidecar. **Both `run` and `run_with_scheme` must be wired** — the latter is the path vendored-`.xcodeproj` packages actually take.
-4. **`Installer::Build`** (MODIFIED) — resolve the pin source once per run; thread it through; extend the existing hit→missed promotion at `:25` with a pin-staleness check.
-5. **`Installer` lockfile reconciliation** (MODIFIED) — remove the `installer.rb:165-166` early return; re-read the host's `Package.resolved` and update `version`/`revision` per package while preserving enriched `products[]`.
-
-**Pin-source precedence** (one rule covers both the happy path and the DerivedData fallback, no branch in `checkout_resolver.rb`): `{umbrella_dir}/Package.resolved` → host project's `Package.resolved` → warn once and behave exactly as today. Under the DerivedData fallback no umbrella resolved file exists, so precedence naturally lands on the host file — which is *exactly right*, because those checkouts came from Xcode's own resolution of that same file.
-
-### Critical Pitfalls
-
-1. **Ship pinning without invalidation** — the fix reaches zero users and looks done. **Phase 2 and Phase 4 must ship together.**
-2. **Seed without verifying** — an out-of-range pin is silently discarded, re-resolved to latest, the file rewritten, exit 0. Strictly worse than today. Mitigation: retain intended pins separately and compare realized state post-resolve. **Never** add a "retry without the flag" branch, and **never** let `ignore_build_errors` mask a `resolution-incompatible` status (it is a build-error valve, not a correctness valve).
-3. **Treat the umbrella's graph as "the host graph"** — the umbrella is a synthesized root manifest that *by design* omits plugin-only packages (`UmbrellaGenerator.swift:42`) and revision-less transitive-only packages (`:64-67`), and clamps platforms. Enshrining it ships a second wrong graph and calls it fidelity. The **app's** `Package.resolved` is the sole authority.
-4. **Vendored-`.xcodeproj` packages ignore `Package.resolved` entirely** — CryptoSwift, AppAuth-iOS, SVGKit, DTCoreText, DeviceKit, AEXML, FSPagerView, SkeletonView build from a committed project whose own package references govern resolution. Injection is a **no-op** for this whole class. Classify before injecting and report them as an explicit *not graph-pinned* category; honest partial coverage beats a false 100%. Aggravator: `xcodebuild -list -project` can itself trigger resolution during scheme discovery.
-5. **Resolution fan-out** — SwiftPM checks out *every* pin listed in a resolved file, including ones the manifest never needs. 70 packages × 2 destinations × a full-graph pin list is a disk and wall-clock regression severe enough to negate the product's value, and it presents as "spm-cache got slow", not as a resolution bug. Mitigation: shared `-clonedSourcePackagesDirPath`, leave the repository cache on, and **benchmark on the real project — treat a wall-clock regression as a milestone blocker.** (Note: this is the one place where ARCHITECTURE.md's "copy the superset verbatim, it's free" and PITFALLS.md's "emit the minimal closure" genuinely trade off. Verbatim-copy is correct for *correctness*; fan-out is a *cost* question. Start verbatim, measure, and narrow to the closure only if the benchmark demands it.)
-
-**Also carried forward, lower rank:** `watch` re-entrancy (`recreate_dirs` `rm_rf`s `.build/checkouts` out from under an in-flight build — needs a process-level flock, not the debounce timer); Class-E path derivation (`locate_prebuilt_xcframework` requires `pkg_dir`'s parent to be literally named `checkouts`); macro packages with narrow `swift-syntax` pins as the most likely genuine-conflict class; stale resource bundles (`copy_resource_bundles` skips when the destination exists, and bundle names are version-stable); DerivedData reuse retaining modules built against the old graph; and the standing warning that **library evolution is not a version-mismatch mitigation** — it protects the evolving library, not a third framework compiled against the old version and co-linked with the new one.
-
-### Release Automation Defects (`update-tap.yml`) — consolidated
-
-Five independent defects, of which the expired token is the *visible* symptom and the *least* dangerous:
-
-| Defect | Line | Effect |
-|---|---|---|
-| Expired/revoked `TAP_REPO_TOKEN` | `:29` | `Bad credentials` at cross-repo checkout. Secret exists (updated 2026-08-09), destination repo is PUBLIC. Most likely cause: **GitHub auto-deletes classic PATs unused for a year** — and a tap-update token fires only on release. |
-| `curl -L` without `--fail` | `:35`-ish | Verified from `man curl`: on an HTTP error curl writes the **error page to the output file and exits 0**. `release: published` can fire before the tarball is servable ⇒ a 404 HTML page is hashed into the formula, workflow green, every `brew install` fails checksum for every user. |
-| `git commit … \|\| exit 0` | `:50` | Converts **every** commit failure into success — this is exactly the v0.2.7 silent-failure class, still present. |
-| Unanchored `sed s\|sha256 ".*"\|` | `:38-40` | Matches *every* `sha256`/`version` line. Single-`sha256` formula today; the moment a bottle block or resource stanza is added the release silently corrupts it. `sed` also exits 0 on zero matches, which defect #3 then swallows. |
-| GNU-only `sed -i` (no backup suffix) | `:38-40` | Correct on `ubuntu-latest`; this workflow must never move to a `macos-*` runner, where BSD `sed -i` requires an explicit argument. |
-
-**Durable token fix:** GitHub App installation token (`actions/create-github-app-token@v3`), App owned by `phuongddx`, `Contents: read & write` + `Metadata: read`, installed on `homebrew-spm-cache` **only**, never `workflow` scope. Drops straight into `actions/checkout`'s `token:` with no other workflow change. Deploy key with write access is the acceptable lower-ceremony substitute.
-
-**But the real gap is post-publish verification.** All four content defects above produce a **green workflow that published something broken**. Fixing them to fail loudly is worthless without a listener. The definition of done is a `macos-*` job that runs `brew install --build-from-source phuongddx/spm-cache/spm-cache` and asserts `spm-cache --version` matches the tag, plus an `if: failure()` notification (`gh issue create` is zero-infrastructure). One check catches v0.2.7, the 404-tarball case, and the `sed` case. Also add: `set -euo pipefail` in every `run:` block (none have it today), an explicit `permissions: contents: read`, and a `workflow_dispatch` trigger with a `tag` input so a transient failure can be retried without re-publishing a release.
+Also carried forward: CP5 (legacy `--watch` path must be excluded from the relay — hook only the watcher daemon), CP6 (own the watcher lifecycle: forward SIGTERM; extend the self-trigger guard to web-originated runs), CP7 (keep the 441-example hermetic suite — seam-tested units, at most one port-0 integration spec), CP10 (derive "build running" from the flock + run logs, never server memory), CP12 (health-check-before-open launcher; explicit env on spawned builds).
 
 ## Implications for Roadmap
 
-PITFALLS.md proposed 5 phases; ARCHITECTURE.md proposed 7. Consolidated into **6**, ordered by hard dependency.
+Five phases; ordering is dependency-driven (nothing to stream without run logs; no SSE without a server; build controls ride the stream; toggles are the last, only-state-writing surface). This preserves ARCHITECTURE.md's A–E build order with the graph verdict and pitfall mapping folded in.
 
-### Phase 1: Graph Authority — Lockfile Reconciliation
-**Rationale:** This is the **dominant root cause**, and it makes every later phase verifiable. Seeding a correct mechanism from a stale source produces a confidently wrong result. ARCHITECTURE.md classified this as a "separate finding, out of milestone"; the orchestrator's source-verified chain **overrides that** — it is the primary fix, not a follow-up.
-**Delivers:** `Core::PackageResolved` (collapsing the 5 duplicate globs); removal of the `installer.rb:165-166` early return; real reconciliation of `version`/`revision` on every non-fast-path run, preserving enriched `products[]`; deletion of the false premise comment at `UmbrellaGenerator.swift:57-63`.
-**Testable invariant:** after a run, re-running `DiffDetector` returns an **empty** diff. Lock versions equal `Package.resolved` versions.
-**Avoids:** P1 (umbrella-as-authority), P2 (stale snapshot), P13 (plugin-only/transitive-only omissions).
+### Phase 1: Run-Log Capture Foundation (no server)
+**Rationale:** the capture sink is the keystone every streaming feature consumes; it is independently testable and hermetic.
+**Delivers:** `Core::RunLog` (JSONL writer, `output(line)` sink), `Main.run` tee (skipped for `web`), `Core::Sh` stream mode as file-only sink (fixing the discarded-capture gap), `Config#runs_dir`/`web_dir`, retention policy. Proves: every CLI run (build/use/watch) leaves a queryable log, terminal behavior byte-identical.
+**Addresses:** FEATURES keystone prerequisite. **Avoids:** CP3.
 
-### Phase 2: Seed the Checkout — Host-Faithful Per-Package Resolution
-**Rationale:** The second drift mechanism. Depends on Phase 1 for a trustworthy source.
-**Delivers:** `SPM::ResolvedGraph`; `resolved_pins_file:` kwarg on `BuildPipeline.run` **and** `run_with_scheme`; seeding **before the first `describe`**; atomic write + `ensure`-block restore so an aborted build never leaves a checkout carrying a synthetic graph; SPM-native vs vendored-`.xcodeproj` classification with the latter reported as *not graph-pinned*; process-level flock so `watch` cannot delete checkouts mid-build. Default-nil ⇒ today's behavior byte-for-byte.
-**Uses:** verbatim superset copy; no flag by default (see conflict resolution).
-**Avoids:** P3, P6, P8, P11, P12, P15.
-**Early probe required:** confirm read-back has a reliable source on the `run_with_scheme` path.
+### Phase 2: Server Skeleton + Read-Only Dashboard
+**Rationale:** establish the HTTP adapter, security middleware, and read-models before anything streams or mutates.
+**Delivers:** `Command::Web` (watch-style lifecycle, marker relaunch, port probe skipping 5000/7000, auto-open), webrick gemspec declaration + require smoke spec, `Web::Server` adapter with Host/Origin/token middleware, read endpoints, extracted `Cache::Inventory` + `Diagnostics.json_payload`, cache state table (with sizes + fidelity), doctor panel, repaired graph **nodes** panel (vendored cytoscape, raw→elements transform, "run Integrate to generate" affordance when graph.json is absent).
+**Addresses:** web entry point, table, doctor, graph nodes. **Avoids:** CP7, CP8, CP9, CP13.
 
-### Phase 3: Drift Read-Back + Provenance Sidecar
-**Rationale:** The proof. Without it the milestone's second requirement ("drift cannot silently return") is unmet **by construction**. Must ship with Phase 2.
-**Delivers:** post-resolve re-read, diff against retained intended pins, warn + `resolution-incompatible` status → source fallback (never hard-fail, never masked by `ignore_build_errors`); `<Name>.xcframework.provenance.json`; `rm_f` of the sidecar in `copy_prebuilt_binary_target` (mirroring the documented `.shims.json` stale-sidecar bug); new `GraphEntry.Status` case surfaced in `cache list`, `doctor`, and the cachemap.
+### Phase 3: Live Streaming + Terminal/`watch` Relay
+**Rationale:** with run logs (P1) and a server (P2), streaming is one tailer + one broadcaster — and because the transport is the shared run log, terminal/`watch` relay is the *same* mechanism, not a second feature.
+**Delivers:** `Web::Events` tailer + SSE (byte-offset ids, `Last-Event-ID` replay, heartbeats, bounded queues, 503-not-204), log-view frontend (single stream + anchors, follow-tail with scroll lock, connection pill, failure banner), run identity + attribution, relay hygiene (watcher-daemon-only subscription, SIGTERM forwarding, web-run self-trigger guard), "waiting for build lock…" line in the Installer, honest handling of pid-dead-without-exit-line runs (CP14 detection nuance).
+**Addresses:** live stream, replay, reconnect, relay headline, run identity. **Avoids:** CP5, CP6, CP10, CP11, CP12.
 
-### Phase 4: Cache Identity & Invalidation
-**Rationale:** **Ships with Phases 2–3 or the milestone reaches nobody.** Not optional.
-**Delivers:** `pins_current?` alongside `slice_complete?` at `installer/build.rb:25`; missing provenance ⇒ miss (the one-time rebuild that delivers the fix to existing users); intersection-on-identity comparison granularity; graph fingerprint in the DerivedData key (or wipe-on-change); unconditional resource-bundle copy within a fresh build; extended `cache clean` sidecar sweep.
-**Avoids:** P5, P10, P14, P16.
+### Phase 4: UI Build Controls
+**Rationale:** build triggers are the first destructive mutations; they inherit P2's security middleware and P3's stream (the moment this lands, "trigger from UI, watch it stream" is complete end-to-end).
+**Delivers:** `Web::Jobs` single slot (409 on second), `POST /api/build` spawning the CLI (array argv, explicit env, **`pgroup: true` + process-group kill capability per CP14**), lock-probe busy state in `/api/state`, scope selection, failure surfacing with exit status, rollback wrapped in the flock, busy-vs-queue decision implemented.
+**Addresses:** build/rebuild button, busy states, failure surfacing. **Avoids:** CP4, CP13 (param validation), CP14 (mechanism).
 
-### Phase 5: Regression Coverage
-**Rationale:** Explicit milestone requirement, and the v0.3.0 lesson.
-**Delivers:** `spec/build_fidelity_regression_spec.rb` — an out-of-range fixture asserted to be **detected and reported**, not swallowed; double-build byte-stability (reusing the `init` idempotency pattern); a coverage assertion that every package in `Package.resolved` lands in **exactly one** bucket (pinned / ignored / excluded / plugin / resolution-incompatible / not-graph-pinned) with none silently absent; the full v0.2.x fixture matrix (Class-E binary target with a FirebaseAnalytics shape, macro with narrow `swift-syntax`, all eight vendored-`.xcodeproj` packages, plugin-only, transitive-only, resource bundle, private Clang shim, product≠target rename). All hermetic — the existing `Core::Sh` / `Desc` / `Buildable` stubs suffice; do **not** bolt a networked xcodebuild integration test onto CI.
+### Phase 5: Toggles + Panel Completion
+**Rationale:** the only phase that writes user state — lands last, on top of hardened read paths and P4's job machinery ("Apply now" = spawned `spm-cache use`).
+**Delivers:** `Config#disable_caching!/enable_caching!` + `off` refactor (one code path), atomic save, `POST /api/toggle`, pending/apply UX ("Saved — applies on next sync"), WHY-not reason join (pattern-managed entries read-only), `init` gitignore entry for `.spm-cache/`.
+**Addresses:** toggles, pending visibility, reasons. **Avoids:** CP1, CP2.
 
-### Phase 6: Release Automation (fully independent — parallelizable, schedulable first or last)
-**Rationale:** Zero coupling to the fidelity work: no shared files, no shared state, no ordering constraint. Highest value-per-hour in the milestone.
-**Delivers:** GitHub App token; `curl --fail --retry` + `tar -tzf` validation; explicit no-op-vs-failure discrimination replacing `|| exit 0`; anchored `sed` (or template generation) with `grep -c` post-conditions; `set -euo pipefail`; `permissions: contents: read`; `workflow_dispatch` with a `tag` input; **post-publish `brew install` + `--version` verification job**; `if: failure()` issue creation; optional scheduled token liveness probe.
+**Post-v0.5 (explicitly out of the milestone):** graph **edges** (Swift spike first — see Gaps), cache-state overlay on the graph, UI-run cancel (possible once P4's process-group machinery exists), drift-prefill scope, then the deferred list (history, remote+auth, multi-project).
 
 ### Phase Ordering Rationale
-
-- **1 → 2 → 3 → 4 is a hard chain.** Phase 2 is unverifiable against a stale graph (Phase 1); Phase 3 is the only proof Phase 2 worked; Phase 4 is the only way Phases 2–3 reach a user.
-- **3 and 4 must ship in the same release as 2.** Shipping pinning alone is exactly xccache's current state (structural guarantee, no invalidation) and is not a bar worth clearing.
-- **Phase 6 parallelizes completely.** Also a good first phase if a quick, independent win is wanted.
-- **Shared clone dir (`-clonedSourcePackagesDirPath`) is folded into Phase 2** as a cost mechanism, gated on the benchmark rather than shipped unconditionally.
-- **Phase 5 depends on 2–4** but its hermetic fixtures can be authored in parallel with them.
+- **Dependencies discovered in research:** capture sink precedes everything streamed (FEATURES dependency graph); server precedes SSE and jobs; stream precedes build controls (their output must be visible); toggles last because they are the only state writers and can reuse job machinery for "Apply".
+- **Grouping by architecture:** P1 is pipeline-adjacent (Core only); P2–P4 are the new `web/` layer in risk order (reads → streams → mutations); P5 closes the config-write surface.
+- **Pitfall avoidance by construction:** CP3 is P1's exit criterion; CP7/8/9/13 are P2's; the transport hazards CP10/11 are P3's design constraints, not afterthoughts; CP14's process-group mechanism is built into P4's Jobs rather than retrofitted; CP1/2/4 are exactly P4/P5 scope.
 
 ### Research Flags
+Phases likely needing deeper research during planning:
+- **Phase 3:** heaviest integration surface — SSE lifecycle/backpressure details plus watcher interplay (CP5/CP6/CP10/CP12 all land here). Research exists but is MEDIUM in its transport-practice sections; recommend `--research-phase` or an especially careful plan review.
+- **Graph edges (future phase):** genuine spike required — how to derive per-package dependency data (Package.resolved carries no graph; candidates are pbxproj/XcodeProj analysis or `swift package dump-package`), plus the writer/Ruby-consumer shape change. Unresearched; do not schedule without a spike.
 
-Phases likely needing `--research-phase` during planning:
-- **Phase 2** — the vendored-`.xcodeproj` classification boundary and the read-back source on `run_with_scheme` are the least-characterized surfaces; also the fan-out/benchmark trade-off between verbatim-superset and minimal-closure pin lists.
-- **Phase 4** — comparison granularity and the DerivedData fingerprint interact with the deferred v0.5 content-addressing work; getting the key *shape* forward-compatible matters more than the key itself.
-
-Phases with standard patterns (skip research):
-- **Phase 1** — the defect and its fix are fully source-verified; a mechanical change to a 30-line method.
-- **Phase 3** — reuses the established `.shims.json` sidecar and `Core::Diagnostics` registry patterns verbatim.
-- **Phase 5** — existing spec seams (`Core::Sh`, `Desc::Description`, `Buildable` factory) already proven across 258 green examples.
-- **Phase 6** — vendor-documented; `actions/create-github-app-token@v3` drops in with no design work.
+Phases with standard patterns (skip research-phase):
+- **Phases 1, 2, 4, 5:** code-anchored seams verified in this repo (`output(line)` contract, CLAide auto-registration, flock probe, config mutators); research is HIGH and implementation patterns are established.
 
 ## Confidence Assessment
 
 | Area | Confidence | Notes |
 |------|------------|-------|
-| Root-cause model | **HIGH** | Fully source-verified 5-link chain; original hypothesis independently falsified by HTTP probe; corroborated by a 24-package survey |
-| Stack | **HIGH** | Every load-bearing claim executed on this machine (Xcode 26.3 / Swift 6.2.4), reproduced independently by three researchers with concordant results |
-| Features | **HIGH** | Competitor mechanisms read from implementation source and shipped docs, not blog posts or search summaries |
-| Architecture | **HIGH** | Every integration point cited by `file:line` in this repo; empirical probes for every behavioral assumption |
-| Pitfalls | **HIGH** | 4 load-bearing experiments (V1–V4) reproduced locally; every codebase claim read from source |
-| Release automation | **MEDIUM** | Vendor documentation + live `gh secret list` / `gh repo view`, but no end-to-end dry run against `phuongddx/homebrew-spm-cache` |
+| Stack | HIGH | Every version verified 2026-08-31 against RubyGems/stdgems/Homebrew APIs; webrick absence machine-probed on all three target rubies; one internal amendment (transport: file-tail over UDS) adjudicated in this summary |
+| Features | HIGH | Every in-repo capability claim read or executed against this repo; competitor facts source-verified (MEDIUM only for BuildBuddy/Develocity IA details — non-load-bearing) |
+| Architecture | HIGH | Every integration seam at file:line in this repo; MEDIUM for SSE streaming-pattern details. One ARCHITECTURE.md claim (graph.json cytoscape edges) **falsified** and corrected above — resolved, with the dead-code writer identified |
+| Pitfalls | HIGH | Code-anchored + machine-probed (webrick matrix, `::1` resolution, AirPlay ports); MEDIUM sections are well-established web/platform canon, flagged as not re-derived; CP14 added from the original researcher's grounded finding and re-verified against `core/sh.rb` in this synthesis |
 
-**Overall confidence: HIGH** for the diagnosis and the recommended direction; **MEDIUM** for cost/blast-radius, which is unmeasured.
+**Overall confidence:** HIGH — an unusually well-grounded research set; the one material discrepancy was resolved against source rather than argued.
 
 ### Gaps to Address
 
-- **Root-cause attribution has not been reproduced against the real 59–70 package project.** The chain is source-verified and the motivating symptom is explained, but the *relative* contribution of surfaces #1 and #2 in the field is inferred, not measured. **Reproduce a release-config stale-transitive build on the real project early in Phase 1** and attribute it before Phase 2's design is locked.
-- **The blast radius of pinning is UNMEASURED.** Nobody knows how many of 59–70 packages would report `resolution-incompatible`. Run seeding in **report-only mode** against the real project and count, *before* committing to the policy. If it is 2 packages the source-fallback policy is trivially right; if it is 20, the milestone needs rescoping (e.g. a documented, dated exclusion of macro packages from graph pinning with a v0.5 follow-up).
-- **Wall-clock and disk cost is UNMEASURED.** Treat a regression on the real project as a milestone blocker, not a follow-up. `benchmark-report.html` already exists in the repo.
-
-### Open Questions — deduplicated and ranked
-
-| # | Question | Type |
-|---|---|---|
-| 1 | Which root-cause surface dominates in the field, and does the lockfile fix alone resolve the motivating ExyteChat/MediaPicker case? | **NEEDS EMPIRICAL MEASUREMENT** — Phase 1, blocking Phase 2's design |
-| 2 | How many packages report `resolution-incompatible` under pinning? | **NEEDS EMPIRICAL MEASUREMENT** — report-only run, blocking policy commitment |
-| 3 | What is the wall-clock/disk delta from the pin-list fan-out? Verbatim superset vs minimal closure? | **NEEDS EMPIRICAL MEASUREMENT** — benchmark decides; start verbatim |
-| 4 | Does xcodebuild write back realized versions on the `run_with_scheme` / vendored-`.xcodeproj` path? | **NEEDS EMPIRICAL MEASUREMENT** — the sole falsifier of the no-flag recommendation |
-| 5 | Cache-key migration: is a one-time full rebuild acceptable, or is a key-version namespace needed so old artifacts age out? | **USER DECISION** |
-| 6 | Exclude macro packages from graph pinning in v0.4.0, contingent on Q2's answer? | **USER DECISION** (record as a dated decision if taken) |
-| 7 | Is `~/.spm-cache` partitioned per-graph in v0.4.0 or v0.5? | **USER DECISION** — detect-via-provenance is the v0.4.0 floor either way |
-| 8 | Does a local package's own remote dependency get host-pinned too? | **USER DECISION** — recommendation: yes, same rule; confirm no local-package workflow depends on independent resolution |
-| 9 | On drift detection: warn or fail? | **RESOLVED-BY-SYNTHESIS** — warn + source fallback, never hard-fail (locked decision); `ignore_build_errors` must not mask it |
-| 10 | Should `-onlyUsePackageVersionsFromResolvedFile` be the default? | **RESOLVED-BY-SYNTHESIS** — no; opt-in strict mode only, pending Q4 |
-| 11 | Does a package's genuinely-unsatisfiable constraint also invalidate its dependents' cached artifacts? | **RESOLVED-BY-SYNTHESIS** — propagate; a dependent built against a source-compiled dep is the only self-consistent outcome (Rugby's behavior) |
-| 12 | Where does the injected resolved file live? | **RESOLVED-BY-SYNTHESIS** — package root `<pkg_dir>/Package.resolved` (empirically the only path honored), atomic write with `ensure`-block restore; scratch isolation via a *dedicated sibling* `-clonedSourcePackagesDirPath`, never `{umbrella}/.build` |
-| 13 | Tap token type? | **RESOLVED-BY-SYNTHESIS** — GitHub App installation token; deploy key as substitute; classic PAT rejected |
-| 14 | Does `swift package resolve` emit `{umbrella}/Package.resolved` in every failure/partial mode (`installer.rb:240-243` retry path)? | **RESOLVED-BY-SYNTHESIS** — the existence check in the precedence rule makes it self-correcting; a one-line field probe would settle it |
-| 15 | Does the `action/` composite repo need coordinated changes if the cache key gains provenance? | **RESOLVED-BY-SYNTHESIS** — out of scope for v0.4.0 (locked); record as a v0.5 follow-up |
+- **Graph-edge data source (spike required):** nothing in the current Swift pipeline assembles package dependencies. Options (pbxproj analysis vs `swift package dump-package`) unexplored. Handle: spike before scheduling an edges phase; v0.5 ships nodes only.
+- **Transport adjudication:** this summary recommends ARCHITECTURE.md's file-tail over STACK.md's UDS. Handle: confirm during Phase 1 planning; UDS remains the documented fallback for sandboxed environments.
+- **Default port:** research offers two examples (7915 / 7960) — pick one in planning; must skip 5000/7000, probe on conflict, persist the choice (CP9).
+- **`--log-dir` stub:** parsed but consumed by nothing today. Decide in Phase 1: repurpose as the run-log dir override (preferred — makes the stub real) or remove it; never leave two dead knobs.
+- **Pattern-authored ignore entries:** UI renders them read-only ("managed by pattern in spm-cache.yml") per ARCHITECTURE §5; confirm with the user during discuss whether an edit-patterns affordance is wanted later (recommended: defer).
+- **Mutation auth depth:** STACK says header checks suffice; CP13 recommends a per-launch token. Cheap either way; recommend the token since endpoints trigger builds and `rm_rf` — settle in Phase 2 planning.
+- **Toggle file-rewrite visibility:** toggling (like `off` today) rewrites `spm-cache.yml` without preserving user comments — acceptable, but surface it in the UI's undo affordance copy rather than silently surprising hand-maintained configs.
 
 ## Sources
 
 ### Primary (HIGH confidence)
-- **Empirical, this machine, 2026-08-27, Xcode 26.3 (17C529) / Swift 6.2.4:** experiments A–H (STACK.md), §2.1–2.4 probes (ARCHITECTURE.md), V1–V4 (PITFALLS.md) — pin honoring, superset tolerance, missing-pin fill-in, `originHash` indifference, out-of-range silent re-resolution + file rewrite, `-onlyUsePackageVersionsFromResolvedFile` exit 74, test-only dependency resolution for library-only schemes, shared-clone-dir version preservation, `.build/` ↔ `SourcePackages/` layout equivalence, 24-package committed-`Package.resolved` survey, `man curl --fail` semantics
-- **Orchestrator verification, 2026-08-27:** HTTP 404 probe of `exyte/Chat` `Package.resolved` at both canonical paths; source trace of `installer.rb:165-166,191,241` → `Lockfile.swift:118-126` → `UmbrellaGenerator.swift:73`
-- **This repository, read directly:** `lib/spm_cache/{installer.rb, installer/build.rb, spm/build.rb, spm/build_pipeline.rb, spm/checkout_resolver.rb, core/{config,diff_detector,lockfile,sh,diagnostics}.rb, command/cache/clean.rb}`; `tools/spm-cache-proxy/Sources/Core/{Cache,Lockfile,Generator/UmbrellaGenerator,Generator/ProxyGenerator}.swift`; `.github/workflows/update-tap.yml`; `spec/{buildable,build_pipeline,installer_build}_spec.rb`
-- **Competitor source and shipped docs:** xccache (`docs/under-the-hood/proxy-packages.md`, `lib/xccache/spm/desc/target.rb`), Scipio (`cache-system.md`, `prepare-cache-for-applications.md`), Rugby (`TargetsHasher.swift`, `Docs/commands-help/doctor.md`), XCRemoteCache (`README.md`)
-- `gh secret list` / `gh repo view` against the live repos
+- RubyGems API — versions + runtime-dep lists: webrick 1.9.2, puma 8.0.2, falcon 0.57.0, sinatra 4.2.1, roda 3.107.0, rack 3.2.7, websocket-driver 0.8.2, nio4r 2.7.5
+- stdgems.org — webrick bundled-gem 3.0–3.4, removed in 4.0; erb default-gem status
+- Homebrew formula API — ruby 4.0.6 default, ruby@3.3 3.3.12 pinned production
+- webrick 1.9.2 source — `HTTPResponse#chunked=` verified; pure Ruby
+- MDN "Using server-sent events" + HPBN — EventSource reconnect/`retry`/`Last-Event-ID`; WHATWG SSE spec — 204 terminates reconnection (CP11)
+- Oligo Security "0.0.0.0 Day" — localhost drive-by/CSRF threat model (CP13); Chrome 141/142 Local Network Access behavior
+- Dozzle, Playwright UI Mode, Vitest UI, Renovate Dashboard, Gradle Build Scans docs — UX patterns and storage postures
+
+### Repository (VERIFIED 2026-08-31, HIGH)
+- Code: `core/{sh,live_log,config,watcher,diagnostics}.rb`, `main.rb`, `command/{off,doctor,base,cache/list,watch}.rb`, `installer/{build,use,rollback}.rb`, `installer/integration/viz.rb`, `spm/pkg/proxy.rb`, `cache/cachemap.rb`, `assets/templates/cachemap.{html,js}.template`, `spec/spec_helper.rb`, `spm_cache.gemspec`
+- Conflict resolution (this synthesis): `tools/spm-cache-proxy/Sources/CLI/GenProxy.swift:56`, `Core/Generator/ProxyGenerator.swift:16-30, 64-90, 121-170, 247-254`, `Core/Generator/GraphGenerator.swift` (zero callers), `lib/spm_cache/cache/cachemap.rb:58-64`, `lib/spm_cache/assets/templates/cachemap.html.template`
+- CP14 verification (this synthesis): `lib/spm_cache/core/sh.rb:21-35` — popen3 block with no signal handling, no `Process.kill`, no `pgroup` spawn option
+- Machine probes: `require "webrick"` fails on rbenv 3.2.3 / Homebrew ruby 3.3 & 4.0; `localhost` → `::1` first (dscacheutil); AirPlay ControlCenter holds TCP 5000/7000
 
 ### Secondary (MEDIUM confidence)
-- Context7 `/swiftlang/swift-package-manager` — mirrors, path dependencies, `swift package edit`
-- GitHub Docs — PAT expiry/auto-removal, OAuth scopes, GitHub App tokens in Actions
-- `actions/create-github-app-token`, `mislav/bump-homebrew-formula-action`, `peter-evans/create-pull-request` READMEs
-- Homebrew Discussions #5129 (App tokens require `brew bump --no-fork`), #4389 (fine-grained PAT failures)
-
-### Tertiary (LOW confidence — corroborating only)
-- Apple Developer Forums thread 755995 — `originHash` purpose (independently VERIFIED above)
-- swiftlang/swift-package-manager#7644 — lazy `originHash` updates
-- softprops/action-gh-release#217 — release-event 404 timing class
+- BuildBuddy README — invocation-centric IA (vendor description, no walkthrough)
+- SSE buffering/practitioner writeups (stackoverflow, oneuptime 2026-01); Ruby threaded-IO guidance; localhost web-security canon (CP13 MEDIUM clauses)
 
 ---
-*Research completed: 2026-08-27*
+*Research completed: 2026-08-31*
 *Ready for roadmap: yes*
