@@ -39,6 +39,7 @@ actuals:
   tokens: 5701
   tasks: 3
   commits: 6
+requirements_completed: [REL-04, REL-05, REL-06, REL-07, REL-08, REL-09]
 ---
 
 # Phase 11 Plan 02: Homebrew Tap Publish Workflow Rewrite Summary

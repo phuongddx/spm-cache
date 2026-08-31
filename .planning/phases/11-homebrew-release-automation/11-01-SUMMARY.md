@@ -32,6 +32,7 @@ actuals:
   tokens: 265
   tasks: 2
   commits: 2
+requirements_completed: [REL-08]
 ---
 
 # Phase 11 Plan 01: `spm-cache --version` intercept Summary
