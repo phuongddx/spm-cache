@@ -4,6 +4,10 @@ phase: 06-graph-authority-lockfile-reconciliation
 source: [06-01-SUMMARY.md, 06-02-SUMMARY.md, 06-03-SUMMARY.md, 06-04-SUMMARY.md, 06-05-SUMMARY.md]
 started: 2026-08-27T14:54:25Z
 updated: 2026-08-27T22:58:00Z
+audit_acknowledged:
+  milestone: v0.4.0
+  at: 2026-08-31
+  gap_snapshot: "partial::scenarios=0"
 ---
 
 ## Current Test
@@ -13,12 +17,14 @@ updated: 2026-08-27T22:58:00Z
 ## Tests
 
 ### 1. doctor names lock/graph drift without a build
+
 expected: On a project whose spm-cache.lock disagrees with the host Package.resolved (by
   package set or by version/revision), `spm-cache doctor` reports the lock_graph_fidelity
   check as a warning naming the drifted packages -- with no Xcode build, resolve, or shell-out.
 result: pass
 
 ### 2. A non-fast-path run reconciles the lock to the canonical graph
+
 expected: Running spm-cache on a project whose Package.resolved changed (including the case
   where a stale duplicate resolved file exists elsewhere in the project) drops packages no
   longer in the host graph, adds new ones, and leaves DiffDetector reporting an empty diff --
@@ -30,6 +36,7 @@ reason: "User explicitly chose to override remaining UAT and proceed to autonomo
   user's own words on this test."
 
 ### 3. End-to-end use/build against the reference project
+
 expected: Running `spm-cache use` (and a subsequent build) on
   /Users/ddphuong/Projects/next-labs/stress-ai/ios-stress-app/StressMonitor resolves against
   the canonical 17-pin graph, the lock ends up holding those 17 packages (not the old 8), and

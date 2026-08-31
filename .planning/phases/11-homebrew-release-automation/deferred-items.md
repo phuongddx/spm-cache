@@ -30,3 +30,4 @@ the suggested fix was applied verbatim to the tap — `phuongddx/homebrew-spm-ca
 macos-15 runner pin was reverted here (`7028069`), and run 33350215267 proved it live on the
 Ruby-3.4 image: formula install green, no kconv/nkf LoadError, CLI boots to CLAide, verify
 fails exactly at the version assertion. Nothing remains on this item.
+  status: acknowledged
