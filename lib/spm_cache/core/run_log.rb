@@ -136,6 +136,13 @@ module SPMCache
         file.sync = true
         log = new(path: path, file: file, previous_current: current)
         self.current = log
+        # Rotation-time retention (D-07): AFTER the header rename lands, so
+        # the just-opened file already exists and prune excludes it by
+        # identity; budgets come from Config (D-06: count + size hybrid,
+        # yml-configurable). SC4 / T-12-04: this is the only bound
+        # full-fidelity capture ever needs.
+        log.prune(keep: Config.instance.runs_keep,
+                  max_bytes: Config.instance.runs_max_mb * 1024 * 1024)
         log
       rescue StandardError => e
         Core::UI.warn "run log disabled: could not open run log in #{runs_dir}: #{e.message}"
@@ -220,6 +227,42 @@ module SPMCache
         @file.close
       end
 
+      # Retention (SC4): count + size hybrid (D-06), oldest-first, invoked
+      # from .open right after the new header lands (D-07: rotation-time
+      # cleanup -- no separate maintenance command). The budgets govern the
+      # retained PRIOR runs; the just-opened run is never a candidate (its
+      # own path is excluded below), and neither is any candidate whose
+      # run_start pid is still alive (Pitfall 6 / CP14 applied at birth --
+      # a live run's log survives even over budget). Only whole files are
+      # ever deleted: logs are never truncated or clipped (D-05), and
+      # individual *.jsonl names are unlinked -- never a directory rm_rf
+      # (T-12-03).
+      def prune(keep:, max_bytes:)
+        candidates = Dir.glob(File.join(File.dirname(@path), '*.jsonl')).sort - [@path]
+        count = candidates.length
+        total = candidates.sum { |candidate| file_size(candidate) }
+        # Oldest first: timestamp-prefixed names, lexicographic ==
+        # chronological (EDGE ordering).
+        candidates.each do |candidate|
+          break if count <= keep && total <= max_bytes
+
+          next if live_pid?(candidate)
+
+          begin
+            size = file_size(candidate)
+            File.delete(candidate)
+          rescue StandardError
+            next # vanished mid-walk or undeletable: skip, never raise into the run
+          end
+          count -= 1
+          total -= size
+        end
+        nil
+      rescue StandardError => e
+        warn_once("run log prune skipped: #{e.message}")
+        nil
+      end
+
       private
 
       # Emit any trailing partial line (a `print` without newline) before the
@@ -255,6 +298,43 @@ module SPMCache
 
         @warned = true
         Core::UI.warn message
+      end
+
+      # File.size that treats an already-gone candidate (a concurrent run
+      # pruned it mid-walk) as zero bytes: its own File.delete then no-ops
+      # through the per-candidate rescue in #prune.
+      def file_size(path)
+        File.size(path)
+      rescue StandardError
+        0
+      end
+
+      # True when the candidate's run_start pid is still alive (Pitfall 6):
+      # Process.kill(0, pid) probes liveness -- Errno::ESRCH means dead; any
+      # other error (e.g. EPERM) means the pid exists, so treat as alive.
+      def live_pid?(path)
+        pid = run_start_pid(path)
+        return false unless pid.is_a?(Integer)
+
+        begin
+          Process.kill(0, pid)
+          true
+        rescue Errno::ESRCH
+          false
+        rescue StandardError
+          true
+        end
+      end
+
+      # The candidate's first-line run_start pid, or nil when unreadable or
+      # unparseable (no pid to protect: dead, so retention still bounds the
+      # file). Only the candidate's own header is parsed -- body content is
+      # ignored (T-12-01).
+      def run_start_pid(path)
+        header = File.open(path, &:gets)
+        JSON.parse(header)['pid'] if header
+      rescue StandardError
+        nil
       end
 
       # Write-through wrapper swapped onto $stdout/$stderr by Main.run. The
