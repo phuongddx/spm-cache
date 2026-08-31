@@ -262,12 +262,15 @@ module SPMCache
       # from .open right after the new header lands (D-07: rotation-time
       # cleanup -- no separate maintenance command). The budgets govern the
       # retained PRIOR runs; the just-opened run is never a candidate (its
-      # own path is excluded below), and neither is any candidate whose
-      # run_start pid is still alive (Pitfall 6 / CP14 applied at birth --
-      # a live run's log survives even over budget). Only whole files are
-      # ever deleted: logs are never truncated or clipped (D-05), and
-      # individual *.jsonl names are unlinked -- never a directory rm_rf
-      # (T-12-03).
+      # own path is excluded below). Liveness protection (Pitfall 6 / CP14
+      # applied at birth) covers only a DIFFERENT process's live pid -- a
+      # concurrent run's log survives even over budget. A same-pid prior
+      # file is by construction a finished run of THIS process (its
+      # run_end landed in finish), so exempting it let a watch session's
+      # own cycles grow the runs dir without bound (CR-03 / T-12-04). Only
+      # whole files are ever deleted: logs are never truncated or clipped
+      # (D-05), and individual *.jsonl names are unlinked -- never a
+      # directory rm_rf (T-12-03).
       def prune(keep:, max_bytes:)
         candidates = Dir.glob(File.join(File.dirname(@path), '*.jsonl')).sort - [@path]
         count = candidates.length
@@ -277,7 +280,8 @@ module SPMCache
         candidates.each do |candidate|
           break if count <= keep && total <= max_bytes
 
-          next if live_pid?(candidate)
+          pid = run_start_pid(candidate)
+          next if protected_run?(pid)
 
           begin
             size = file_size(candidate)
@@ -342,21 +346,23 @@ module SPMCache
         0
       end
 
-      # True when the candidate's run_start pid is still alive (Pitfall 6):
-      # Process.kill(0, pid) probes liveness -- Errno::ESRCH means dead; any
-      # other error (e.g. EPERM) means the pid exists, so treat as alive.
-      def live_pid?(path)
-        pid = run_start_pid(path)
-        return false unless pid.is_a?(Integer)
+      # True when a pid is still alive (Pitfall 6): Process.kill(0, pid)
+      # probes liveness -- Errno::ESRCH means dead; any other error (e.g.
+      # EPERM) means the pid exists, so treat as alive.
+      def pid_alive?(pid)
+        Process.kill(0, pid)
+        true
+      rescue Errno::ESRCH
+        false
+      rescue StandardError
+        true
+      end
 
-        begin
-          Process.kill(0, pid)
-          true
-        rescue Errno::ESRCH
-          false
-        rescue StandardError
-          true
-        end
+      # CR-03: the ONLY protected candidates are another live process's runs
+      # (Pitfall 6). A same-pid prior file is a finished run of this very
+      # process, and an unreadable pid protects nothing.
+      def protected_run?(pid)
+        pid.is_a?(Integer) && pid != Process.pid && pid_alive?(pid)
       end
 
       # The candidate's first-line run_start pid, or nil when unreadable or

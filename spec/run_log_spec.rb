@@ -250,17 +250,31 @@ RSpec.describe SPMCache::Core::RunLog do
       expect(File.read(log.path).lines.length).to eq(2) # header + run_end: the run itself was unaffected
     end
 
-    it 'never prunes a live-pid run even over budget; a dead-pid run is pruned (Pitfall 6 / CP14 at birth)' do
+    it 'never prunes a live-pid run of a DIFFERENT process even over budget; dead-pid runs are pruned (Pitfall 6)' do
       config.raw['runs_keep'] = 0
       config.raw['runs_max_mb'] = 0
-      live = fabricate_old_run('20200101T000000000Z-1-use.jsonl', pid: Process.pid) # alive, no run_end line
-      dead = fabricate_old_run('20200101T000000001Z-2-use.jsonl', pid: 2_000_000) # ESRCH: out-of-range pid
-      log = open_log
-      log.finish(0)
+      child = Process.spawn('sleep', '60') # a live foreign pid, hermetically
+      begin
+        live = fabricate_old_run('20200101T000000000Z-1-use.jsonl', pid: child)
+        dead = fabricate_old_run('20200101T000000001Z-2-use.jsonl', pid: 2_000_000) # ESRCH: out-of-range pid
+        log = open_log
+        log.finish(0)
 
-      expect(File.exist?(live)).to be(true)
-      expect(File.exist?(dead)).to be(false)
-      expect(File.exist?(log.path)).to be(true)
+        expect(File.exist?(live)).to be(true)
+        expect(File.exist?(dead)).to be(false)
+        expect(File.exist?(log.path)).to be(true)
+      ensure
+        begin
+          Process.kill('KILL', child)
+        rescue StandardError
+          nil
+        end
+        begin
+          Process.wait(child)
+        rescue StandardError
+          nil
+        end
+      end
     end
 
     # CR-03 / T-12-04: every prior cycle of a RUNNING watch session carries
@@ -278,7 +292,8 @@ RSpec.describe SPMCache::Core::RunLog do
 
       expect(File.exist?(first)).to be(false)  # oldest same-pid cycle pruned
       expect(File.exist?(second)).to be(true)  # within keep budget
-      expect(Dir.children(runs_dir).sort).to eq([File.basename(second), File.basename(log.path)])
+      expect(Dir.children(runs_dir).sort)
+        .to eq([File.basename(second), File.basename(log.path)])
     end
 
     it 'deletes nothing when the runs dir is under both budgets (EDGE empty)' do
