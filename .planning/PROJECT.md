@@ -2,20 +2,27 @@
 
 ## What This Is
 
-`spm-cache` is a macOS CLI tool that caches Swift Package Manager dependencies as `.xcframework` binaries and swaps them transparently at the SPM manifest level using a proxy-package architecture. It reads the Xcode project directly, auto-detects SPM graph changes, and falls back to source compilation on cache miss — no separate manifest, no manual drag-drop. It ships as a Ruby gem with a Swift companion binary, distributed via Homebrew and RubyGems, for iOS/macOS development teams, CI pipelines, and individual developers who want faster clean builds.
+`spm-cache` is a macOS CLI tool that caches Swift Package Manager dependencies as `.xcframework` binaries and swaps them transparently at the SPM manifest level using a proxy-package architecture. It reads the Xcode project directly, auto-detects SPM graph changes, and falls back to source compilation on cache miss — no separate manifest, no manual drag-drop. It ships as a Ruby gem with a Swift companion binary, distributed via Homebrew (RubyGems publication deferred), for iOS/macOS development teams, CI pipelines, and individual developers who want faster clean builds.
 
 ## Core Value
 
 Reduce Xcode clean build times by serving prebuilt SPM dependency binaries transparently, with automatic fallback to source compilation on cache miss — so a cache hit never breaks a build.
 
-## Current Milestone: v0.4.0 Build Fidelity & Release Automation
+## Current State: v0.4.0 shipped (2026-08-31)
 
-**Goal:** Make cached builds faithful to the host app's resolved dependency graph, and repair the Homebrew release path so shipping stops requiring manual steps.
+Build fidelity closed end-to-end: cached builds are compiled, verified, and invalidated
+against the host app's resolved dependency graph (canonical locator → host-graph seeding →
+drift read-back + provenance sidecars → provenance-gated cache hits), pinned by hermetic
+regression specs (441 examples). Release automation repaired and live-proven: rewritten
+`update-tap.yml` (every failure loud, deploy-key auth, byte-stable asset pinning, first real
+tap push landed 2026-08-31), `--version` intercept working. Remaining operator step: the
+v0.4.0 release cut itself (bump VERSION → tag → attach tarball asset → watch first fully-green
+verify-publish).
 
-**Target features:**
-- Package builds resolve transitive dependencies from the host project's resolved graph, not each package's own committed `Package.resolved`
-- Regression coverage proving transitive-version drift cannot silently return
-- `TAP_REPO_TOKEN` repaired so `update-tap.yml` publishes the Homebrew formula without manual intervention
+## Next Milestone Goals (not yet defined — run /gsd-new-milestone)
+
+Candidates on record: `~/.spm-cache` partitioning + content-addressed keys (v0.5 carry-over),
+RubyGems publication (+ GitHub Action viability it unlocks), tap-repo automation hardening.
 
 ## Requirements
 
@@ -40,16 +47,13 @@ Reduce Xcode clean build times by serving prebuilt SPM dependency binaries trans
 - ✓ Test CI pipeline (`ci.yml`) — full RSpec + swift-test suite on every PR/push, proxy binary built on every ruby-tests leg — Phase 1 (v0.3.0)
 - ✓ `spm-cache doctor` — 7-check data-driven registry, marker report + fix hints, `--json`, hermetic Core::Sh-seam specs, companion `--version` probe working (0.3.0) — Phase 2 (v0.3.0)
 - ✓ `spm-cache init` — 7-flag bootstrap wizard, TTY-conditional prompts, idempotent yml diff-merge, canonical lockfile seeding (init→use fast path proven) — Phase 3 (v0.3.0)
-- ✓ GitHub Action (`action/` → `phuongddx/spm-cache-action`) — 6-input thin composite, `--default-config` wiring fixed, 12-example structural spec; publication is a release-checklist item — Phase 4 (v0.3.0)
-- ✓ `spm-cache watch` — mtime+size polling (user-accepted 2026-08-24, supersedes FSEvents design), debounce 2s, `--once`, signal-safe flush (INT/TERM masked during flush), self-trigger guard — Phase 5 (v0.3.0)
-- ✓ Package builds resolve transitive dependencies from the host project's resolved graph (fixes release-config cache builds linking stale transitive versions) — Phase 6 (canonical locator + lockfile reconciliation) + Phase 7 (host-graph seeding, vendored-project classification, no perf regression) (v0.4.0)
-- ✓ Realized versions are read back after resolution, drift is reported (never hard-failed), and every cached `.xcframework` carries a provenance sidecar (`fidelity_status`/pins/version/config/destinations); `cache list` surfaces per-package fidelity status — Phase 8 (v0.4.0)
-- ✓ Cache identity is provenance-aware: a hit requires recorded pins matching the host graph (missing provenance = miss → one-time rebuild), two projects pinning different versions stop sharing one artifact, `cache clean` sweeps orphaned sidecars, and the default `spm-cache` command honors the invalidation — Phase 9 (v0.4.0)
 - ✓ The fidelity contract is pinned by hermetic specs (drift regression, six-bucket partition coverage, 8-class v0.2.x edge matrix — 416 examples green on the Ruby 3.1–3.3 CI matrix, no network, no real xcodebuild) — Phase 10 (v0.4.0)
+- ✓ Release automation end-to-end: `update-tap.yml` publishes the Homebrew formula unattended via a scoped write deploy key (`TAP_DEPLOY_KEY`), every failure mode loud, integrity-gated byte-stable tarball pinning, idempotent re-runs, and a brew verify job whose version assertion demonstrably has teeth — live-proven including a real tap push (2026-08-31) — Phase 11 (v0.4.0)
+- ✓ `spm-cache --version` prints the gem version and exits 0 (pre-CLAide intercept) — Phase 11 (v0.4.0)
 
 ### Active
 
-- [ ] `update-tap.yml` publishes the Homebrew formula unattended (`TAP_REPO_TOKEN` valid) — v0.4.0
+(none — next milestone not yet defined)
 
 ### Out of Scope
 
@@ -94,7 +98,9 @@ Known state after v0.3.0: test CI runs the full suite on every PR/push (was: non
 | RubyGems publication deferred out of v0.4.0 | User decision 2026-08-27; Homebrew builds from the GitHub release tarball and needs no gem on RubyGems | — Pending |
 | Host graph seeded verbatim before first `swift package describe`, no `-onlyUsePackageVersionsFromResolvedFile` flag | Xcodebuild silently upgrades a seeded pin below a package's manifest floor rather than hard-failing; detecting that drift is Phase 8's job, not Phase 7's | ✓ Shipped Phase 7 — FID-02/FID-05 complete |
 | Shared `-clonedSourcePackagesDirPath` + process-level build lock | Verbatim host-graph seeding fans out per-package clones; a shared clone dir plus a lock closing the watch/build race were required to avoid a wall-clock/disk regression | ✓ Shipped Phase 7 — PERF-01: -40.6% wall-clock, -34% disk vs pre-seeding baseline on the reference project |
-| Single consolidated drift/provenance insertion point in `BuildPipeline.run` (right after the build succeeds), not duplicated across the three artifact-producing paths | Simpler, DRYer, and gives the Class E (`copy_prebuilt_binary_target`) path a correct provenance sidecar for free with no special-casing | ✓ Shipped Phase 8 |
+| Regression coverage observes BOTH production surfaces (Ruby sidecar statuses + Swift graph.json) with fail-first mutation-proven assertions, not just passing examples | An implemented feature is not a done phase (v0.3.0 lesson) — a regression spec that can't fail is false assurance; the partition must catch zero-bucket AND double-bucket misses | ✓ Shipped Phase 10 — TEST-01/02/03 verified 23/23, review converged after WR-01/02 fixes |
+| Fidelity violation → warn + source fallback, never hard-fail; missing provenance ⇒ cache miss (one-time rebuild) | Core Value: a cache hit never breaks a build; grandfathering would keep serving artifacts built against unverified graphs | ✓ Shipped v0.4.0 — Phase 8/9 |
+| Tap credential = scoped write deploy key (not GitHub App token, not classic PAT) | Operator-authorized pivot at the Phase 11 blocking-human gate 2026-08-31: single-repo scope, no workflow reach, non-expiring; classic PAT re-mint rejected (the one-year auto-delete caused the outage) | ✓ Shipped Phase 11 — REL-04 as long-lived machine credential (dated accepted deviation) |
 | Resolution-incompatible classification runs strictly on the success path, never via `raise` | Structurally unmaskable by `ignore_build_errors?` — a package that can't satisfy the host graph still builds and caches, just gets reported, never hard-fails | ✓ Shipped Phase 8 — FID-04 |
 | Provenance sidecar write is atomic (tempfile + rename) and never raises on I/O failure | A metadata-write failure must never be mistaken for a build failure — the xcframework it describes already built successfully | ✓ Shipped Phase 8 (WR-03 code-review fix) |
 | Missing provenance ⇒ unconditional cache miss; pin comparison is intersection-only (absence never drift); `fast_path?` version stamp forces one regen after any spm-cache upgrade | The only invalidation design that delivers the fidelity fix to existing users without needlessly emptying the cache on unrelated bumps | ✓ Shipped Phase 9 — CACHE-02/CACHE-03 verified, SC5 operator-PASS |
@@ -118,4 +124,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-08-30 after Phase 10*
+*Last updated: 2026-08-31 at v0.4.0 milestone close*
