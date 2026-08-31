@@ -60,7 +60,14 @@ Full phase detail: `milestones/v0.4.0-ROADMAP.md` · Audit: `v0.4.0-MILESTONE-AU
   2. The log body captures what the terminal showed — including a failing build's error lines and output from spawned xcodebuild/swift subprocesses — so the full run can be reconstructed offline
   3. Terminal output and exit codes are unchanged by the capture (tee is invisible), and `spm-cache web` itself never writes a run log
   4. Repeated runs accumulate logs without unbounded growth (retention policy caps old runs)
-**Plans**: TBD
+**Plans**: 5 plans
+
+Plans:
+- [ ] 12-01-PLAN.md — Tracer: Core::RunLog + Main.run end-to-end run-log slice (tee, header/body/exit, --no-run-log, --log-dir, exit-shape parity)
+- [ ] 12-02-PLAN.md — Core::Sh popen3 per-stream sink + failure_detail restoration + capture3 sh events (SC2 subprocess capture)
+- [ ] 12-03-PLAN.md — Retention (runs_keep/runs_max_mb count+size hybrid at run start), config keys, yml template, .spm-cache/ gitignore entry (SC4)
+- [ ] 12-04-PLAN.md — Structured event vocabulary: package_start/package_end, phase markers (detect/integrate/build/fidelity), xcodebuild sink activation (D-04)
+- [ ] 12-05-PLAN.md — Watch per-cycle run logs via the installer_factory wrapper + D-08 no-allowlist proof (D-09)
 
 ### Phase 13: Server Skeleton + Read-Only Dashboard
 **Goal**: `spm-cache web` serves a localhost-only, fully-offline dashboard showing cache state, doctor health, and the dependency graph — read-only, and hardened against localhost drive-by requests before any mutating endpoint exists
@@ -130,7 +137,7 @@ Pitfall-to-phase mapping (full set in `research/PITFALLS.md`): CP3 → P12; CP7/
 
 | Phase | Milestone | Plans Complete | Status | Completed |
 |-------|-----------|----------------|--------|-----------|
-| 12. Run-Log Capture Foundation | v0.5.0 | 0/? | Not started | - |
+| 12. Run-Log Capture Foundation | v0.5.0 | 0/5 | Not started | - |
 | 13. Server Skeleton + Read-Only Dashboard | v0.5.0 | 0/? | Not started | - |
 | 14. Live Log Streaming + Terminal/Watch Relay | v0.5.0 | 0/? | Not started | - |
 | 15. UI Build Controls | v0.5.0 | 0/? | Not started | - |
