@@ -18,6 +18,16 @@ module SPMCache
           verify_projects!
           detect_diff
 
+          # D-04/LOGS-01: detect phase marker immediately after diff
+          # detection. Nil-guarded via the process-wide seam -- every
+          # caller/spec path without an active run log is a no-op.
+          Core::RunLog.current&.event('phase', name: 'detect')
+
+          # D-04/LOGS-01: integrate phase marker emitted ONCE, immediately
+          # before the branch -- both the fast and full paths integrate, so
+          # a single site here records exactly one marker per run.
+          Core::RunLog.current&.event('phase', name: 'integrate')
+
           if fast_path?
             Core::UI.info 'No changes detected. Proxy package up to date.'
             with_build_lock do

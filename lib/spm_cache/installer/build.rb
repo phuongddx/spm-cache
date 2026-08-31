@@ -30,6 +30,16 @@ module SPMCache
           filter_requested_targets!(missed) if @requested_targets.any?
           missed.uniq!
 
+          # D-04/LOGS-01: build phase marker before the per-package loop,
+          # emitted BEFORE the empty-set early return below so a zero-pins
+          # run still records that the build phase ran and produced no
+          # packages (EDGE empty: phase markers present, zero package_*
+          # events -- behavior bullet + EDGE truth; the 'Building N' info
+          # line is unreachable on that path, so it cannot host the marker).
+          # The &. guard makes every caller/spec path without an active run
+          # log a no-op.
+          Core::RunLog.current&.event('phase', name: 'build')
+
           if missed.empty?
             Core::UI.info 'No targets to build.'
             return
