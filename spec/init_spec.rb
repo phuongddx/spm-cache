@@ -149,6 +149,36 @@ RSpec.describe SPMCache::Command::Init do
     end
   end
 
+  # WR-05: a VALID-JSON Package.resolved whose pins array contains
+  # non-objects ("pins": ["Alamofire"]) used to raise TypeError/NoMethodError
+  # in seed_lockfile AFTER the yml was written but BEFORE the lockfile and
+  # .gitignore -- exactly the mid-run abort the guard comment promises never
+  # happens. Malformed pins are dropped with a warning, not fatal.
+  it 'seeds from the object pins and keeps init alive when Package.resolved pins contain non-objects (WR-05)' do
+    pins_tmpdir = Dir.mktmpdir
+    begin
+      pins_project = File.join(pins_tmpdir, project_name)
+      FileUtils.mkdir_p(File.join(pins_project, 'project.xcworkspace', 'xcshareddata', 'swiftpm'))
+      File.write(File.join(pins_project, 'project.xcworkspace', 'xcshareddata', 'swiftpm', 'Package.resolved'),
+                 '{"pins":["Alamofire",{"identity":"Moya","kind":"remoteSourceControl","location":"https://github.com/Moya/Moya.git","state":{"revision":"beef","version":"7.0.0"}}],"version":1}')
+
+      cmd = parse_init(["--project=#{pins_project}", '--platform=ios', '--default-config=debug'])
+      SPMCache::Core::Config.instance.reset!
+
+      expect do
+        expect { cmd.run }.to output(/Seeded spm-cache\.lock/).to_stdout
+      end.to output(/\[warn\] Package\.resolved at .* dropped 1 malformed pin/).to_stderr
+
+      lock_path = File.join(pins_tmpdir, 'spm-cache.lock')
+      data = JSON.parse(File.read(lock_path))
+      expect(data[project_name]['packages'].length).to eq(1) # the object pin survived
+      expect(data[project_name]['packages'].first).to include('name' => 'Moya', 'version' => '7.0.0')
+      expect(File.read(File.join(pins_tmpdir, '.gitignore'))).to include('spm-cache/') # init reached the end
+    ensure
+      FileUtils.remove_entry(pins_tmpdir)
+    end
+  end
+
   it 'is idempotent — re-running preserves user keys and does not duplicate .gitignore' do
     cmd1 = parse_init(["--project=#{project_path}", '--platform=ios', '--default-config=debug'])
     SPMCache::Core::Config.instance.reset!
