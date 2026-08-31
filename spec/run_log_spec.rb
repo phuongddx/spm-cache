@@ -64,6 +64,36 @@ RSpec.describe SPMCache::Core::RunLog do
     end
   end
 
+  # CR-01 (LOGS-01): xcodebuild/compiler output carries arbitrary bytes. One
+  # invalid-UTF-8 sequence used to raise JSON::GeneratorError OUT of the
+  # writer, killing the Sh reader thread mid-stream and failing the wrapped
+  # build. Capture must never mask, fail, or alter the operation: invalid
+  # bytes degrade to U+FFFD replacements (the file stays a valid JSONL
+  # document) and the run continues.
+  describe 'invalid UTF-8 degradation (CR-01)' do
+    it 'scrubs invalid bytes in body lines instead of raising; the run continues' do
+      log = open_log
+      expect { log.record_text("bad \xFF\xFE bytes\n", 'out') }.not_to raise_error
+      log.record_text("after the bad line\n", 'out')
+      log.finish(0)
+
+      parsed = File.read(log.path).lines.map { |line| JSON.parse(line) } # every line valid JSON
+      texts = parsed.select { |entry| entry.key?('text') }.map { |entry| entry['text'] }
+      expect(texts.first).to include("bad \uFFFD\uFFFD bytes\n")
+      expect(texts).to include("after the bad line\n") # capture kept streaming
+    end
+
+    it 'scrubs invalid bytes in event string fields and keeps non-string fields typed' do
+      log = open_log
+      expect { log.event('sh', cmd: "xcodebuild \xFF build\n", status: 65) }.not_to raise_error
+      log.finish(0)
+
+      events = File.read(log.path).lines.map { |line| JSON.parse(line) }.select { |entry| entry['event'] == 'sh' }
+      expect(events.first['cmd']).to eq("xcodebuild \uFFFD build\n")
+      expect(events.first['status']).to eq(65) # the JSON schema keeps numeric types
+    end
+  end
+
   describe 'partial-line buffering' do
     it 'emits ONE body line for record_line("par") followed by record_line("tial\n")' do
       log = open_log

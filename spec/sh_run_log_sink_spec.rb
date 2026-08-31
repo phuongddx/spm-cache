@@ -101,6 +101,14 @@ RSpec.describe SPMCache::Core::Sh do
       expect(lines.length).to eq(2) # header + run_end only
       lines.each { |line| JSON.parse(line) }
     end
+
+    it 'sanitizes invalid UTF-8 from a real subprocess instead of failing the run (CR-01)' do
+      described_class.run("printf 'bad \\xff\\xfe byte\\n'", live_log_out: out_sink, live_log_err: err_sink)
+      expect { log.finish(0) }.not_to raise_error
+      parsed = File.read(log.path).lines.map { |line| JSON.parse(line) } # raises on any unsanitized line
+      texts = parsed.select { |entry| entry.key?('text') }.map { |entry| entry['text'] }
+      expect(texts).to include(a_string_including('bad', 'byte'))
+    end
   end
 
   describe 'legacy live_log back-compat' do
