@@ -2,6 +2,8 @@
 
 require 'spec_helper'
 require 'json'
+require 'tmpdir'
+require 'xcodeproj'
 require 'spm_cache/core/diagnostics'
 
 # Two-layer doctor coverage:
@@ -174,13 +176,14 @@ RSpec.describe SPMCache::Core::Diagnostics, 'hermetic per-check paths (injected 
   it 'registers the built-in checks in registration (report) order' do
     expect(SPMCache::Core::Diagnostics.registry.map(&:name)).to eq(
       %w[xcode_version swift_version toolchain_path cache_dir_health
-         library_evolution_compatibility remote_backend_connectivity companion_binary]
+         library_evolution_compatibility remote_backend_connectivity companion_binary
+         lock_graph_fidelity]
     )
   end
 end
 
 RSpec.describe 'spm-cache doctor with a fully absent toolchain' do
-  it 'renders all 7 checks, marks the three toolchain probes failed, and exits 1' do
+  it 'renders all 8 checks, marks the three toolchain probes failed, and exits 1' do
     require 'spm_cache/command/doctor'
     allow(SPMCache::Core::Sh).to receive(:capture_output)
       .and_raise(SPMCache::Core::GeneralError.new('Command failed (exit 1): not installed'))
@@ -196,11 +199,65 @@ RSpec.describe 'spm-cache doctor with a fully absent toolchain' do
       $stdout = original_stdout
     end
     marker_lines = out.string.lines.map(&:strip).select { |l| l.match?(/\A[✓!✗] /) }
-    expect(marker_lines.length).to eq(7) # none dropped, none extra — report completed
+    expect(marker_lines.length).to eq(8) # none dropped, none extra — report completed
     %w[xcode_version swift_version toolchain_path].each do |name|
       expect(marker_lines).to include(a_string_starting_with("✗ #{name}:"))
     end
     expect(out.string).to match(/Summary: \d+ ok, \d+ warnings?, 3 failures/)
+  end
+end
+
+RSpec.describe 'spm-cache doctor with a drifted lock' do
+  # DIAG-01's exit contract: drift is a :warn because the remedy is automatic on
+  # the next non-fast-path `use`, so a :fail would redden CI before a first run.
+  it 'reports the drift, renders the fix hint, and never reaches the exit branch' do
+    require 'spm_cache/command/doctor'
+    diagnostics = SPMCache::Core::Diagnostics
+    saved = diagnostics.registry.dup
+    config = SPMCache::Core::Config.instance
+    original_project_dir = config.project_dir
+    tmpdir = Dir.mktmpdir
+    project_path = File.join(tmpdir, 'Drifted.xcodeproj')
+    project = Xcodeproj::Project.new(project_path)
+    project.new_target(:application, 'MyApp', :ios)
+    project.save
+    resolved = File.join(project_path, SPMCache::Core::PackageResolved::CANONICAL_RELATIVE_PATH)
+    FileUtils.mkdir_p(File.dirname(resolved))
+    File.write(resolved, JSON.generate(
+                           'version' => 3,
+                           'pins' => [{ 'identity' => 'hosted', 'kind' => 'remoteSourceControl',
+                                        'location' => 'https://github.com/example/hosted.git',
+                                        'state' => { 'version' => '2.0.0' } }]
+                         ))
+    File.write(File.join(tmpdir, 'spm-cache.lock'), JSON.generate(
+                                                     'Drifted.xcodeproj' => {
+                                                       'packages' => [{
+                                                         'name' => 'stale',
+                                                         'repositoryURL' => 'https://github.com/example/stale.git',
+                                                         'version' => '1.0.0'
+                                                       }],
+                                                       'dependencies' => {}, 'platforms' => {}
+                                                     }
+                                                   ))
+    out = StringIO.new
+    original_stdout = $stdout
+    $stdout = out
+    begin
+      diagnostics.instance_variable_set(:@registry, saved.select { |c| c.name == 'lock_graph_fidelity' })
+      config.project_dir = tmpdir
+      expect_any_instance_of(SPMCache::Command::Doctor).not_to receive(:exit)
+      SPMCache::Command.parse(['doctor']).run
+    ensure
+      $stdout = original_stdout
+      diagnostics.instance_variable_set(:@registry, saved)
+      config.project_dir = original_project_dir
+      FileUtils.rm_rf(tmpdir)
+    end
+    expect(out.string).to match(/^! lock_graph_fidelity: /)
+    expect(out.string).to include('stale')
+    expect(out.string).to include('hosted')
+    expect(out.string).to include('↳ Run `spm-cache use` to reconcile')
+    expect(out.string).to match(/Summary: 0 ok, 1 warning, 0 failures/)
   end
 end
 
@@ -245,7 +302,7 @@ RSpec.describe 'spm-cache doctor --json' do
     end
     parsed = JSON.parse(out.string)
     names = parsed['checks'].map { |c| c['name'] }
-    expect(parsed['checks'].length).to eq(8)
+    expect(parsed['checks'].length).to eq(9)
     %w[xcode_version swift_version toolchain_path cache_dir_health
        library_evolution_compatibility remote_backend_connectivity companion_binary].each do |name|
       expect(names).to include(name)

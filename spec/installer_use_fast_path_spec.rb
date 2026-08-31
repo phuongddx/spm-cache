@@ -4,6 +4,7 @@ require 'spec_helper'
 require 'tmpdir'
 require 'json'
 require 'xcodeproj'
+require 'spm_cache/core/diff_detector'
 require 'spm_cache/installer/use'
 
 # Auto-sync fast path: Installer::Use must skip the costly regenerate/resolve
@@ -27,12 +28,13 @@ RSpec.describe SPMCache::Installer::Use, '#perform_install fast path' do
     project.save
   end
 
-  def write_lockfile(packages)
+  def write_lockfile(packages, version: SPMCache::VERSION)
     File.write(lockfile_path, JSON.generate(
                                 'Fake.xcodeproj' => {
                                   'packages' => packages,
                                   'dependencies' => {},
-                                  'platforms' => { 'ios' => '16.0' }
+                                  'platforms' => { 'ios' => '16.0' },
+                                  'spm_cache_version' => version
                                 }
                               ))
   end
@@ -53,7 +55,7 @@ RSpec.describe SPMCache::Installer::Use, '#perform_install fast path' do
                                     'identity' => p[:identity],
                                     'kind' => 'remoteSourceControl',
                                     'location' => p[:url],
-                                    'state' => { 'revision' => 'rev', 'version' => p[:version] }
+                                    'state' => { 'revision' => p[:revision] || 'rev', 'version' => p[:version] }
                                   }
                                 end
                               ))
@@ -72,6 +74,51 @@ RSpec.describe SPMCache::Installer::Use, '#perform_install fast path' do
     installer = described_class.new(project: project_path)
     # Stub the heavy methods that should NOT run on the fast path
     expect(installer).not_to receive(:recreate_dirs)
+    expect(installer).not_to receive(:sync_lockfile)
+    expect(installer).not_to receive(:prepare_proxy)
+
+    installer.perform_install
+
+    expect(installer.diff).to be_empty
+  end
+
+  it 'regenerates (does not take the fast path) when the lockfile spm_cache_version stamp does not match the running gem version, even with an unchanged host graph' do
+    build_project
+    write_lockfile([
+                     { 'repositoryURL' => 'https://github.com/Alamofire/Alamofire.git', 'name' => 'Alamofire', 'version' => '5.0.0' }
+                   ], version: 'v0.3.0-stub')
+    write_package_resolved([
+                             { identity: 'Alamofire', url: 'https://github.com/Alamofire/Alamofire.git', version: '5.0.0' }
+                           ])
+    materialize_proxy
+
+    installer = described_class.new(project: project_path)
+    allow(installer).to receive(:recreate_dirs)
+    allow(installer).to receive(:ensure_config_file)
+    allow(installer).to receive(:sync_lockfile)
+    allow(installer).to receive(:prepare_proxy)
+    allow(installer).to receive(:gen_supporting_files)
+    allow(installer).to receive(:integrate_proxy_into_project)
+    allow(installer).to receive(:gen_cachemap_viz)
+
+    installer.perform_install
+
+    expect(installer.diff).to be_empty
+    expect(installer).to have_received(:sync_lockfile)
+    expect(installer).to have_received(:prepare_proxy)
+  end
+
+  it 'still takes the fast path when the lockfile spm_cache_version stamp matches the running gem version and the host graph is unchanged' do
+    build_project
+    write_lockfile([
+                     { 'repositoryURL' => 'https://github.com/Alamofire/Alamofire.git', 'name' => 'Alamofire', 'version' => '5.0.0' }
+                   ])
+    write_package_resolved([
+                             { identity: 'Alamofire', url: 'https://github.com/Alamofire/Alamofire.git', version: '5.0.0' }
+                           ])
+    materialize_proxy
+
+    installer = described_class.new(project: project_path)
     expect(installer).not_to receive(:sync_lockfile)
     expect(installer).not_to receive(:prepare_proxy)
 
@@ -130,5 +177,101 @@ RSpec.describe SPMCache::Installer::Use, '#perform_install fast path' do
 
     expect(installer.diff).not_to be_empty
     expect(installer.diff.added).to include('Alamofire')
+  end
+
+  # ROADMAP success criterion 1, proven the way it is written: after a real
+  # non-fast-path run, a freshly constructed DiffDetector reports nothing to do.
+  # `sync_lockfile` is deliberately NOT stubbed -- reconciliation lives inside it.
+  it 'leaves DiffDetector reporting an empty diff' do
+    drifted_url = 'https://github.com/example/Drifted.git'
+    removed_url = 'https://github.com/example/Removed.git'
+    enriched_url = 'https://github.com/example/Enriched.git'
+    newcomer_url = 'https://github.com/example/Newcomer.git'
+    enriched_products = [{ 'name' => 'Enriched', 'type' => 'library', 'targets' => ['Enriched'] }]
+
+    build_project
+    write_lockfile([
+                     { 'repositoryURL' => drifted_url, 'name' => 'Drifted', 'version' => '1.0.0',
+                       'revision' => 'rev-old' },
+                     { 'repositoryURL' => removed_url, 'name' => 'Removed', 'version' => '9.0.0',
+                       'revision' => 'rev-removed' },
+                     { 'repositoryURL' => enriched_url, 'name' => 'Enriched', 'version' => '2.0.0',
+                       'revision' => 'rev-enriched', 'products' => enriched_products }
+                   ])
+    write_package_resolved([
+                             { identity: 'Drifted', url: drifted_url, version: '3.0.0', revision: 'rev-new' },
+                             { identity: 'Enriched', url: enriched_url, version: '2.0.0',
+                               revision: 'rev-enriched' },
+                             { identity: 'Newcomer', url: newcomer_url, version: '0.5.0',
+                               revision: 'rev-newcomer' }
+                           ])
+    materialize_proxy
+
+    installer = described_class.new(project: project_path)
+    allow(installer).to receive(:recreate_dirs)
+    allow(installer).to receive(:ensure_config_file)
+    allow(installer).to receive(:prepare_proxy)
+    allow(installer).to receive(:gen_supporting_files)
+    allow(installer).to receive(:integrate_proxy_into_project)
+    allow(installer).to receive(:gen_cachemap_viz)
+
+    installer.perform_install
+
+    expect(installer.diff).not_to be_empty
+
+    fresh = SPMCache::Core::DiffDetector.new(project_path: project_path,
+                                             lockfile_path: lockfile_path).detect
+    expect(fresh).to be_empty
+
+    packages = JSON.parse(File.read(lockfile_path))['Fake.xcodeproj']['packages']
+    expect(packages.map { |pkg| pkg['name'] }).to contain_exactly('Drifted', 'Enriched', 'Newcomer')
+    drifted = packages.find { |pkg| pkg['name'] == 'Drifted' }
+    expect(drifted['version']).to eq('3.0.0')
+    expect(drifted['revision']).to eq('rev-new')
+    expect(packages.find { |pkg| pkg['name'] == 'Enriched' }['products']).to eq(enriched_products)
+  end
+
+  # CR-01 regression: the fast path never calls sync_lockfile, so @lockfile
+  # was nil when integrate_proxy_into_project's plugin_only_lockfile_urls ran,
+  # silently stripping every plugin-only package reference on each fast-path
+  # run. @lockfile must be populated on the fast path too.
+  it 'preserves a plugin-only package reference and its product dependency across a real fast-path run' do
+    swiftgen_url = 'https://github.com/SwiftGen/SwiftGenPlugin.git'
+
+    project = Xcodeproj::Project.new(project_path)
+    target = project.new_target(:application, 'MyApp', :ios)
+    swiftgen_ref = project.new(Xcodeproj::Project::Object::XCRemoteSwiftPackageReference)
+    swiftgen_ref.repositoryURL = swiftgen_url
+    project.root_object.package_references << swiftgen_ref
+    dep = project.new(Xcodeproj::Project::Object::XCSwiftPackageProductDependency)
+    dep.product_name = 'SwiftGenPlugin'
+    dep.package = swiftgen_ref
+    target.package_product_dependencies << dep
+    project.save
+
+    write_lockfile([
+                     { 'repositoryURL' => swiftgen_url, 'name' => 'SwiftGenPlugin', 'revision' => 'rev',
+                       'products' => [{ 'name' => 'SwiftGenPlugin', 'type' => 'plugin', 'targets' => ['SwiftGenPlugin'] }] }
+                   ])
+    write_package_resolved([
+                             { identity: 'SwiftGenPlugin', url: swiftgen_url, revision: 'rev' }
+                           ])
+    materialize_proxy
+
+    installer = described_class.new(project: project_path)
+    expect(installer).not_to receive(:sync_lockfile)
+
+    installer.perform_install
+
+    expect(installer.diff).to be_empty
+
+    saved = Xcodeproj::Project.open(project_path)
+    remote_urls = saved.root_object.package_references
+                        .grep(Xcodeproj::Project::Object::XCRemoteSwiftPackageReference)
+                        .map(&:repositoryURL)
+    expect(remote_urls).to include(swiftgen_url)
+
+    saved_target = saved.targets.first
+    expect(saved_target.package_product_dependencies.map(&:product_name)).to include('SwiftGenPlugin')
   end
 end

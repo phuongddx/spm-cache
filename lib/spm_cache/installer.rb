@@ -6,6 +6,7 @@ require "xcodeproj"
 require "spm_cache/core/config"
 require "spm_cache/core/lockfile"
 require "spm_cache/core/log"
+require "spm_cache/core/package_resolved"
 require "spm_cache/spm/pkg/proxy"
 require "spm_cache/spm/checkout_resolver"
 require "spm_cache/spm/desc/desc"
@@ -26,6 +27,7 @@ module SPMCache
       @proxy_pkg = nil
       @cachemap = nil
       @diff = nil
+      @host_graph_detector = nil
     end
 
     def perform_install
@@ -52,14 +54,25 @@ module SPMCache
     # moat vs Scipio, which requires a separate manifest the user must keep
     # in sync by hand on every dependency change.
     def detect_diff
-      require "spm_cache/core/diff_detector"
-      detector = Core::DiffDetector.new(project_path: @project_path, lockfile_path: @config.lockfile_path)
-      @diff = detector.detect
+      @diff = host_graph_detector.detect
       Core::UI.info @diff.summary
       @diff
     end
 
     private
+
+    # The run's single DiffDetector. Every host-graph consumer reads its located
+    # path, so the pin source and the change detector that must agree with it
+    # cannot answer with different files -- a project whose Package.resolved is
+    # only reachable through the locator's parent tier used to have the detector
+    # report drift the reconciler then declined to close. Lazy rather than built
+    # in `initialize` because a caller can inject @diff and reach
+    # `sync_lockfile` without `detect_diff` ever running.
+    def host_graph_detector
+      require "spm_cache/core/diff_detector"
+      @host_graph_detector ||= Core::DiffDetector.new(project_path: @project_path,
+                                                      lockfile_path: @config.lockfile_path)
+    end
 
     # Field bug: even after fixing #integrate_proxy_into_project to properly
     # purge (rather than merely unlink) newly-discarded refs/deps going
@@ -131,7 +144,123 @@ module SPMCache
 
       @lockfile = Core::Lockfile.new(lockfile_path)
       @lockfile.load(lockfile_path) if File.exist?(lockfile_path)
+      reconcile_lockfile_from_host_graph
       refresh_consumed_dependencies
+    end
+
+    # Field bug: `generate_lockfile_from_resolved` writes only when no lockfile
+    # exists yet, so every package's `version`/`revision` stayed frozen at
+    # first creation and the umbrella pinned an abandoned snapshot forever --
+    # on the reference project, four packages linked strictly older than the
+    # host's own contemporaneous pin. This refreshes those two fields in place
+    # from the host's canonical Package.resolved, drops entries the project no
+    # longer depends on and appends ones it newly does, touching nothing else --
+    # enriched `products[]` and every identity field survive intact.
+    #
+    # Membership is decided against DiffDetector's live set (resolved pins
+    # UNION project.pbxproj refs), not the pins alone: Package.resolved never
+    # lists local/path packages, so a pins-only basis would misread every
+    # local package as absent from the graph.
+    def reconcile_lockfile_from_host_graph
+      return unless @lockfile
+      return unless @diff && !@diff.empty?
+
+      resolved = host_graph_detector.host_graph_path
+      unless resolved
+        Core::UI.warn "No Package.resolved found for #{File.basename(@project_path)}; " \
+                      "leaving #{Core::Config::LOCKFILE_FILENAME} untouched."
+        return
+      end
+
+      # nil here means absent or unreadable, which is NOT "the host has no
+      # packages" -- combined with the drop rule below, reading it that way
+      # would erase the whole lock.
+      host_pins = Core::PackageResolved.pins_or_nil(resolved)
+      if host_pins.nil?
+        Core::UI.warn "Package.resolved at #{resolved} is unreadable; " \
+                      "leaving #{Core::Config::LOCKFILE_FILENAME} untouched."
+        return
+      end
+
+      proj_data = lock_project_data
+      return unless proj_data
+
+      live = host_graph_detector.live_packages
+      locked = proj_data["packages"] || []
+      drop_missing = drop_pass_allowed?(host_pins, locked, resolved)
+
+      surviving = locked.select do |pkg|
+        live_pkg = live[lock_identity_key(pkg)]
+        next !drop_missing unless live_pkg
+
+        pkg["version"] = live_pkg["version"]
+        # A transitive-only package can legitimately hold no revision; nilling
+        # an existing one out would make the umbrella generator skip it.
+        pkg["revision"] = live_pkg["revision"] if live_pkg["revision"]
+        true
+      end
+
+      proj_data["packages"] = surviving + additions_for(live, locked)
+
+      @lockfile.save
+    end
+
+    # A hand-written or workspace-era lock can key the project without its
+    # `.xcodeproj` extension. `refresh_consumed_dependencies` matches the
+    # basename strictly and early-returns on that shape, which is exactly why
+    # reconciliation owns its own save rather than riding that one.
+    def lock_project_data
+      projects = @lockfile.projects
+      key = File.basename(@project_path)
+      return projects[key] if projects.key?(key)
+
+      stem = File.basename(key, ".xcodeproj")
+      match = projects.keys.find { |candidate| File.basename(candidate.to_s, ".xcodeproj") == stem }
+      match && projects[match]
+    end
+
+    # A pre-v2 Package.resolved nests its pins under `object.pins`, so it parses
+    # cleanly with a Hash root and yields zero pins -- indistinguishable from a
+    # host that genuinely resolves nothing from source control. Dropping every
+    # remote entry on that signal is the lock erasure this reconciler exists to
+    # avoid, so retain instead and say so. A real removal of every remote
+    # dependency is retained too; the next run with a non-empty pin list drops
+    # the stale entries normally.
+    def drop_pass_allowed?(host_pins, locked, resolved)
+      return true unless host_pins.empty?
+      return true unless locked.any? { |pkg| pkg["repositoryURL"] }
+
+      Core::UI.warn "Package.resolved at #{resolved} parsed with zero pins while " \
+                    "#{Core::Config::LOCKFILE_FILENAME} still holds remote packages; keeping them and " \
+                    "skipping the removal pass. Re-resolve the project's packages in Xcode."
+      false
+    end
+
+    def lock_identity_key(pkg)
+      Core::DiffDetector.identity_key(pkg["repositoryURL"], pkg["path_from_root"] || pkg["path"], pkg["name"])
+    end
+
+    def additions_for(live, locked)
+      known = locked.map { |pkg| lock_identity_key(pkg) }
+      live.reject { |key, _| known.include?(key) }.map { |_, live_pkg| new_lock_entry(live_pkg) }
+    end
+
+    # The canonical four-field shape `generate_lockfile_from_resolved` writes.
+    # `products` is omitted rather than seeded empty: enrichment guards with
+    # `next if pkg_data["products"]` and `[]` is truthy in Ruby, so a
+    # present-but-empty key would suppress this package's product metadata
+    # permanently.
+    def new_lock_entry(live_pkg)
+      entry = {}
+      if live_pkg["repositoryURL"]
+        entry["repositoryURL"] = live_pkg["repositoryURL"]
+      elsif live_pkg["path"]
+        entry["path_from_root"] = live_pkg["path"]
+      end
+      entry["name"] = live_pkg["name"]
+      entry["version"] = live_pkg["version"]
+      entry["revision"] = live_pkg["revision"]
+      entry
     end
 
     # Records, per target, the product names the Xcode project directly
@@ -165,13 +294,13 @@ module SPMCache
       lockfile_path = @config.lockfile_path
       return if File.exist?(lockfile_path)
 
-      # Search recursively for Package.resolved
-      resolved = Dir.glob(File.join(@project_path, "**/Package.resolved")).find { |f| File.exist?(f) }
+      resolved = host_graph_detector.host_graph_path
 
       return unless resolved
 
-      resolved_data = JSON.parse(File.read(resolved))
-      pins = resolved_data["pins"] || []
+      # Strict on purpose: a malformed host graph must raise out of `use`
+      # rather than seed a lock that claims the project has no packages.
+      pins = Core::PackageResolved.pins(resolved)
 
       lockfile_data = {
         File.basename(@project_path) => {

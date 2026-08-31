@@ -124,6 +124,20 @@ struct Lockfile: Codable {
             }
             return "from: \"0.1.0\""
         }
+
+        /// Raw revision-over-version pin value (no `PackageDescription`
+        /// formatting), for comparison against a provenance sidecar's
+        /// recorded pins in `BinariesCache.hit(module:identity:currentPin:)`.
+        /// Same precedence rule as `versionRequirement` above.
+        var pinValue: String? {
+            if let revision = revision, !revision.isEmpty {
+                return revision
+            }
+            if let version = version, !version.isEmpty {
+                return version
+            }
+            return nil
+        }
     }
 
     struct TargetDeps: Codable {

@@ -8,6 +8,8 @@ module SPMCache
     def self.run(argv)
       # Ensure all lib files are loaded
       SPMCache::Main.load_all
+      return puts(SPMCache::VERSION) if argv.first == '--version' # before default_subcommand routing
+
       Command.run(argv)
     end
 

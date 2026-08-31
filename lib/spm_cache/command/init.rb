@@ -5,6 +5,7 @@ require 'json'
 require 'spm_cache/command'
 require 'spm_cache/core/config'
 require 'spm_cache/core/lockfile'
+require 'spm_cache/core/package_resolved'
 
 module SPMCache
   class Command
@@ -193,7 +194,7 @@ module SPMCache
       end
 
       def find_package_resolved(project_path)
-        Dir.glob(File.join(project_path, '**/Package.resolved')).find { |f| File.exist?(f) }
+        Core::PackageResolved.locate(project_path)
       end
 
       def ensure_gitignore(project_path)

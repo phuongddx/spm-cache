@@ -2,6 +2,8 @@
 
 require 'json'
 
+require 'spm_cache/core/package_resolved'
+
 module SPMCache
   module Core
     # Detects changes between the current `spm-cache.lock` (snapshot from the
@@ -46,6 +48,40 @@ module SPMCache
 
       attr_reader :project_path, :lockfile_path
 
+      class << self
+        # Deterministic identity key for a package, normalized so that ssh/https
+        # URL variants and trailing .git suffixes compare equal. Falls back to
+        # the package name or path basename when no URL is available. Public on
+        # the class so anything keying against this detector's live set (the
+        # lockfile reconciler) reuses the same equivalence rather than
+        # reimplementing it and dropping packages that merely spell differently.
+        def identity_key(url, path, name)
+          if url && !url.empty?
+            normalize_url(url)
+          elsif path && !path.empty?
+            "local:#{File.basename(path)}"
+          elsif name
+            "name:#{name}"
+          else
+            'unknown'
+          end
+        end
+
+        def normalize_url(url)
+          stripped = url.to_s.strip.sub(/\.git\z/i, '')
+          case stripped
+          when /\Agit@([^:]+):(.+)\z/
+            "#{Regexp.last_match(1).downcase}/#{Regexp.last_match(2)}"
+          when %r{\A(?:ssh|git|https?)://(?:[^@/]+@)?([^/]+)/(.+)\z}
+            "#{Regexp.last_match(1).downcase}/#{Regexp.last_match(2)}"
+          when %r{\Afile://(.+)\z}
+            "local:#{File.basename(Regexp.last_match(1))}"
+          else
+            stripped.downcase
+          end
+        end
+      end
+
       def initialize(project_path:, lockfile_path:)
         @project_path = project_path
         @lockfile_path = lockfile_path
@@ -86,6 +122,56 @@ module SPMCache
         Diff.new(added: added, removed: removed, updated: updated)
       end
 
+      # Returns { normalized_key => {name, url, version, revision} } for every
+      # package the project currently resolves, sourced from Package.resolved
+      # (authoritative for resolved versions) supplemented by project.pbxproj
+      # package references (covers local packages / un-resolved refs). Public
+      # because it is the only safe basis for a membership decision about the
+      # live graph: Package.resolved never lists local/path packages, so the
+      # union -- not the resolved pins alone -- is what "the project depends on
+      # this" means.
+      def live_packages
+        result = {}
+        File.basename(@project_path)
+
+        # 1. Package.resolved -- authoritative resolved graph
+        resolved = host_graph_path
+        if resolved && File.exist?(resolved)
+          data = JSON.parse(File.read(resolved))
+          (data['pins'] || []).each do |pin|
+            url = pin['location']
+            state = pin['state'] || {}
+            key = identity_key(url, nil, pin['identity'])
+            result[key] = {
+              'name' => pin['identity'],
+              'repositoryURL' => url,
+              'path' => nil,
+              'version' => state['version'],
+              'revision' => state['revision']
+            }
+          end
+        end
+
+        # 2. project.pbxproj SPM refs -- supplement local packages and any refs
+        # not yet captured in Package.resolved (e.g. just-added local package).
+        merge_project_refs(result)
+
+        result
+      end
+
+      # This is the one caller that may reach the parent directory: a
+      # workspace-level project keeps its resolved file beside the .xcodeproj,
+      # not inside it. Public and computed once per instance so the reconciler
+      # that must agree with this detector reads THIS answer rather than
+      # locating the file again -- two independent lookups can land on
+      # different tiers and then disagree permanently. `nil` is a legitimate
+      # answer, so the memo is guarded on definedness, not truthiness.
+      def host_graph_path
+        return @host_graph_path if defined?(@host_graph_path)
+
+        @host_graph_path = PackageResolved.locate(@project_path, parent_fallback: true)
+      end
+
       private
 
       # Returns { normalized_key => {name, url, version, revision} } for every
@@ -112,46 +198,6 @@ module SPMCache
           end
         end
         result
-      end
-
-      # Returns { normalized_key => {name, url, version, revision} } for every
-      # package the project currently resolves, sourced from Package.resolved
-      # (authoritative for resolved versions) supplemented by project.pbxproj
-      # package references (covers local packages / un-resolved refs).
-      def live_packages
-        result = {}
-        File.basename(@project_path)
-
-        # 1. Package.resolved -- authoritative resolved graph
-        resolved = find_package_resolved
-        if resolved && File.exist?(resolved)
-          data = JSON.parse(File.read(resolved))
-          (data['pins'] || []).each do |pin|
-            url = pin['location']
-            state = pin['state'] || {}
-            key = identity_key(url, nil, pin['identity'])
-            result[key] = {
-              'name' => pin['identity'],
-              'repositoryURL' => url,
-              'path' => nil,
-              'version' => state['version'],
-              'revision' => state['revision']
-            }
-          end
-        end
-
-        # 2. project.pbxproj SPM refs -- supplement local packages and any refs
-        # not yet captured in Package.resolved (e.g. just-added local package).
-        merge_project_refs(result)
-
-        result
-      end
-
-      def find_package_resolved
-        # Xcode stores Package.resolved inside the .xcodeproj bundle (modern
-        # Xcode) or at the workspace level. Search recursively.
-        Dir.glob(File.join(@project_path, '**/Package.resolved')).find { |f| File.exist?(f) } ||
-          Dir.glob(File.join(File.dirname(@project_path), '**', 'Package.resolved')).find { |f| File.exist?(f) }
       end
 
       def merge_project_refs(result)
@@ -189,19 +235,8 @@ module SPMCache
         end
       end
 
-      # Deterministic identity key for a package, normalized so that ssh/https
-      # URL variants and trailing .git suffixes compare equal. Falls back to
-      # the package name or path basename when no URL is available.
       def identity_key(url, path, name)
-        if url && !url.empty?
-          normalize_url(url)
-        elsif path && !path.empty?
-          "local:#{File.basename(path)}"
-        elsif name
-          "name:#{name}"
-        else
-          'unknown'
-        end
+        self.class.identity_key(url, path, name)
       end
 
       # Reads the relative path from a local SPM package reference, handling
@@ -217,17 +252,7 @@ module SPMCache
       end
 
       def normalize_url(url)
-        stripped = url.to_s.strip.sub(/\.git\z/i, '')
-        case stripped
-        when /\Agit@([^:]+):(.+)\z/
-          "#{Regexp.last_match(1).downcase}/#{Regexp.last_match(2)}"
-        when %r{\A(?:ssh|git|https?)://(?:[^@/]+@)?([^/]+)/(.+)\z}
-          "#{Regexp.last_match(1).downcase}/#{Regexp.last_match(2)}"
-        when %r{\Afile://(.+)\z}
-          "local:#{File.basename(Regexp.last_match(1))}"
-        else
-          stripped.downcase
-        end
+        self.class.normalize_url(url)
       end
 
       def label_for(pkg)

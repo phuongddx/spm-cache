@@ -1,5 +1,7 @@
 # frozen_string_literal: true
 
+require 'spm_cache/core/package_resolved'
+
 module SPMCache
   class Command
     class Use < Command
@@ -79,8 +81,11 @@ module SPMCache
         Core::UI.info "\n[watch] stopped."
       end
 
+      # The root here is relative (`find_project` globs the cwd) and the located
+      # path is both printed at the watch banner and used as the watch signature
+      # key, so it must keep the shape it came in with.
       def find_package_resolved(project_path)
-        Dir.glob(File.join(project_path, '**/Package.resolved')).find { |f| File.exist?(f) }
+        Core::PackageResolved.locate(project_path)
       end
 
       def file_signature(path)

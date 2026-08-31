@@ -1,0 +1,69 @@
+{
+  "FixtureApp.xcodeproj": {
+    "packages": [
+      {
+        "repositoryURL": "https://github.com/Alamofire/Alamofire.git",
+        "name": "Alamofire",
+        "revision": "aaa111",
+        "products": [
+          { "name": "Alamofire", "type": "library", "targets": ["Alamofire"] }
+        ]
+      },
+      {
+        "repositoryURL": "https://github.com/SwiftGen/SwiftGenPlugin.git",
+        "name": "SwiftGenPlugin",
+        "version": "6.6.3",
+        "products": [
+          { "name": "SwiftGenPlugin", "type": "plugin", "targets": ["SwiftGenPlugin"] }
+        ]
+      },
+      {
+        "repositoryURL": "https://example.invalid/NoiseInjector.git",
+        "name": "NoiseInjector",
+        "revision": "noise111",
+        "products": [
+          { "name": "NoiseInjector", "type": "library", "targets": ["NoiseInjector"] }
+        ]
+      },
+      {
+        "repositoryURL": "https://example.invalid/SideCartKit.git",
+        "name": "SideCartKit",
+        "revision": "side111",
+        "products": [
+          { "name": "SideCartKit", "type": "library", "targets": ["SideCartKit"] }
+        ]
+      },
+      {
+        "repositoryURL": "https://example.invalid/PrimeKit.git",
+        "name": "PrimeKit",
+        "revision": "prime111",
+        "products": [
+          { "name": "PrimeCore", "type": "library", "targets": ["PrimeCore"] },
+          { "name": "PrimeExtras", "type": "library", "targets": ["PrimeExtras"] }
+        ]
+      },
+      {
+        "repositoryURL": "https://example.invalid/TransitiveCore.git",
+        "name": "TransitiveCore",
+        "revision": "ttt111",
+        "products": [
+          { "name": "TransitiveCore", "type": "library", "targets": ["TransitiveCore"] }
+        ]
+      },
+      {
+        "repositoryURL": "",
+        "path_from_root": "Vendor/LocalDesignKit",
+        "name": "LocalDesignKit",
+        "products": [
+          { "name": "LocalDesignKit", "type": "library", "targets": ["LocalDesignKit"] }
+        ]
+      }
+    ],
+    "dependencies": {
+      "FixtureApp": ["Alamofire", "SwiftGenPlugin", "NoiseInjector", "SideCartKit", "PrimeCore"]
+    },
+    "platforms": {
+      "ios": "16.0"
+    }
+  }
+}

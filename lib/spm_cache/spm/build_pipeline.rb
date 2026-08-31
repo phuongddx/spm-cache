@@ -2,6 +2,7 @@
 
 require "fileutils"
 require "tmpdir"
+require "tempfile"
 require "digest"
 require "json"
 require "set"
@@ -9,9 +10,12 @@ require "set"
 require "spm_cache/core/log"
 require "spm_cache/core/sh"
 require "spm_cache/core/config"
+require "spm_cache/core/package_resolved"
 require "spm_cache/spm/build"
 require "spm_cache/spm/desc/desc"
 require "spm_cache/spm/xcframework/xcframework"
+require "spm_cache/spm/resolved_graph"
+require "spm_cache/version"
 
 module SPMCache
   module SPM
@@ -30,11 +34,230 @@ module SPMCache
         # @param destinations [Array<String>] destination keys (see Buildable::DESTINATIONS)
         # @param out_dir [String] directory to write the xcframework into
         # @param library_evolution [Boolean] emit library-evolution Swift flags
-        def run(name:, pkg_dir:, destinations:, out_dir:, library_evolution: true)
+        # @param resolved_pins_file [String, nil] path to the host app's resolved
+        #   graph to seed into `pkg_dir` before any resolution happens (FID-02).
+        #   nil (the default) disables seeding entirely -- byte-identical to
+        #   pre-Phase-7 behavior, so `spm-cache pkg build` (which never passes
+        #   this) is unaffected.
+        # @param clones_dir [String, nil] shared -clonedSourcePackagesDirPath
+        #   passed to every xcodebuild invocation (PERF-01, D-03). nil (the
+        #   default) omits the flag entirely -- byte-identical to
+        #   pre-Plan-07-02 behavior.
+        # @param config [String, nil] the build configuration name
+        #   (debug/release), recorded verbatim in the provenance sidecar
+        #   (CACHE-01). Used only for that field -- never threaded anywhere
+        #   else.
+        def run(name:, pkg_dir:, destinations:, out_dir:, library_evolution: true, resolved_pins_file: nil,
+                clones_dir: nil, config: nil)
           raise "Target name required" if name.nil? || name.empty?
 
           FileUtils.mkdir_p(out_dir)
 
+          seed_snapshot, seeded = seed_host_graph(name, pkg_dir, resolved_pins_file)
+
+          success = false
+          begin
+            # Captured immediately, from resolved_pins_file only -- never
+            # re-derived from pkg_dir/Package.resolved after perform_build runs,
+            # since that path may itself hold the realized (possibly drifted)
+            # content by the time it's read a second time (Pitfall 1). Lives
+            # inside this begin block (not between seed_host_graph and begin)
+            # so the ensure's "seeded checkout restored on any failure" holds
+            # for every statement that runs after seeding, not just the ones
+            # after this line.
+            intended_pin_map = seeded ? pin_value_map(Core::PackageResolved.pins_or_nil(resolved_pins_file)) : nil
+            result, built_destinations = perform_build(name: name, pkg_dir: pkg_dir, destinations: destinations,
+                                                         out_dir: out_dir, library_evolution: library_evolution,
+                                                         clones_dir: clones_dir)
+            success = true
+            begin
+              report_fidelity(name: name, pkg_dir: pkg_dir, output_path: result, seeded: seeded,
+                               intended_pin_map: intended_pin_map, config: config, destinations: built_destinations)
+            rescue StandardError => e
+              # report_fidelity's doc comment claims it "never raises", but only
+              # write_provenance_sidecar's own rescue enforces that -- the pin-map
+              # computation above it (drift comparison, malformed pin entries) is
+              # not covered. Any exception here would otherwise escape `run` with
+              # `success` already true, so the ensure guard below never restores
+              # the seeded checkout, contradicting "restored on any failure".
+              Core::UI.warn "  could not compute/write provenance for #{File.basename(result)}: #{e.message}"
+            end
+            result
+          ensure
+            ResolvedGraph.restore!(pkg_dir, seed_snapshot) if seeded && !success
+          end
+        end
+
+        private
+
+        # Single consolidated insertion point (RESEARCH.md Pattern 2): drift
+        # read-back, resolution-incompatible classification, and provenance
+        # sidecar write all happen here, once, right after `perform_build`
+        # succeeds -- covering all three artifact-producing paths (direct
+        # xcframework build, run_with_scheme, copy_prebuilt_binary_target)
+        # uniformly, since all three return through `perform_build`'s return
+        # value back into `run`. Never raises -- this always runs on the
+        # success path, so `ignore_build_errors?` can never mask the
+        # resolution-incompatible status (Pitfall 2).
+        def report_fidelity(name:, pkg_dir:, output_path:, seeded:, intended_pin_map:, config:, destinations:)
+          unless seeded
+            # CACHE-02 (09-01): write an explicit not-graph-pinned sidecar
+            # with empty pins instead of deleting it. A totally-absent
+            # sidecar is what Cache.swift's hit() now treats as an
+            # unambiguous miss (the v0.3.0-upgrade signal, D-01/SC1) -- so
+            # deleting it here, unconditionally, on EVERY build of a
+            # vendored-.xcodeproj (Class E) or no-host-graph package would
+            # permanently defeat caching for that whole package class.
+            # hit()'s intersection-only comparison treats empty pins
+            # identically to a normal sidecar whose intersection happens to
+            # be empty, so this is safe and never a false hit.
+            #
+            # Never clobber an existing sidecar's non-empty pins, though: an
+            # unseeded build (e.g. `spm-cache pkg build --out <dir>` sharing
+            # a cache directory with `spm-cache use`/`build`) has no host
+            # graph to attest to, and overwriting a previously host-pinned
+            # entry with `{}` would make that cache entry permanently hit
+            # against any future pin -- the exact identity-collision failure
+            # mode CACHE-02 exists to prevent. Merge rather than early-return,
+            # though: a brand-new xcframework was just written to this exact
+            # output_path by perform_build, so config/destinations/
+            # spm_cache_version must describe THIS build even when pins is
+            # carried over from the previous sidecar (CACHE-01's contract).
+            preserved_pins = existing_sidecar_pins(output_path)
+            if preserved_pins&.any?
+              write_provenance_sidecar(output_path, status: "host-pinned", pins: preserved_pins,
+                                                     config: config, destinations: destinations)
+              return
+            end
+
+            write_provenance_sidecar(output_path, status: "not-graph-pinned", pins: {},
+                                                   config: config, destinations: destinations)
+            return
+          end
+
+          realized_pin_map = pin_value_map(
+            Core::PackageResolved.pins_or_nil(File.join(pkg_dir, ResolvedGraph::RESOLVED_FILENAME)),
+          )
+          drifted = drifted_identities(intended_pin_map, realized_pin_map)
+
+          drifted.each do |identity|
+            Core::UI.warn "  #{identity}: drift detected (intended #{intended_pin_map[identity]}, " \
+                          "realized #{realized_pin_map[identity]})"
+          end
+
+          status = drifted.empty? ? "host-pinned" : "resolution-incompatible"
+          suffix = status == "resolution-incompatible" ? " (built from source)" : ""
+          Core::UI.info "  #{name}: #{status}#{suffix}"
+
+          write_provenance_sidecar(output_path, status: status, pins: realized_pin_map || {},
+                                                 config: config, destinations: destinations)
+        end
+
+        # Diff scope is the INTERSECTION of intended and realized pin
+        # identities only -- an identity present on just one side carries no
+        # evidence of drift (seed! copies the entire host graph verbatim;
+        # SwiftPM narrows to this package's own transitive closure after a
+        # real resolve). nil on either side (unreadable/malformed
+        # Package.resolved) yields an empty drifted set rather than raising
+        # or asserting universal drift.
+        def drifted_identities(intended_pin_map, realized_pin_map)
+          return [] unless intended_pin_map && realized_pin_map
+
+          (intended_pin_map.keys & realized_pin_map.keys).select do |identity|
+            intended_pin_map[identity] != realized_pin_map[identity]
+          end
+        end
+
+        # Maps each pin's identity to its resolved value (revision wins over
+        # version, mirroring Core::Diagnostics#host_pin_value's precedence --
+        # the same precedence Lockfile.swift/UmbrellaGenerator.swift use, so
+        # this diff never disagrees with what actually gets pinned elsewhere).
+        # nil input (unreadable/malformed Package.resolved) -> nil.
+        def pin_value_map(pins)
+          return nil if pins.nil?
+
+          pins.each_with_object({}) do |pin, map|
+            identity = pin["identity"]
+            next unless identity
+
+            map[identity] = host_pin_value(pin)
+          end
+        end
+
+        def host_pin_value(pin)
+          state = pin["state"] || {}
+          revision = state["revision"]
+          revision.to_s.empty? ? state["version"] : revision
+        end
+
+        # Reads back an already-written sidecar's `pins` hash, if any --
+        # used by the `unless seeded` branch of `report_fidelity` (WR-03) to
+        # decide whether overwriting with `{}` would erase real drift
+        # protection. Absent, unreadable, or malformed sidecar -> nil, same
+        # fail-safe posture as Cache.swift's `hit()`.
+        def existing_sidecar_pins(output_path)
+          content = File.read("#{output_path}.provenance.json")
+          parsed = JSON.parse(content)
+          pins = parsed["pins"]
+          pins.is_a?(Hash) ? pins : nil
+        rescue SystemCallError, JSON::ParserError
+          nil
+        end
+
+        # Exactly the four CACHE-01-specified fields plus the computed
+        # fidelity status -- no absolute filesystem paths, usernames,
+        # hostnames, or build timestamps (the sidecar may travel through a
+        # shared/remote cache backend).
+        #
+        # Tempfile-then-rename, mirroring ResolvedGraph.atomic_write, so a
+        # crash/interrupt mid-write never leaves a truncated sidecar for
+        # `cache list`'s reader to trip over. Also never raises: a disk error
+        # here (ENOSPC/EACCES/...) degrades to a warning instead of
+        # propagating out of report_fidelity -> run and being mistaken for a
+        # genuine build failure by ignore_build_errors? handling (Pitfall 2)
+        # -- the xcframework this sidecar describes already built
+        # successfully, so a metadata-write failure must never mask that.
+        def write_provenance_sidecar(output_path, status:, pins:, config:, destinations:)
+          destination = "#{output_path}.provenance.json"
+          content = JSON.generate(
+            fidelity_status: status,
+            pins: pins,
+            spm_cache_version: SPMCache::VERSION,
+            config: config,
+            destinations: destinations,
+          )
+
+          tmp = Tempfile.new(["provenance", ".tmp"], File.dirname(destination))
+          tmp.write(content)
+          tmp.close
+          File.rename(tmp.path, destination)
+        rescue SystemCallError => e
+          tmp&.unlink
+          Core::UI.warn "  could not write provenance sidecar for #{File.basename(output_path)}: #{e.message}"
+        end
+
+        # Classifies `pkg_dir` before seeding anything (D-04): a vendored
+        # `.xcodeproj` checkout ignores `Package.resolved` entirely (Pitfall
+        # 11), so seeding it would be a silent no-op -- report it as
+        # not-graph-pinned instead and skip the write. Returns
+        # [snapshot_or_nil, seeded_boolean] for `run`'s ensure guard.
+        def seed_host_graph(name, pkg_dir, resolved_pins_file)
+          return [nil, false] unless resolved_pins_file
+
+          if ResolvedGraph.vendored_xcodeproj?(pkg_dir)
+            Core::UI.info "  #{name}: vendored .xcodeproj checkout, not graph-pinned " \
+                          "(Package.resolved not seeded from host graph)"
+            return [nil, false]
+          end
+
+          [ResolvedGraph.seed!(resolved_pins_file, pkg_dir), true]
+        end
+
+        # The actual build: everything that used to live directly in `run`,
+        # extracted so `run` can wrap it in a single success-flag + ensure
+        # region (seeded checkout restored on any failure/interrupt, left in
+        # place on success -- Phase 8's future read-back source).
+        def perform_build(name:, pkg_dir:, destinations:, out_dir:, library_evolution:, clones_dir: nil)
           # Class E: a product whose own declared target is a trivial
           # forwarding wrapper (Google's "SwiftPM-PlatformExclude" convention)
           # terminating in a `.binaryTarget` has no source to build at all --
@@ -46,7 +269,14 @@ module SPMCache
           # prebuilt content, the exact bug this fixes).
           forwarded_target = resolve_forwarded_target(name, pkg_dir)
           if forwarded_target && forwarded_target["module_type"] == "BinaryTarget"
-            return copy_prebuilt_binary_target(forwarded_target["name"], name, pkg_dir, out_dir)
+            # A direct copy of an already-resolved prebuilt xcframework, not a
+            # per-destination build loop -- but a vendor-published xcframework
+            # can legitimately ship fewer slices than requested (e.g.
+            # device-only, no simulator slice), so the requested `destinations`
+            # list is narrowed to what the copied artifact's own slices
+            # actually satisfy, mirroring Installer::Build#slice_satisfies?.
+            output_path = copy_prebuilt_binary_target(forwarded_target["name"], name, pkg_dir, out_dir)
+            return [output_path, actual_destinations_for(output_path, destinations)]
           end
 
           scheme = resolve_scheme(name, pkg_dir)
@@ -61,10 +291,12 @@ module SPMCache
             library_evolution: library_evolution,
             scheme: scheme,
             header_paths: header_paths,
+            clones_dir: clones_dir,
           )
 
           tmpdir = Dir.mktmpdir
           framework_paths = []
+          built_destinations = []
           shim_framework_paths = Hash.new { |h, k| h[k] = [] }
 
           destinations.each do |dest_key|
@@ -77,6 +309,8 @@ module SPMCache
               next
             end
             next unless artifacts[:object_file] || artifacts[:framework]
+
+            built_destinations << dest_key
 
             fw_subdir = File.join(tmpdir, dest_key)
             FileUtils.mkdir_p(fw_subdir)
@@ -102,7 +336,7 @@ module SPMCache
               Core::UI.info "  Retrying with scheme '#{alt}'..."
               return run_with_scheme(name: name, scheme: alt, pkg_dir: pkg_dir,
                                      destinations: destinations, out_dir: out_dir,
-                                     library_evolution: library_evolution)
+                                     library_evolution: library_evolution, clones_dir: clones_dir)
             end
             raise "No slices were built successfully for #{name}"
           end
@@ -118,12 +352,10 @@ module SPMCache
           result = xcframework.build
           write_shim_sidecar(output_path, shim_framework_paths, out_dir)
           FileUtils.rm_rf(tmpdir)
-          result
+          [result, built_destinations]
         end
 
-        private
-
-        def run_with_scheme(name:, scheme:, pkg_dir:, destinations:, out_dir:, library_evolution:)
+        def run_with_scheme(name:, scheme:, pkg_dir:, destinations:, out_dir:, library_evolution:, clones_dir: nil)
           header_paths = resolve_public_headers(name, name, pkg_dir)
 
           buildable = Buildable.new(
@@ -133,10 +365,12 @@ module SPMCache
             library_evolution: library_evolution,
             scheme: scheme,
             header_paths: header_paths,
+            clones_dir: clones_dir,
           )
 
           tmpdir = Dir.mktmpdir
           framework_paths = []
+          built_destinations = []
           companion_framework_paths = Hash.new { |h, k| h[k] = [] }
 
           destinations.each do |dest_key|
@@ -149,6 +383,8 @@ module SPMCache
               next
             end
             next unless artifacts[:object_file] || artifacts[:framework]
+
+            built_destinations << dest_key
 
             fw_subdir = File.join(tmpdir, dest_key)
             FileUtils.mkdir_p(fw_subdir)
@@ -177,7 +413,7 @@ module SPMCache
           result = xcframework.build
           write_shim_sidecar(output_path, companion_framework_paths, out_dir)
           FileUtils.rm_rf(tmpdir)
-          result
+          [result, built_destinations]
         end
 
         # Resolve the Xcode scheme to build for `name` (package identity) BEFORE
@@ -233,7 +469,11 @@ module SPMCache
 
         def schemes_across_projects(pkg_dir)
           Dir.glob(File.join(pkg_dir, "*.xcodeproj")).flat_map do |proj|
-            list_output = Core::Sh.capture_output("xcodebuild -list -project '#{proj}'") rescue ""
+            list_output = begin
+              Core::Sh.capture_output("xcodebuild -list -project '#{proj}'")
+            rescue SPMCache::Core::GeneralError
+              ""
+            end
             list_output.split("\n").drop_while { |l| !l.match?(/Schemes:/) }
                        .drop(1)
                        .map(&:strip)
@@ -412,7 +652,7 @@ module SPMCache
           return [] unless target && target["module_type"] == "ClangTarget"
 
           Desc::Target.new(raw: target, pkg_dir: pkg_dir).header_paths
-        rescue StandardError
+        rescue SPMCache::Core::GeneralError, JSON::ParserError
           []
         end
 
@@ -466,38 +706,30 @@ module SPMCache
           end
 
           # Swift interface scanning: framework-wrapped case
-          Dir.glob(File.join(main_framework, "Modules", "*.swiftmodule", "*.swiftinterface")).each do |interface|
+          scan_swiftinterfaces(File.join(main_framework, "Modules", "*.swiftmodule", "*.swiftinterface"), names)
+
+          # Swift interface scanning: bare .swiftmodule case (SPM pure-Swift libs)
+          if products_dir && module_name
+            scan_swiftinterfaces(File.join(products_dir, "#{module_name}.swiftmodule", "*.swiftinterface"), names)
+          end
+
+          names
+        end
+
+        # Field bug: an umbrella product (e.g. Collections, re-exporting
+        # BitCollections/DequeModule/OrderedCollections/...) writes
+        # `@_exported import X` rather than a plain `import X` -- the
+        # unqualified anchor missed it entirely, so Collections never
+        # detected any of its companions as referenced at all.
+        def scan_swiftinterfaces(glob_pattern, names)
+          Dir.glob(glob_pattern).each do |interface|
             content = begin
               File.read(interface)
             rescue StandardError
               ""
             end
-            # Field bug: an umbrella product (e.g. Collections, re-exporting
-            # BitCollections/DequeModule/OrderedCollections/...) writes
-            # `@_exported import X` rather than a plain `import X` -- the
-            # unqualified anchor missed it entirely, so Collections never
-            # detected any of its companions as referenced at all.
             content.scan(/^\s*(?:@_exported\s+)?import\s+([A-Za-z0-9_]+)\s*$/) { |m| names << m[0] }
           end
-
-          # Swift interface scanning: bare .swiftmodule case (SPM pure-Swift libs)
-          if products_dir && module_name
-            Dir.glob(File.join(products_dir, "#{module_name}.swiftmodule", "*.swiftinterface")).each do |interface|
-              content = begin
-                File.read(interface)
-              rescue StandardError
-                ""
-              end
-              # Field bug: an umbrella product (e.g. Collections, re-exporting
-            # BitCollections/DequeModule/OrderedCollections/...) writes
-            # `@_exported import X` rather than a plain `import X` -- the
-            # unqualified anchor missed it entirely, so Collections never
-            # detected any of its companions as referenced at all.
-            content.scan(/^\s*(?:@_exported\s+)?import\s+([A-Za-z0-9_]+)\s*$/) { |m| names << m[0] }
-            end
-          end
-
-          names
         end
 
         # Deliberately narrow, to avoid bundling a copy of something the app
@@ -853,10 +1085,32 @@ module SPMCache
           # `cache clean <name>.xcframework` only removes the xcframework
           # itself, so a targeted clean+rebuild would otherwise leave that
           # stale sidecar in place, still pointing the proxy generator at a
-          # companion this direct-copy path never builds or needs.
+          # companion this direct-copy path never builds or needs. (No
+          # equivalent removal for .provenance.json: report_fidelity's
+          # consolidated insertion point always overwrites it afterward, and
+          # for an unseeded rebuild it specifically needs to read the OLD file
+          # first to decide whether to preserve a previously-recorded pin --
+          # deleting it here pre-emptively defeats that guard.)
           FileUtils.rm_f("#{output_path}.shims.json")
 
           output_path
+        end
+
+        # Mirrors Installer::Build#slice_satisfies? -- narrows `requested` down
+        # to only the destinations the copied xcframework's own slice
+        # directories actually contain, so Class E's provenance sidecar never
+        # claims a slice a vendor-published prebuilt artifact doesn't have.
+        def actual_destinations_for(xcframework_path, requested)
+          slices = Dir.children(xcframework_path).select { |s| File.directory?(File.join(xcframework_path, s)) }
+          requested.select { |dest| slice_satisfies?(slices, dest) }
+        end
+
+        def slice_satisfies?(slices, dest_key)
+          case dest_key
+          when "iphonesimulator" then slices.any? { |s| s.include?("simulator") }
+          when "iphoneos" then slices.any? { |s| s.start_with?("ios") && !s.include?("simulator") }
+          else false
+          end
         end
 
         # SPM's standard convention for a resolved binaryTarget's unpacked
@@ -882,7 +1136,11 @@ module SPMCache
         end
 
         def resolve_scheme_fallback(name, pkg_dir)
-          list_output = Core::Sh.capture_output("xcodebuild -list", cwd: pkg_dir) rescue ""
+          list_output = begin
+            Core::Sh.capture_output("xcodebuild -list", cwd: pkg_dir)
+          rescue SPMCache::Core::GeneralError
+            ""
+          end
           schemes = list_output.split("\n").drop_while { |l| !l.match?(/Schemes:/) }
                                  .drop(1)
                                  .map(&:strip)

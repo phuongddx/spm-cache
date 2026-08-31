@@ -1,5 +1,7 @@
 # frozen_string_literal: true
 
+require 'spm_cache/core/package_resolved'
+
 module SPMCache
   module Core
     # Filesystem-watch loop that auto-regenerates the proxy package when the
@@ -115,8 +117,7 @@ module SPMCache
       # whole .xcodeproj bundle is too noisy — Xcode rewrites many files
       # constantly. These two are the meaningful signal.
       def resolve_watched_files
-        resolved = Dir.glob(File.join(project_path, '**/Package.resolved'))
-                      .find { |f| File.exist?(f) }
+        resolved = PackageResolved.locate(project_path)
         pbxproj = Dir.glob(File.join(project_path, '**/project.pbxproj'))
                      .find { |f| File.exist?(f) }
         [resolved, pbxproj].compact

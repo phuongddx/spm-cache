@@ -12,6 +12,11 @@ RSpec.describe SPMCache::Installer::Build do
 
   before do
     FileUtils.mkdir_p(project_path)
+    # CachedLib is "hit" per the cachemap below; give it a real on-disk
+    # xcframework with a simulator slice so it is a genuine complete cache
+    # hit, not a hit-by-metadata-only miss (slice_complete? forces a rebuild
+    # when the framework directory is absent from disk, #CR-02).
+    FileUtils.mkdir_p(File.join(tmpdir, "CachedLib.xcframework", "ios-arm64-simulator"))
     # Stub out the heavy Installer#perform_install steps so we can isolate
     # the selection logic added in Phase 2.
     allow_any_instance_of(SPMCache::Installer).to receive(:perform_install).and_wrap_original do |original, *args, &block|
@@ -322,5 +327,52 @@ RSpec.describe SPMCache::Installer::Build, "slice-aware rebuild of incomplete hi
   it "rebuilds a hit package missing the device slice, but skips a complete one" do
     inst = described_class.new(project: project_path)
     expect { inst.perform_install }.to output(/Building 1 target.*: SimOnlyLib/).to_stdout
+  end
+
+  it "rebuilds a hit package whose xcframework directory is entirely absent from disk" do
+    FileUtils.rm_rf(File.join(tmpdir, "CompleteLib.xcframework"))
+    inst = described_class.new(project: project_path)
+    expect { inst.perform_install }.to output(/Building 2 target.*SimOnlyLib.*CompleteLib/m).to_stdout
+  end
+end
+
+# D-07: with no umbrella Package.resolved AND no host graph findable anywhere,
+# SPM::ResolvedGraph.source_for returns nil, and that nil must thread through
+# to every SPM::BuildPipeline.run call for the run -- the exact
+# "seeding disabled (default)" case.
+RSpec.describe SPMCache::Installer::Build, "no host graph found threads resolved_pins_file: nil" do
+  let(:tmpdir) { Dir.mktmpdir }
+  let(:project_path) { File.join(tmpdir, "Fake.xcodeproj") }
+
+  let(:cachemap) do
+    SPMCache::Cache::Cachemap.new(graph_data: [{ "module" => "Alamofire", "status" => "missed" }])
+  end
+
+  before do
+    FileUtils.mkdir_p(project_path)
+    alamofire_dir = File.join(tmpdir, "checkouts", "Alamofire")
+    FileUtils.mkdir_p(alamofire_dir)
+    allow_any_instance_of(SPMCache::Installer).to receive(:perform_install).and_wrap_original do |original, *_args|
+      me = original.receiver
+      me.instance_variable_set(:@cachemap, cachemap) if me.respond_to?(:cachemap)
+      nil
+    end
+    allow_any_instance_of(SPMCache::Installer::Build).to receive(:resolve_umbrella_checkouts).and_return(nil)
+    allow_any_instance_of(SPMCache::Installer::Build).to receive(:checkout_map).and_return("Alamofire" => alamofire_dir)
+    allow(SPMCache::Core::Config.instance).to receive(:ignore_build_errors?).and_return(false)
+    allow(SPMCache::Core::Config.instance).to receive(:default_sdk).and_return("iphonesimulator")
+    allow(SPMCache::Core::Config.instance).to receive(:cache_dir).and_return(tmpdir)
+    allow(SPMCache::Core::Config.instance).to receive(:umbrella_dir).and_return(File.join(tmpdir, "umbrella"))
+  end
+
+  after { FileUtils.rm_rf(tmpdir) }
+
+  it "threads resolved_pins_file: nil into BuildPipeline.run when source_for finds nothing" do
+    allow(SPMCache::SPM::ResolvedGraph).to receive(:source_for).and_return(nil)
+    allow(SPMCache::SPM::BuildPipeline).to receive(:run).and_return("/out/fake.xcframework")
+
+    described_class.new(project: project_path, targets: []).perform_install
+
+    expect(SPMCache::SPM::BuildPipeline).to have_received(:run).with(hash_including(resolved_pins_file: nil))
   end
 end

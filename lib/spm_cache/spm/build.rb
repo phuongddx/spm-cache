@@ -46,7 +46,7 @@ module SPMCache
       LOW_DEPLOYMENT_TARGET_ERROR_PATTERN = /SDK does not contain 'libarclite'|is only available in iOS \d+\.\d+ or newer/.freeze
 
       def initialize(name:, module_name: nil, pkg_dir:, config: "debug", library_evolution: true, scheme: nil,
-                     header_paths: [])
+                     header_paths: [], clones_dir: nil)
         @name = name
         @module_name = module_name || name
         @pkg_dir = pkg_dir
@@ -54,6 +54,7 @@ module SPMCache
         @library_evolution = library_evolution
         @scheme = scheme || name
         @header_paths = header_paths
+        @clones_dir = clones_dir
       end
 
       # Field bug: DeviceKit's own committed .xcodeproj has a "Generate
@@ -101,6 +102,7 @@ module SPMCache
         cmd += " -scheme '#{@scheme}'"
         cmd += " -destination '#{destination}'"
         cmd += " -derivedDataPath #{dd}"
+        cmd += " -clonedSourcePackagesDirPath '#{@clones_dir}'" if @clones_dir
         cmd += " CODE_SIGNING_ALLOWED=NO"
         cmd += library_evolution_flags if @library_evolution
         cmd += " #{opts[:extra_args]}" if opts[:extra_args]
@@ -141,7 +143,7 @@ module SPMCache
 
       def build_for_destination(destination_key, derived_data_path: nil, **opts)
         dest = DESTINATIONS[destination_key] || destination_key
-        dd = xcodebuild(dest, derived_data_path: derived_data_path, opts: opts)
+        dd = xcodebuild(dest, derived_data_path: derived_data_path, **opts)
 
         # Find .o file in build products
         obj = find_object_file(dd)

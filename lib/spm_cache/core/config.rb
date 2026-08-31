@@ -85,6 +85,23 @@ module SPMCache
         File.join(sandbox_dir, "packages", "proxy", ".build", "artifacts")
       end
 
+      # A dedicated sibling of umbrella_dir/proxy_dir -- never a path under
+      # umbrella_dir or its .build, which #locate_prebuilt_xcframework reads
+      # Class-E binaryTarget artifacts from (BuildPipeline). Shared across
+      # every xcodebuild invocation via -clonedSourcePackagesDirPath so N
+      # per-package builds don't each independently clone the whole host
+      # graph (Pitfall 9).
+      def clones_dir
+        File.join(sandbox_dir, "packages", "clones")
+      end
+
+      # Stable, OUTSIDE sandbox_dir by construction (a project_dir-level
+      # dotfile) so recreate_dirs' rm_rf(sandbox_dir) can never delete the
+      # path a live flock is held on (Pitfall 15).
+      def build_lock_path
+        File.join(project_dir, ".spm-cache-build.lock")
+      end
+
       def local_packages_dir
         File.join(sandbox_dir, "local-packages")
       end

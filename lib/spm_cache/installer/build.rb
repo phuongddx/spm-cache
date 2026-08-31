@@ -5,6 +5,7 @@ require "fileutils"
 require "spm_cache/installer"
 require "spm_cache/spm/build_pipeline"
 require "spm_cache/spm/checkout_resolver"
+require "spm_cache/spm/resolved_graph"
 
 module SPMCache
   class Installer
@@ -15,42 +16,79 @@ module SPMCache
       end
 
       def perform_install
-        super
-        return unless @cachemap
+        lock = acquire_build_lock
+        begin
+          super
+          return unless @cachemap
 
-        destinations = resolve_destinations
-        cache_out = @config.cache_dir(@config_name)
+          destinations = resolve_destinations
+          cache_out = @config.cache_dir(@config_name)
 
-        missed = @cachemap.missed.dup
-        missed.concat(@cachemap.hit.select { |m| !slice_complete?(cache_out, m, destinations) })
+          missed = @cachemap.missed.dup
+          missed.concat(@cachemap.hit.select { |m| !slice_complete?(cache_out, m, destinations) })
 
-        if @requested_targets.any?
-          filter_requested_targets!(missed)
-        end
-        missed.uniq!
+          if @requested_targets.any?
+            filter_requested_targets!(missed)
+          end
+          missed.uniq!
 
-        if missed.empty?
-          Core::UI.info "No targets to build."
-          return
-        end
+          if missed.empty?
+            Core::UI.info "No targets to build."
+            return
+          end
 
-        checkouts = checkout_map
-        FileUtils.mkdir_p(cache_out)
+          checkouts = checkout_map
+          # Resolved ONCE per run via the already-memoized `host_graph_detector`
+          # (Phase 6 Plan 05's single per-run answer) -- never a second,
+          # independent locator here, or the pin source and the change
+          # detector could disagree again (06-05-SUMMARY.md).
+          resolved_pins_file = SPM::ResolvedGraph.source_for(
+            umbrella_dir: @config.umbrella_dir,
+            host_graph_path: host_graph_detector.host_graph_path,
+          )
+          FileUtils.mkdir_p(cache_out)
 
-        Core::UI.info "Building #{missed.size} target(s): #{missed.join(', ')}..."
-        missed.each do |target_name|
-          build_single_target(target_name, checkouts, destinations, cache_out)
+          Core::UI.info "Building #{missed.size} target(s): #{missed.join(', ')}..."
+          missed.each do |target_name|
+            build_single_target(target_name, checkouts, destinations, cache_out, resolved_pins_file, @config.clones_dir)
+          end
+        ensure
+          release_build_lock(lock)
         end
       end
 
       private
+
+      # D-06: held across `super` (recreate_dirs + resolve_umbrella_checkouts)
+      # AND the entire build loop below, so a watch-triggered
+      # Installer::Use#perform_install cannot rm_rf checkouts out from under
+      # this run (Pitfall 15). A BLOCKING flock -- "defer rather than
+      # interrupt" is satisfied by the OS's own blocking semantics, no
+      # polling/backoff needed.
+      def acquire_build_lock
+        path = @config.build_lock_path
+        FileUtils.mkdir_p(File.dirname(path))
+        lock = File.open(path, File::CREAT | File::RDWR)
+        lock.flock(File::LOCK_EX)
+        lock
+      end
+
+      # Always releases, including when `super` or the build loop raises
+      # (StandardError) or is interrupted -- the `ensure` in `perform_install`
+      # calls this unconditionally.
+      def release_build_lock(lock)
+        return unless lock
+
+        lock.flock(File::LOCK_UN)
+        lock.close
+      end
 
       # True when the cached xcframework for `module_name` carries a slice for
       # every requested destination. A sim-only artifact is not a complete hit
       # under --sdk=all, so it must be rebuilt instead of skipped.
       def slice_complete?(cache_dir, module_name, destinations)
         fw = File.join(cache_dir, "#{module_name}.xcframework")
-        return true unless File.directory?(fw)
+        return false unless File.directory?(fw)
         slices = Dir.children(fw).select { |s| File.directory?(File.join(fw, s)) }
         destinations.all? { |d| slice_satisfies?(slices, d) }
       end
@@ -59,7 +97,7 @@ module SPMCache
         case dest_key
         when "iphonesimulator" then slices.any? { |s| s.include?("simulator") }
         when "iphoneos" then slices.any? { |s| s.start_with?("ios") && !s.include?("simulator") }
-        else true
+        else false
         end
       end
 
@@ -116,7 +154,7 @@ module SPMCache
         requested.flat_map { |t| identity_to_products[t] || [t] }.uniq
       end
 
-      def build_single_target(target_name, checkouts, destinations, cache_out)
+      def build_single_target(target_name, checkouts, destinations, cache_out, resolved_pins_file, clones_dir = nil)
         pkg_dir = checkouts[target_name]
         unless pkg_dir && File.directory?(pkg_dir)
           Core::UI.warn "checkout not found for '#{target_name}'; skipping"
@@ -131,6 +169,9 @@ module SPMCache
             destinations: destinations,
             out_dir: cache_out,
             library_evolution: true,
+            resolved_pins_file: resolved_pins_file,
+            clones_dir: clones_dir,
+            config: @config_name,
           )
           Core::UI.info "  Cached: #{result}"
         rescue => e
@@ -144,14 +185,7 @@ module SPMCache
 
       def resolve_destinations
         sdk = @config.default_sdk
-        case sdk
-        when "all"
-          SPM::Package::DEFAULT_DESTINATIONS
-        when "iphonesimulator", "iphoneos"
-          [sdk]
-        else
-          [sdk]
-        end
+        sdk == "all" ? SPM::Package::DEFAULT_DESTINATIONS : [sdk]
       end
     end
   end

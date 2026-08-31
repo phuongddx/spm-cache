@@ -16,9 +16,35 @@ struct BinariesCache {
         }
     }
 
-    func hit(module: String) -> URL? {
+    /// Provenance-aware cache-hit decision (CACHE-02): a hit now requires the
+    /// sidecar's recorded pin for `identity` to agree with `currentPin`, not
+    /// just artifact presence on disk. A totally-absent or unparsable
+    /// sidecar is an unconditional miss (fail-safe, matches `cache
+    /// list`'s existing `fidelity_status_for` tolerant-fallback philosophy).
+    /// Intersection-only: `identity` absent from `pins` (empty pins, or a
+    /// non-empty hash that simply doesn't mention this identity -- the
+    /// not-graph-pinned/Class E steady state) is NOT evidence of drift and
+    /// still hits.
+    func hit(module: String, identity: String, currentPin: String?) -> URL? {
         let xcframework = dir.appendingPathComponent("\(module).xcframework")
-        return FileManager.default.fileExists(atPath: xcframework.path) ? xcframework : nil
+        guard FileManager.default.fileExists(atPath: xcframework.path) else { return nil }
+
+        let sidecar = dir.appendingPathComponent("\(module).xcframework.provenance.json")
+        guard let data = try? Data(contentsOf: sidecar),
+              let parsed = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+            return nil
+        }
+        guard let pins = parsed["pins"] as? [String: String] else { return nil }
+
+        if let recorded = pins[identity] {
+            // A recorded pin with no readable currentPin is inconclusive, not
+            // "no evidence of drift" -- treat it the same as a disagreement
+            // (fail-safe) rather than falling back to pre-CACHE-02,
+            // fileExists-only semantics for exactly the lockfile entries
+            // whose data is least trustworthy.
+            guard let current = currentPin, recorded == current else { return nil }
+        }
+        return xcframework
     }
 
     func binaryPath(for module: String) -> URL? {
