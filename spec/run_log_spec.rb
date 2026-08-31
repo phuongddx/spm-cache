@@ -162,6 +162,31 @@ RSpec.describe SPMCache::Core::RunLog do
       expected = [1, 2].flat_map { |t| (0...100).map { |i| "thread-#{t} line #{i}\n" } }
       expect(texts.sort).to eq(expected.sort)
     end
+
+    # WR-01: record_line's read-modify-write on @buffers plus the in-place
+    # slice! loop were unsynchronized -- safe_append's mutex serializes only
+    # the final write. The class is designed for a multi-threaded logging
+    # world; the first caller printing from a second thread must get the
+    # same per-line integrity record_text already has.
+    it 'keeps record_line partial-chunk buffering coherent under concurrent writers (WR-01)' do
+      log = open_log
+      writers = [1, 2].map do |t|
+        Thread.new do
+          50.times do |i|
+            log.record_line("t#{t}-line-#{i}-", 'out')
+            log.record_line("part\n", 'out')
+          end
+        end
+      end
+      writers.each(&:join)
+      log.finish(0)
+
+      parsed = File.read(log.path).lines.map { |line| JSON.parse(line) }
+      bodies = parsed.select { |entry| entry.key?('text') }
+      expect(bodies.length).to eq(100) # every chunk pair landed as ONE complete line
+      expected = [1, 2].flat_map { |t| (0...50).map { |i| "t#{t}-line-#{i}-part\n" } }
+      expect(bodies.map { |b| b['text'] }.sort).to eq(expected.sort)
+    end
   end
 
   describe 'safety degradation' do

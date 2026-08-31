@@ -175,6 +175,7 @@ module SPMCache
         @file = file
         @previous_current = previous_current
         @mutex = Mutex.new
+        @buffer_mutex = Mutex.new # WR-01: @buffers is multi-writer state
         @buffers = {}
         @finished = false
         @disabled = false
@@ -187,11 +188,20 @@ module SPMCache
       # Tee entry point: writes may arrive in partial chunks, so buffer per
       # stream until a newline arrives -- record_line("par") followed by
       # record_line("tial\n") must land as ONE body line "partial\n".
+      # The read-modify-write on @buffers plus the in-place slice! loop are
+      # unsynchronized state (WR-01): safe_append's mutex serializes only
+      # the final write, so any future caller printing from a second thread
+      # (parallel hooks) would interleave or lose body lines. One buffer
+      # mutex covers append + extraction + same-stream emission order;
+      # record_text inside it acquires @mutex (append), never the reverse,
+      # so the two locks cannot deadlock.
       def record_line(str, stream)
-        buffer = (@buffers[stream] ||= +'')
-        buffer << str
-        while (nl = buffer.index("\n"))
-          record_text(buffer.slice!(0..nl), stream)
+        @buffer_mutex.synchronize do
+          buffer = (@buffers[stream] ||= +'')
+          buffer << str
+          while (nl = buffer.index("\n"))
+            record_text(buffer.slice!(0..nl), stream)
+          end
         end
       end
 
@@ -302,13 +312,17 @@ module SPMCache
 
       # Emit any trailing partial line (a `print` without newline) before the
       # exit line so a zero-newline tail is not silently dropped (SC2).
+      # Same @buffer_mutex discipline as record_line (WR-01) -- finish must
+      # not race a straggler writer's append/extract loop.
       def flush_partial_buffers
-        @buffers.each_key do |stream|
-          buffer = @buffers[stream]
-          next if buffer.empty?
+        @buffer_mutex.synchronize do
+          @buffers.each_key do |stream|
+            buffer = @buffers[stream]
+            next if buffer.empty?
 
-          @buffers[stream] = +''
-          record_text(buffer, stream)
+            @buffers[stream] = +''
+            record_text(buffer, stream)
+          end
         end
       end
 
