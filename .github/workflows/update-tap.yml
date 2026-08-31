@@ -71,7 +71,7 @@ jobs:
           # the operator controls); fall back to GitHub's auto-generated tag
           # archive, whose bytes GitHub does not guarantee stable, behind a
           # loud warning.
-          ASSET_URL="$(gh release view "$TAG" --repo "$GITHUB_REPOSITORY" --json assets --jq '[.assets[] | select(.name | endswith(".tar.gz"))][0].browser_download_url // empty' || true)"
+          ASSET_URL="$(gh release view "$TAG" --repo "$GITHUB_REPOSITORY" --json assets --jq '[.assets[] | select(.name | endswith(".tar.gz"))][0].url // empty' || true)"
           if [ -n "$ASSET_URL" ]; then
             TARBALL_URL="$ASSET_URL"
             echo "Hashing attached release asset (byte-stable): ${TARBALL_URL}"

@@ -249,6 +249,10 @@ RSpec.describe '.github/workflows/update-tap.yml' do
                     'asset discovery must list the release assets before choosing a byte source'
     expect(body).to include('endswith(".tar.gz")'),
                     'select tarball assets only — a gem or zip asset must never be hashed'
+    expect(body).to include('[0].url'),
+                    'gh release view --json assets exposes the browser URL as "url" — live-caught 2026-08-31 (run 33354278728 took the archive fallback despite an attached asset)'
+    expect(body).not_to include('browser_download_url'),
+                        'browser_download_url is a REST-only field name; in gh release view JSON it nulls silently and every run falls back to the auto-generated archive'
     expect(body).to match(%r{^\s*TARBALL_URL="https://github\.com/\$\{GITHUB_REPOSITORY\}/archive/refs/tags/\$\{TAG\}\.tar\.gz"}),
                     'the fallback byte source remains the auto-generated tag archive'
     expect(body).to match(/^\s*echo "::warning::/),
