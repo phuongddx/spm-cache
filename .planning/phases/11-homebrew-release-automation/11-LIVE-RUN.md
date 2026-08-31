@@ -158,3 +158,62 @@ verify-publish job are unchanged. Spec updated RED→GREEN (23 examples green; f
 - Tap repo `phuongddx/homebrew-spm-cache` HEAD unchanged (`2063fac`, 2026-08-11) after all runs.
 - No secret value was ever printed, echoed, or logged anywhere in this plan — names only
   (`TAP_DEPLOY_KEY`, `TAP_REPO_TOKEN`); Actions masks secret material in logs regardless.
+
+## Run 4 — UAT Test 2 live proof: tap boot fix + runner un-pinned (2026-08-31)
+
+Context: verifier UAT item 2 (tap-side kconv/nkf boot defect) fixed during `/gsd-verify-work 11`
+with operator authorization. Tap fix `phuongddx/homebrew-spm-cache@5fd0f0d` — wrapper now execs
+`Formula["ruby@3.3"].opt_bin/ruby` (the formula's own dependency was previously declared but
+never used; the binstub's env-ruby shebang resolved to the image's Homebrew Ruby 3.4, where
+nkf/kconv left the default-gem set). Runner pin reverted here in `7028069` (back to
+`macos-latest`, i.e. the Ruby-3.4 image that crashed in Run 2).
+
+- **Run:** https://github.com/phuongddx/spm-cache/actions/runs/33350215267 (workflow_dispatch,
+  tag=v0.3.0, ref `gsd/v0.4.0-build-fidelity-release-automation` @ `7028069` — first live run of
+  the post-code-review workflow including WR-01/02/03 fixes `ec51795`/`c6df1a4`/`a505521`)
+- **update-tap job: success** — tap checked out at `5fd0f0d`, idempotent already-at-0.3.0 notice
+  branch again, no tap commit, zero release events.
+- **verify-publish install step: success on macos-latest** — `ruby@3.3` 3.3.12 bottle poured,
+  formula installed from the fixed tap revision; **no kconv/nkf LoadError anywhere in the log**
+  (the exact failure signature of Run 2 on this same image).
+- **verify-publish job: failure exactly at the "Assert installed version matches the release"
+  step** — the documented pre-intercept signature (v0.3.0 CLI rejects `--version`, nonzero exit,
+  `pipefail` aborts the step before the echo). Boot itself demonstrably reached CLAide.
+- **Conclusion:** UAT Test 2 passes on live evidence — the formula now boots on current runners
+  under keg-only ruby@3.3, and the first fully-green verify job remains expected at the v0.4.0
+  release. This run additionally live-proved the WR-01..03 workflow revisions on the idempotent
+  branch; the commit+push step stays deferred to the real release (UAT Test 1, deferred).
+
+## Runs 5–6 — UAT Test 3: attached-asset path + first REAL push (2026-08-31)
+
+Operator authorized the full live proof during `/gsd-verify-work 11`: `git archive
+--format=tar.gz --prefix=spm-cache-0.3.0/ v0.3.0` uploaded as release asset
+`spm-cache-0.3.0.tar.gz` (local sha256 `1a7d9f76…`, matching GitHub's asset digest), then two
+dispatches.
+
+### Run 5 — caught a real WR-02 defect (33354278728)
+
+With the asset attached, the sha step STILL took the archive fallback (loud warning fired).
+Root cause: the asset-selection jq read `[0].browser_download_url` — a REST-only field name
+that does not exist in `gh release view --json assets` output (the field is `url`); the key
+access nulls silently and `// empty` masks it, so asset preference could never fire. Fixed
+RED→GREEN: spec pins the field name and forbids the REST name; workflow one-word fix
+(commit `c200a43`, suite 441/0). This is the second live-caught defect of the plan (after
+run 1's anchor indentation) — evidence the loud-failure design surfaces real faults.
+
+### Run 6 — full proof of the asset path AND the never-tested push (33354678763)
+
+- **update-tap job green through a REAL formula-changing event for the first time:**
+  `Hashing attached release asset (byte-stable): …/releases/download/v0.3.0/spm-cache-0.3.0.tar.gz`
+  → sha differs from formula → anchored edits → `git commit` → `git push` (deploy key,
+  unprotected main) → tap HEAD advanced `5fd0f0d` → `ee27cc7` ("chore: update spm-cache to
+  0.3.0"). Formula now pins `releases/download/…` with sha `1a7d9f76…` — byte-identical to
+  the locally computed git-archive hash and GitHub's asset digest.
+- **verify-publish job red exactly at the version assertion** — install from the new
+  byte-stable URL succeeded, CLI booted under keg-only ruby@3.3, and the failure is the
+  documented pre-intercept signature of the v0.3.0 artifact (expected; first green at v0.4.0).
+- **Net effect:** WR-02's byte-stability recommendation is now the live state of the tap —
+  v0.3.0's formula hashes operator-controlled attached bytes, not GitHub's auto-archive.
+
+Zero-release-mutation note: the only release change is the ADDITIVE asset upload the operator
+authorized for this test; no release was created, edited, re-published, or pre-released.
