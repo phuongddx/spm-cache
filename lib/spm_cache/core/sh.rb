@@ -58,6 +58,15 @@ module SPMCache
             { output: out_tail.join, error: err_tail.join, status: 0 }
           else
             stdout_str, stderr_str, status = Open3.capture3(env, cmd, **spawn_opts)
+            # Structured sh event per completed capture3 call (Pitfall 5 /
+            # LOGS-01, A2): value-returning captures are consumed as values
+            # and never printed today -- cmd + status (never output text)
+            # makes swift-package-describe / xcodebuild -list visible in
+            # offline reconstruction without spamming. Recorded on success
+            # AND failure, before the raise; RunLog's safe_append
+            # degradation already guarantees a logging failure can never
+            # mask the capture's own result (no second guard layer here).
+            RunLog.current&.event('sh', cmd: cmd, status: status.exitstatus)
             unless status.success?
               msg = "Command failed (exit #{status.exitstatus}): #{cmd}\n#{failure_detail(stdout_str, stderr_str)}"
               raise GeneralError.new(msg)

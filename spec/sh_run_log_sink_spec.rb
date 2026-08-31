@@ -123,6 +123,11 @@ RSpec.describe SPMCache::Core::Sh do
 
   describe '.capture_output sh events (Pitfall 5 / A2)' do
     it 'records one {event: sh, ts, cmd, status} line per completed capture, returned value unchanged' do
+      # Force the lazy open FIRST (expect(actual) evaluates actual before
+      # matcher args, so an equal(log) alone opens too late): opening
+      # installs RunLog.current before the capture runs.
+      expect(log).to be_a(SPMCache::Core::RunLog)
+      expect(SPMCache::Core::RunLog.current).to equal(log)
       expect(described_class.capture_output('echo hi')).to eq('hi')
       log.finish(0)
       events = read_lines(log.path).select { |entry| entry['event'] == 'sh' }
@@ -131,7 +136,11 @@ RSpec.describe SPMCache::Core::Sh do
       expect(events.first['ts']).to match(/\A\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z\z/)
     end
 
-    it 'records the real exit status before the raise on a failing capture (EDGE empty: zero output, status recorded)' do
+    # EDGE empty: `false` emits zero output -- the sh event still records
+    # the real status.
+    it 'records the real exit status before the raise on a failing capture' do
+      expect(log).to be_a(SPMCache::Core::RunLog) # force the lazy open first
+      expect(SPMCache::Core::RunLog.current).to equal(log)
       expect { described_class.capture_output('false') }.to raise_error(SPMCache::Core::GeneralError)
       log.finish(0)
       events = read_lines(log.path).select { |entry| entry['event'] == 'sh' }
