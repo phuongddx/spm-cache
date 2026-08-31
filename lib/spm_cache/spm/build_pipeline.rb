@@ -120,6 +120,13 @@ module SPMCache
         # below -- logging is metadata and must never mask, fail, or alter the
         # operation it surrounds (RunLog's own safe_append already degrades;
         # this guard covers a broken sink object too).
+        #
+        # T-12-01 (log-forging): package NAMES cross an untrusted boundary
+        # into event fields here. Every event goes through RunLog#event's
+        # JSON.generate, so a JSON-breaking or event-lookalike package name is
+        # escaped into the `name` VALUE of a real event line, never a forged
+        # line -- Phase 14 renderers key on the `event` field and treat all
+        # text/name values as data (run_log.rb header contract).
         def emit_run_log_event(run_log, event_name, **fields)
           return if run_log.nil?
 
