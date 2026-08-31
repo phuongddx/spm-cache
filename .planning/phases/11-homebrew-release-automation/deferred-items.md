@@ -1,6 +1,6 @@
 # Phase 11 Deferred Items
 
-## Tap formula cannot boot under Homebrew Ruby ≥ 3.4 (discovered 2026-08-30, plan 11-03 run 2)
+## RESOLVED 2026-08-31 — Tap formula cannot boot under Homebrew Ruby ≥ 3.4 (discovered 2026-08-30, plan 11-03 run 2)
 
 - **Out-of-scope discovery** (tap repo `phuongddx/homebrew-spm-cache`, not this repo): the
   installed `spm-cache` formula's wrapper (`(bin/"spm-cache").write`) execs the gem binstub via
@@ -23,3 +23,10 @@
 - Not fixed here: tap formula content is out of this repo's scope (11-RESEARCH A2: "formula
   tweak is tap-side (out of repo)"); executor holds no tap-push credential by design (the
   deploy key's private half exists only as the `TAP_DEPLOY_KEY` repo secret).
+
+**✅ RESOLVED 2026-08-31 during /gsd-verify-work 11 (UAT Test 2), operator-authorized:**
+the suggested fix was applied verbatim to the tap — `phuongddx/homebrew-spm-cache@5fd0f0d`
+(wrapper now `exec "#{Formula["ruby@3.3"].opt_bin}/ruby" "#{libexec/"bin/spm-cache"}"`), the
+macos-15 runner pin was reverted here (`7028069`), and run 33350215267 proved it live on the
+Ruby-3.4 image: formula install green, no kconv/nkf LoadError, CLI boots to CLAide, verify
+fails exactly at the version assertion. Nothing remains on this item.
