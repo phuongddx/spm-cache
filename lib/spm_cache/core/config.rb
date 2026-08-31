@@ -18,7 +18,13 @@ module SPMCache
         'ignore_local' => false,
         'ignore_build_errors' => false,
         'keep_pkgs_in_project' => false,
-        'default_sdk' => 'iphonesimulator'
+        'default_sdk' => 'iphonesimulator',
+        # Run-log retention budgets (D-06): keep the newest `runs_keep`
+        # run logs, then prune oldest until the total is under
+        # `runs_max_mb` MB. Fidelity is absolute (D-05) -- growth is
+        # bounded only by whole-file retention pruning (Plan 12-03).
+        'runs_keep' => 50,
+        'runs_max_mb' => 500
       }.freeze
 
       SANDBOX_DIR = 'spm-cache'
@@ -150,6 +156,22 @@ module SPMCache
 
       def default_sdk
         raw['default_sdk'] || 'iphonesimulator'
+      end
+
+      # Retention budgets (D-06). Integer()-coerced with rescue-to-default:
+      # spm-cache.yml is user-authored, not adversarial (research V5) -- a
+      # typo like `runs_keep: many` falls back to the default instead of
+      # raising into a run.
+      def runs_keep
+        Integer(raw['runs_keep'] || DEFAULT_CONFIG['runs_keep'])
+      rescue ArgumentError, TypeError
+        DEFAULT_CONFIG['runs_keep']
+      end
+
+      def runs_max_mb
+        Integer(raw['runs_max_mb'] || DEFAULT_CONFIG['runs_max_mb'])
+      rescue ArgumentError, TypeError
+        DEFAULT_CONFIG['runs_max_mb']
       end
 
       def should_ignore?(package_name)

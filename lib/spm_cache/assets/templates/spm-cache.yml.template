@@ -4,6 +4,11 @@ ignore_local: false
 ignore_build_errors: false
 keep_pkgs_in_project: false
 default_sdk: iphonesimulator
+# Run-log retention (D-06): keep the newest runs_keep run logs, then prune
+# oldest until their total size is under runs_max_mb MB. Logs are never
+# truncated (D-05) -- growth is bounded only by deleting whole old runs.
+# runs_keep: 50
+# runs_max_mb: 500
 # remote:
 #   debug:
 #     git: git@github.com:your-org/cache.git
