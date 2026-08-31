@@ -324,6 +324,22 @@ RSpec.describe SPMCache::Core::RunLog, 'cycle_wrapper (D-09 per-cycle run logs)'
       end
     end
 
+    it 'honors --log-dir=X AFTER the verb (the position CLAide actually accepts for watch — CR-02/D-01)' do
+      config.project_dir = tmpdir
+
+      Dir.mktmpdir do |logs|
+        with_swapped_streams do
+          described_class.cycle_wrapper(CycleDouble.new, argv: ['watch', "--log-dir=#{logs}", '--once']).perform_install
+        end
+
+        files = cycle_files(logs)
+        expect(files.length).to eq(1)
+        expect(read_jsonl(files.first).first).to include('command' => 'watch', 'cycle' => true)
+        # The override wins outright: the default runs dir is never created.
+        expect(File.exist?(File.join(tmpdir, '.spm-cache'))).to be(false)
+      end
+    end
+
     it 'captures only the cycle own output: writes printed between cycles (no tee active) land in no file' do
       config.project_dir = tmpdir
       runs = File.join(tmpdir, '.spm-cache', 'runs')
