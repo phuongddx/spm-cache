@@ -51,7 +51,7 @@ repair the Homebrew release path so shipping stops requiring manual steps.
 - [x] **Phase 8: Drift Read-Back, Fidelity Status & Provenance** - Realized versions are read back, compared, reported, and recorded per artifact (completed 2026-08-29)
 - [x] **Phase 9: Cache Identity & Invalidation** - Provenance mismatch (or absence) is a cache miss, so existing users actually receive the fix (completed 2026-08-29)
 - [x] **Phase 10: Fidelity Regression Coverage** - Hermetic specs make transitive-version drift unable to silently return (completed 2026-08-30)
-- [ ] **Phase 11: Homebrew Release Automation** - Releases publish the formula unattended, and every failure in that path is loud
+- [x] **Phase 11: Homebrew Release Automation** - Releases publish the formula unattended, and every failure in that path is loud (completed 2026-08-31)
 
 ## Phase Details
 
@@ -227,7 +227,7 @@ version-awareness gap (Pitfall 2), both incorporated into the plan below.
 | 8. Drift Read-Back, Fidelity Status & Provenance | v0.4.0 | 2/2 | Complete    | 2026-08-29 |
 | 9. Cache Identity & Invalidation | v0.4.0 | 3/3 | Complete    | 2026-08-29 |
 | 10. Fidelity Regression Coverage | v0.4.0 | 3/3 | Complete    | 2026-08-30 |
-| 11. Homebrew Release Automation | v0.4.0 | 3/3 | In Progress|  |
+| 11. Homebrew Release Automation | v0.4.0 | 3/3 | Complete    | 2026-08-31 |
 
 ## Coverage
 

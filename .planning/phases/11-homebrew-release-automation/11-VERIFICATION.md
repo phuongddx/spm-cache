@@ -1,11 +1,12 @@
 ---
 phase: 11-homebrew-release-automation
 verified: "2026-08-31T00:35:00Z"
-status: human_needed
+status: passed
 score: 6/7 must-haves verified
 behavior_unverified: 1 # The SC-1 end-to-end publish transition (real formula-changing commit+push) — present, spec-pinned, and live-proven up to the no-diff gate, but never exercised with actual new content; detailed below and in human_verification
 overrides_applied: 1
 overrides:
+
   - must_have: "The tap push authenticates exclusively with a GitHub App installation token minted in-job from TAP_APP_ID/TAP_APP_PRIVATE_KEY via actions/create-github-app-token@v3 (REL-04)"
     reason: "Operator pivoted to the plan's pre-authorized deploy-key substitute at the blocking-human checkpoint (2026-08-30, IRC): the claimed UI-set App secrets were verifiably absent from every surface. A write-access SSH deploy key (id 161755962, read_only=false) was registered on phuongddx/homebrew-spm-cache; TAP_DEPLOY_KEY is the sole repo secret; dead TAP_REPO_TOKEN deleted. The substitute satisfies REL-04's actual requirement (non-human, non-expiring credential); the workflow change was visible and spec-pinned (checkout ssh-key input, guard naming TAP_DEPLOY_KEY), never an automatic fallback — honoring the 11-02 prohibition. Recorded verbatim in 11-LIVE-RUN.md and STATE.md."
     accepted_by: "operator (phuongddx)"
@@ -13,6 +14,7 @@ overrides:
 re_verification:
   previous_status: none
 human_verification:
+
   - test: "Cut the real v0.4.0 release (or dispatch a scratch-tag drill against a scratch tap branch) and observe update-tap perform an actual formula-changing git commit + git push"
     expected: "update-tap commits the anchored url/sha256 edit and pushes to phuongddx/homebrew-spm-cache; verify-publish installs the new formula and goes fully green (ACTUAL == EXPECTED_VERSION)"
     why_human: "The commit+push of NEW content has never executed live (all 3 dispatch runs ended on the idempotent no-diff branch or before the edit — review finding IN-04). Tap-side branch protection, bot-identity policy, or signing requirements are external-service state no grep can see. The phase prohibition against creating releases to obtain a green correctly prevented the executor from exercising it."
@@ -24,6 +26,7 @@ human_verification:
     why_human: "The three review-fix commits (ec51795, c6df1a4, a505521) landed after live run 3 (2026-08-30T16:27Z); they are spec-pinned (441 examples, 0 failures) but not yet live-proven. Dispatching mutates external state, which verification must not do."
 gaps: []
 deferred:
+
   - truth: "The tap formula cannot boot under Homebrew Ruby >= 3.4 (kconv/nkf bundled-gem promotion hidden by the wrapper's GEM_PATH isolation)"
     addressed_in: "Operator action on the tap repo phuongddx/homebrew-spm-cache (out of this repo's scope) — required before the v0.4.0 release's first green verify-publish"
     evidence: "deferred-items.md (discovered 2026-08-30, plan 11-03 run 2, run 33322245624); LIVE-RUN records macos-15 boots cleanly, masking resolved by the runner pin (commit 943cd0a)"
@@ -31,6 +34,7 @@ deferred:
     addressed_in: "Operator release-time practice (attach spm-cache-<ver>.tar.gz via gh release upload) — no code change pending"
     evidence: "11-REVIEW.md WR-02 resolved-with-notes (commit c6df1a4); the in-run fallback is loudly ::warning::-annotated and the hashed byte-source URL is pinned as a step output, so hash and URL cannot drift"
 behavior_unverified_items:
+
   - truth: "Publishing a release updates the Homebrew formula unattended end-to-end (SC-1's publish -> commit+push transition)"
     test: "Publish a new release (v0.4.0) and watch update-tap commit and push the formula change"
     expected: "A new commit appears on phuongddx/homebrew-spm-cache HEAD updating url+sha256, with zero human steps and no human-owned expiring credential"

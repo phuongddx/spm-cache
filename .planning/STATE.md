@@ -2,26 +2,26 @@
 gsd_state_version: 1.0
 milestone: v0.4.0
 milestone_name: Build Fidelity & Release Automation
-current_phase: 11
-current_phase_name: Homebrew Release Automation
-status: executing
-stopped_at: Completed 11-03-PLAN.md (operator gate + deploy-key pivot + live dispatch dry-run)
-last_updated: "2026-08-30T16:33:25.545Z"
-last_activity: 2026-08-30
-last_activity_desc: Phase 11 plans complete (3/3) — pending phase verification
-state_head: 8a331477c80f8e0fe32143ac38ca41577dea8c4d
+current_phase: none — milestone v0.4.0 complete
+current_phase_name: (all 6 phases verified)
+status: complete
+stopped_at: Milestone v0.4.0 complete — 6/6 phases verified (tool's next_phase:6 output was the known phase.complete bug, corrected — no phases remain)
+last_updated: "2026-08-31T03:50:04.865Z"
+last_activity: 2026-08-31
+last_activity_desc: v0.4.0 complete — Phase 11 verified + UAT 3/3 (push path live-proven, run 33354678763), security 15/15 closed, suite 441/0
+state_head: c8f102a1f78d17c87845796c27c10c7e070db319
 progress:
   total_phases: 6
-  completed_phases: 5
+  completed_phases: 6
   total_plans: 18
   completed_plans: 18
-  percent: 83
+  percent: 100
 ---
 
 # Project State: spm-cache
 
 **Initialized:** 2026-08-10
-**Current Phase:** 11
+**Current Phase:** none — milestone v0.4.0 complete (6/6 verified)
 **Project Mode:** Horizontal Layers
 **Direction:** v0.4.0 Build fidelity (correctness) + release automation
 
@@ -126,7 +126,7 @@ MediaPicker 3.2.4 while the app resolves 3.3.2.
 | 8 | Drift Read-Back, Fidelity Status & Provenance | Complete (verified 8/8, code-review clean after 2 fix iterations) | gsd/v0.4.0-build-fidelity-release-automation |
 | 9 | Cache Identity & Invalidation | Complete (verified 4/5 + SC5 operator-PASS, UAT 1/1, code-review clean, security 5/5 closed) | gsd/v0.4.0-build-fidelity-release-automation |
 | 10 | Fidelity Regression Coverage | Complete (verified 23/23 + operator-confirmed assumption, code-review clean after WR-01/02 fixes, security 12/12 closed) | gsd/v0.4.0-build-fidelity-release-automation |
-| 11 | Homebrew Release Automation | Complete (3/3 plans: 11-01 --version intercept, 11-02 update-tap rewrite, 11-03 operator gate + deploy-key pivot + live v0.3.0 dry-run; pending verification) | gsd/v0.4.0-build-fidelity-release-automation |
+| 11 | Homebrew Release Automation | Complete (verified 6/7 must-haves 0 gaps, UAT 3/3 — push path live-proven run 33354678763; code-review fixed WR-01..03 + live-caught WR-02 field fix c200a43; security 15/15 closed) | gsd/v0.4.0-build-fidelity-release-automation |
 
 Hard chain: 6 → 7 → 8 → 9. Phase 10 depends on 7–9 (fixtures authorable in parallel). Phase 11 is
 fully independent and schedulable anywhere.
@@ -209,12 +209,12 @@ Phase 11 (release automation) is unaffected — it is fully independent.
 See: .planning/PROJECT.md (updated 2026-08-29)
 
 **Core value:** Reduce Xcode clean build times by serving prebuilt SPM dependency binaries transparently, with fallback to source on cache miss.
-**Current focus:** Phase 11 — Homebrew Release Automation
+**Current focus:** Milestone v0.4.0 complete — ready for /gsd-complete-milestone
 
 ## Session Continuity
 
-Last session: 2026-08-30T16:33:14.374Z
-Stopped at: Completed 11-03-PLAN.md (operator gate + deploy-key pivot + live dispatch dry-run)
+Last session: 2026-08-31T04:00:00Z
+Stopped at: Milestone v0.4.0 complete — all 6 phases verified
 Resume file: None
 
 ## Performance Metrics
@@ -278,13 +278,14 @@ Resume file: None
 - [Phase ?]: 11-02: version asserted via URL-tag postcondition only - no version-field edit, no stanza added (live tap formula has none; Homebrew derives version from URL tag; old version sed was a silent zero-match no-op)
 - [Phase ?]: 11-02: verify-publish on macos-latest per locked CONTEXT; macos-15 pin is the documented one-line fallback if the first live run hits an OS-specific failure
 - [Phase 11]: 11-03 (2026-08-30): operator gate resolved via pivot — claimed UI-set App secrets verifiably absent, so the pre-authorized deploy-key substitute was applied API-first (write deploy key on the tap, TAP_DEPLOY_KEY the only repo secret, TAP_REPO_TOKEN deleted); REL-04 truth = long-lived machine credential (non-human, non-expiring). Live v0.3.0 dispatch: update-tap GREEN on the idempotent notice branch (REL-05/06/07/09), verify-publish RED at the version assertion per the documented pre-intercept fail-first proof (REL-08) after pinning macos-15; tap-formula Homebrew-Ruby-3.4 boot defect logged to deferred-items.md (fix needed before the v0.4.0 release's first green verify).
+- [Phase 11 — verification + UAT, 2026-08-31]: Phase verified 6/7 must-haves (0 gaps, REL-04..09 all satisfied; deploy-key pivot carried as dated operator-accepted deviation). UAT closed 3/3 with two defects found AND fixed live during verification: tap formula wrapper now execs keg-only ruby@3.3 (was env-ruby → Homebrew Ruby 3.4 kconv/nkf LoadError; tap@5fd0f0d) and WR-02's asset jq read the REST field name browser_download_url instead of gh's url, so asset preference never fired (spec-pinned + fixed c200a43). Run 33354678763 then proved the never-tested path end-to-end: REAL formula edit + commit ee27cc7 + deploy-key push (tap now pins the byte-stable v0.3.0 asset, sha 1a7d9f76 matching local git-archive hash), verify-publish red exactly at the version assertion. Security 15/15 closed (L1). phase.complete 11 reproduced the known next_phase bug (returned 6; corrected — milestone complete). gh account flip to phuongdoanduy mid-session caused one 403 dispatch; the CLAUDE.md auth-switch rule caught it.
 
 ## Current Position
 
-Phase: 11 (Homebrew Release Automation) — ALL PLANS EXECUTED
-Plan: 3 of 3 complete (11-03 shipped the operator gate via deploy-key pivot + live dispatch dry-run)
-Status: Phase 11 plans complete; pending phase verification (`11-LIVE-RUN.md` holds the live-run evidence)
-Last activity: 2026-08-30 — 11-03: deploy-key pivot, 3 live dispatch runs, anchor/runner fixes, 438 examples 0 failures
+Phase: none — v0.4.0 complete (Phases 6–11 all verified)
+Plan: —
+Status: Milestone ready for completion (/gsd-complete-milestone)
+Last activity: 2026-08-31 — Phase 11 verification + UAT closed: tap boot fix live (ruby@3.3), WR-02 asset path live (real push ee27cc7), deploy-key pivot recorded
 
 ### Historical position (Phase 6, prior to this update)
 
@@ -300,5 +301,5 @@ None — Phase 9's deferred SC5 human check was executed and PASSED by the opera
 
 ## Operator Next Steps
 
-- **Phase 11 gate:** create a GitHub App owned by `phuongddx` (`Contents: read & write` + `Metadata: read`, installed on `homebrew-spm-cache` only, never `workflow` scope) and store its app id + private key as repo secrets. This replaces the dead `TAP_REPO_TOKEN` (classic PAT, auto-deleted after a year unused). A write-access deploy key is the accepted lower-ceremony substitute.
+- ~~Phase 11 gate~~ RESOLVED 2026-08-31 via operator-authorized deploy-key pivot (write deploy key on the tap, `TAP_DEPLOY_KEY` sole repo secret, dead `TAP_REPO_TOKEN` deleted); tap formula boot-fixed to keg-only ruby@3.3; v0.3.0 release now carries the byte-stable `spm-cache-0.3.0.tar.gz` asset and the tap formula pins it. At the v0.4.0 cut: attach `spm-cache-<ver>.tar.gz` (git archive from the tag) and watch the first fully-green verify-publish.
 - Deferred (not in v0.4.0): `gem signin` → `gem build`/`gem push` → verify `gem install spm-cache`; then the Action + its smoke CI become viable.
