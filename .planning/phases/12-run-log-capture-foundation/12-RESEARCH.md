@@ -424,13 +424,15 @@ Header = `run_start` (one line serves SC1's header and D-04's event), exit line 
 | A5 | Inter-cycle watch narrative (banners between regenerations) is intentionally not persisted (D-09 reading) | Pattern 4 | If user expected it captured, needs a session-file conversation — D-09 currently forbids one |
 | A6 | `use --watch` (legacy CP5 loop, use.rb:52-82) logs as ONE session-level `use` run (Main-level file), not per-cycle — D-09's per-cycle mandate targets the `watch` daemon; CP5/CP6 treat the legacy loop as CLI-only | Open Questions | If per-cycle wanted here too, extra plumbing through a private loop; recommend explicit plan note either way |
 
-## Open Questions
+## Open Questions (RESOLVED)
 
-1. **Legacy `use --watch` per-cycle or session-level?**
+All three questions are resolved and adopted in the phase plans; each carries a resolution note pointing at the adopting plan.
+
+1. **Legacy `use --watch` per-cycle or session-level?** — RESOLVED: session-level (adopted in Plan 12-05 — the A6 row of the pre_scan truth table asserts `['use','--watch']` is NOT skipped).
    - What we know: two watch loops exist (use.rb:52-82 legacy; Command::Watch/Watcher canonical). D-09 says the watch daemon writes per-cycle files; it does not name the legacy loop.
    - Recommendation: session-level for `use --watch` (A6), documented in the plan; revisit only if Phase 14's relay needs parity (CP5 says treat it CLI-only).
-2. **`trigger` field: now or Phase 14?** (A3) — planner's call; both defensible.
-3. **Should the exit line's `status` for uncaught non-GeneralError exceptions distinguish 1 vs 130 vs "signal"?** Recommendation: numeric only (0/1/130/e.status); CP14's later detector keys on exit-line *presence* + pid liveness, not fine-grained cause.
+2. **`trigger` field: now or Phase 14?** (A3) — RESOLVED: now (Plan 12-01 lands `trigger: "terminal"` in the run_start header; Plan 12-05 uses `trigger: "watch"` on cycle files).
+3. **Should the exit line's `status` for uncaught non-GeneralError exceptions distinguish 1 vs 130 vs "signal"?** — RESOLVED: numeric only (0/1/130/e.status; adopted in Plan 12-01's exit-shape truth and Plan 12-05's cycle three-shape contract). CP14's later detector keys on exit-line *presence* + pid liveness, not fine-grained cause.
 
 ## Environment Availability
 
