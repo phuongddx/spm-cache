@@ -52,8 +52,12 @@ module SPMCache
               threads.each(&:join)
               exit_status = wait_thr.value.exitstatus
               unless wait_thr.value.success?
-                msg = "Command failed (exit #{exit_status}): #{cmd}\n#{failure_detail(out_buf, err_buf)}"
-                raise GeneralError.new(msg)
+                error = GeneralError.new("Command failed (exit #{exit_status}): #{cmd}\n#{failure_detail(out_buf,
+                                                                                                         err_buf)}")
+                # WR-04: the message is tail-bounded for display; recovery
+                # callers match the complete streamed content instead.
+                error.full_output = out_buf + err_buf
+                raise error
               end
             end
             { output: out_buf, error: err_buf, status: exit_status }
@@ -69,8 +73,13 @@ module SPMCache
             # mask the capture's own result (no second guard layer here).
             RunLog.current&.event('sh', cmd: cmd, status: status.exitstatus)
             unless status.success?
-              msg = "Command failed (exit #{status.exitstatus}): #{cmd}\n#{failure_detail(stdout_str, stderr_str)}"
-              raise GeneralError.new(msg)
+              error = GeneralError.new("Command failed (exit #{status.exitstatus}): #{cmd}\n#{failure_detail(
+                stdout_str, stderr_str
+              )}")
+              # WR-04 parity with the popen3 branch: full streams stay
+              # matchable even though the message carries only the tail.
+              error.full_output = stdout_str + stderr_str
+              raise error
             end
             { output: stdout_str, error: stderr_str, status: status.exitstatus }
           end

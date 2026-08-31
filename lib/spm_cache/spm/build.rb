@@ -95,7 +95,8 @@ module SPMCache
         begin
           SPMCache::Core::Sh.run(cmd, { cwd: @pkg_dir, live_log: opts[:live_log] }.merge(sinks))
         rescue SPMCache::Core::GeneralError => e
-          raise unless e.message.match?(LOW_DEPLOYMENT_TARGET_ERROR_PATTERN)
+          raise unless e.message.match?(LOW_DEPLOYMENT_TARGET_ERROR_PATTERN) ||
+                       e.full_output.to_s.match?(LOW_DEPLOYMENT_TARGET_ERROR_PATTERN)
 
           retry_cmd = "#{cmd} IPHONEOS_DEPLOYMENT_TARGET=#{LOW_DEPLOYMENT_TARGET_RETRY_VALUE}"
           SPMCache::Core::Sh.run(retry_cmd, { cwd: @pkg_dir, live_log: opts[:live_log] }.merge(sinks))

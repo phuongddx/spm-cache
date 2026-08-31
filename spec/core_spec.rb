@@ -45,7 +45,7 @@ RSpec.describe SPMCache::Core::Sh do
     # bounded for display, the matchable content is complete.
     it 'attaches the full streamed output to the raised error, beyond the 60-line message tail (WR-04)' do
       expect do
-        described_class.run("echo 'is only available in iOS 99.0 or newer'; for i in $(seq 1 100); do echo filler $i; done; false")
+        described_class.run("printf 'is only available in iOS %s.0 or newer\\n' 99; for i in $(seq 1 100); do echo filler $i; done; false")
       end.to raise_error(SPMCache::Core::GeneralError) do |e|
         expect(e.message).not_to include('iOS 99.0') # the message tail alone misses it
         expect(e.full_output).to include('is only available in iOS 99.0 or newer')
