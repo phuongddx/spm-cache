@@ -2,9 +2,14 @@
 gsd_state_version: 1.0
 milestone: v0.5.0
 milestone_name: Web Interface
+current_phase: 12 of 16 — Run-Log Capture Foundation (v0.5.0 Web Interface)
+current_phase_name: 0/5 v0.5.0 phases complete
 status: planning
-last_updated: "2026-08-31T13:33:24.000Z"
+stopped_at: Phase 12 context gathered
+last_updated: "2026-08-31T14:47:57.651Z"
 last_activity: 2026-08-31
+last_activity_desc: v0.5.0 roadmap created (Phases 12–16, 19/19 requirements mapped)
+state_head: 49b3c4d23944c76715b5294eec971e9200e3138e
 progress:
   total_phases: 5
   completed_phases: 0
@@ -96,6 +101,6 @@ Items acknowledged and deferred at milestone close, most recent first:
 
 ## Session Continuity
 
-Last session: 2026-08-31
-Stopped at: v0.5.0 roadmap created (Phases 12–16, 19/19 requirements mapped) — next: `/gsd-plan-phase 12`
-Resume file: None
+Last session: 2026-08-31T14:47:57.638Z
+Stopped at: Phase 12 context gathered
+Resume file: .planning/phases/12-run-log-capture-foundation/12-CONTEXT.md
