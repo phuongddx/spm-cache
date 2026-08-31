@@ -35,9 +35,9 @@ RSpec.describe SPMCache::Core::RunLog do
       expect(described_class.pre_scan(['--log-dir', '/tmp/x', 'use']).main_log_skipped?).to be(false)
     end
 
-    it 'reads the --log-dir X and --log-dir=X forms (D-01)' do
-      expect(described_class.pre_scan(['--log-dir', '/tmp/x', 'use']).log_dir).to eq('/tmp/x')
+    it 'reads the CLAide-accepted --log-dir=X form in any position; the two-token form routes nothing (D-01/CR-02)' do
       expect(described_class.pre_scan(['--log-dir=/tmp/x', 'use']).log_dir).to eq('/tmp/x')
+      expect(described_class.pre_scan(['use', '--log-dir=/tmp/x']).log_dir).to eq('/tmp/x')
       expect(described_class.pre_scan(['use']).log_dir).to be_nil
     end
   end
@@ -97,7 +97,7 @@ RSpec.describe SPMCache::Main, 'run-log capture (LOGS-01)' do
         warn 'stderr line'
       end
 
-      with_swapped_streams { SPMCache::Main.run(['--log-dir', tmpdir, 'use']) }
+      with_swapped_streams { SPMCache::Main.run(["--log-dir=#{tmpdir}", 'use']) }
 
       files = jsonl_files
       expect(files.size).to eq(1)
@@ -110,7 +110,7 @@ RSpec.describe SPMCache::Main, 'run-log capture (LOGS-01)' do
       expect(header).to include(
         'event' => 'run_start',
         'command' => 'use',
-        'argv' => ['--log-dir', tmpdir, 'use'],
+        'argv' => ["--log-dir=#{tmpdir}", 'use'],
         'pid' => Process.pid,
         'spm_cache_version' => SPMCache::VERSION,
         'trigger' => 'terminal'
@@ -145,7 +145,7 @@ RSpec.describe SPMCache::Main, 'run-log capture (LOGS-01)' do
       expect(jsonl_files).to be_empty
 
       captured_out, captured_err =
-        with_swapped_streams { SPMCache::Main.run(['--log-dir', tmpdir, 'use']) }
+        with_swapped_streams { SPMCache::Main.run(["--log-dir=#{tmpdir}", 'use']) }
 
       expect(captured_out).to eq(baseline_out)
       expect(captured_err).to eq(baseline_err)
@@ -156,7 +156,7 @@ RSpec.describe SPMCache::Main, 'run-log capture (LOGS-01)' do
     it 'records SystemExit status and re-raises it untouched' do
       allow(SPMCache::Command).to receive(:run).and_raise(SystemExit.new(3))
       expect do
-        with_swapped_streams { SPMCache::Main.run(['--log-dir', tmpdir, 'use']) }
+        with_swapped_streams { SPMCache::Main.run(["--log-dir=#{tmpdir}", 'use']) }
       end.to raise_error(SystemExit) { |e| expect(e.status).to eq(3) }
       expect(run_lines.last).to include('event' => 'run_end', 'status' => 3)
     end
@@ -164,7 +164,7 @@ RSpec.describe SPMCache::Main, 'run-log capture (LOGS-01)' do
     it 'records status 130 for Interrupt and re-raises it' do
       allow(SPMCache::Command).to receive(:run).and_raise(Interrupt)
       expect do
-        with_swapped_streams { SPMCache::Main.run(['--log-dir', tmpdir, 'use']) }
+        with_swapped_streams { SPMCache::Main.run(["--log-dir=#{tmpdir}", 'use']) }
       end.to raise_error(Interrupt)
       expect(run_lines.last).to include('event' => 'run_end', 'status' => 130)
     end
@@ -172,7 +172,7 @@ RSpec.describe SPMCache::Main, 'run-log capture (LOGS-01)' do
     it 'records GeneralError exit_status (default 1) and re-raises it' do
       allow(SPMCache::Command).to receive(:run).and_raise(SPMCache::Core::GeneralError.new('boom'))
       expect do
-        with_swapped_streams { SPMCache::Main.run(['--log-dir', tmpdir, 'use']) }
+        with_swapped_streams { SPMCache::Main.run(["--log-dir=#{tmpdir}", 'use']) }
       end.to raise_error(SPMCache::Core::GeneralError, 'boom')
       expect(run_lines.last).to include('event' => 'run_end', 'status' => 1)
     end
@@ -180,7 +180,7 @@ RSpec.describe SPMCache::Main, 'run-log capture (LOGS-01)' do
     it 'records status 1 for a plain RuntimeError and re-raises it' do
       allow(SPMCache::Command).to receive(:run).and_raise(RuntimeError, 'kaboom')
       expect do
-        with_swapped_streams { SPMCache::Main.run(['--log-dir', tmpdir, 'use']) }
+        with_swapped_streams { SPMCache::Main.run(["--log-dir=#{tmpdir}", 'use']) }
       end.to raise_error(RuntimeError, 'kaboom')
       expect(run_lines.last).to include('event' => 'run_end', 'status' => 1)
     end
@@ -230,13 +230,13 @@ RSpec.describe SPMCache::Main, 'run-log capture (LOGS-01)' do
   end
 
   describe '--log-dir override forms (D-01)' do
-    it 'lands the run file in the given dir for both --log-dir X and --log-dir=X' do
+    it 'lands the run file in the given dir for --log-dir=X before and after the verb' do
       allow(SPMCache::Command).to receive(:run)
       dir_a = File.join(tmpdir, 'a')
       dir_b = File.join(tmpdir, 'b')
 
-      with_swapped_streams { SPMCache::Main.run(['--log-dir', dir_a, 'use']) }
-      with_swapped_streams { SPMCache::Main.run(["--log-dir=#{dir_b}", 'use']) }
+      with_swapped_streams { SPMCache::Main.run(["--log-dir=#{dir_a}", 'use']) }
+      with_swapped_streams { SPMCache::Main.run(['use', "--log-dir=#{dir_b}"]) }
 
       expect(jsonl_files(dir_a).size).to eq(1)
       expect(jsonl_files(dir_b).size).to eq(1)

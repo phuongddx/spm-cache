@@ -337,23 +337,13 @@ RSpec.describe SPMCache::Core::RunLog do
       expect(scan.main_log_skipped?).to be(false)
     end
 
-    it 'reads both --log-dir forms for any logging verb (D-01)' do
-      scan = described_class.pre_scan(['--log-dir', '/tmp/x', 'build'])
-      expect(scan.log_dir).to eq('/tmp/x')
-      expect(scan.verb).to eq('build')
-
-      scan = described_class.pre_scan(['--log-dir=/tmp/x', 'build'])
-      expect(scan.log_dir).to eq('/tmp/x')
-      expect(scan.verb).to eq('build')
-    end
-
     # CR-02: the scan must cover the WHOLE argv. CLAide accepts --log-dir=X
     # in any position (validated live: parse + validate! pass pre- and
     # post-verb), so a scan that stops at the verb silently misroutes every
     # post-verb override -- and `watch` is always post-verb, so its override
     # was entirely dead. D-01 contract: the override works wherever CLAide
     # accepts it.
-    it 'routes --log-dir=X in ANY position -- pre-verb and post-verb (D-01/CR-02)' do
+    it 'routes --log-dir=X in ANY position, pre-verb and post-verb (D-01/CR-02)' do
       scan = described_class.pre_scan(['use', '--log-dir=/tmp/x'])
       expect(scan.log_dir).to eq('/tmp/x')
       expect(scan.verb).to eq('use')
@@ -363,7 +353,7 @@ RSpec.describe SPMCache::Core::RunLog do
       expect(scan.verb).to eq('build')
     end
 
-    it 'consumes but never routes the CLAide-rejected two-token --log-dir X form (CR-02: scan parity with CLAide, no orphan override log)' do
+    it 'consumes but never routes the CLAide-rejected two-token --log-dir X form (CR-02: CLAide parity)' do
       scan = described_class.pre_scan(['--log-dir', '/tmp/x', 'build'])
       expect(scan.verb).to eq('build') # the value never masquerades as the verb
       expect(scan.log_dir).to be_nil   # and no override is routed for a form CLAide rejects
@@ -373,10 +363,14 @@ RSpec.describe SPMCache::Core::RunLog do
       expect(scan.log_dir).to be_nil
     end
 
-    it 'watch + --log-dir: no Main session file, and the override still routes cycle files (D-01 consumed by RunLog.cycle_wrapper)' do
-      scan = described_class.pre_scan(['--log-dir', '/tmp/x', 'watch'])
+    it 'watch + --log-dir: the = form routes, the two-token form routes nowhere (D-01)' do
+      scan = described_class.pre_scan(['watch', '--log-dir=/tmp/x'])
       expect(scan.main_log_skipped?).to be(true)
       expect(scan.log_dir).to eq('/tmp/x')
+
+      scan = described_class.pre_scan(['--log-dir', '/tmp/x', 'watch'])
+      expect(scan.main_log_skipped?).to be(true)
+      expect(scan.log_dir).to be_nil # CLAide rejects this form; the scan agrees
     end
   end
 end

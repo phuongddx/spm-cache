@@ -40,9 +40,11 @@ module SPMCache
           # perform_install, watcher.rb:90-93) -- `watch --once` flows
           # through run_once and the same factory, logging identically.
           # Raw ARGV (not parsed flags) threads --log-dir into the wrapper
-          # so cycle files honor the override (D-01).
+          # so cycle files honor the override (D-01); the CLAide-parsed
+          # @log_dir rides along (CR-02: CLAide accepts --log-dir=X in any
+          # position, so the parsed value -- not raw-argv shape -- routes).
           installer_factory: lambda { |path|
-            Core::RunLog.cycle_wrapper(Installer::Use.new(project: path), argv: ARGV)
+            Core::RunLog.cycle_wrapper(Installer::Use.new(project: path), argv: ARGV, log_dir: @log_dir)
           },
           debounce: @debounce
         )

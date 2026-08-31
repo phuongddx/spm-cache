@@ -308,7 +308,7 @@ RSpec.describe SPMCache::Core::RunLog, 'cycle_wrapper (D-09 per-cycle run logs)'
 
       Dir.mktmpdir do |logs|
         with_swapped_streams do
-          described_class.cycle_wrapper(CycleDouble.new, argv: ['--log-dir', logs, 'watch']).perform_install
+          described_class.cycle_wrapper(CycleDouble.new, argv: ['watch', "--log-dir=#{logs}"]).perform_install
         end
 
         files = cycle_files(logs)
@@ -317,7 +317,7 @@ RSpec.describe SPMCache::Core::RunLog, 'cycle_wrapper (D-09 per-cycle run logs)'
         expect(header).to include(
           'command' => 'watch',
           'cycle' => true,
-          'argv' => ['--log-dir', logs, 'watch']
+          'argv' => ['watch', "--log-dir=#{logs}"]
         )
         # The override wins outright: the default runs dir is never created.
         expect(File.exist?(File.join(tmpdir, '.spm-cache'))).to be(false)
@@ -435,7 +435,7 @@ RSpec.describe SPMCache::Command::Watch do
           File.write(File.join(swiftpm, 'Package.resolved'), '{"pins":[],"version":1}')
 
           Dir.mktmpdir do |logs|
-            stub_const('ARGV', ['--log-dir', logs, 'watch', '--once'])
+            stub_const('ARGV', ['watch', "--log-dir=#{logs}", '--once'])
 
             installer = CycleDouble.new
             allow(SPMCache::Installer::Use).to receive(:new).and_return(installer)
@@ -470,7 +470,7 @@ RSpec.describe SPMCache::Command::Watch do
               'command' => 'watch',
               'trigger' => 'watch',
               'cycle' => true,
-              'argv' => ['--log-dir', logs, 'watch', '--once']
+              'argv' => ['watch', "--log-dir=#{logs}", '--once']
             )
             expect(lines[1]).to include('stream' => 'out', 'text' => "cycle body line\n")
             expect(lines.last).to include('event' => 'run_end', 'status' => 0)

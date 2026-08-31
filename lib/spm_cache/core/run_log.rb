@@ -57,10 +57,20 @@ module SPMCache
       # Pure scan of raw argv (no CLAide involved). The tee installs before
       # Command.run parses, so --no-run-log / --log-dir / the verb must be
       # read here -- the exact situation of the --version intercept in
-      # Main.run. After the two-token "--log-dir X" form matches, the value
-      # token X is consumed so ['--log-dir', '/tmp/x', 'use'] yields verb
-      # "use": a value-as-verb misdetection would corrupt the <verb>.jsonl
-      # filename with path separators and the header command field.
+      # Main.run.
+      #
+      # Scan semantics mirror CLAide's REAL acceptance (CR-02, validated
+      # live against parse + validate!): --log-dir=X is accepted in ANY
+      # position -- pre-verb AND post-verb -- so the scan covers the whole
+      # argv; stopping at the verb made every post-verb override silently
+      # misroute (watch is always post-verb: its override was entirely
+      # dead). The two-token "--log-dir X" form is REJECTED by CLAide in
+      # every position ("Unknown option: --log-dir"), so the scan consumes
+      # its value token (so it never masquerades as the verb and corrupts
+      # the <verb>.jsonl filename) but routes no override for it -- routing
+      # it would write a log into the override dir and then have CLAide
+      # reject the invocation, leaving an orphan. D-01 contract: the
+      # override works wherever CLAide accepts it.
       def self.pre_scan(argv)
         verb = nil
         log_dir = nil
@@ -69,16 +79,15 @@ module SPMCache
         while i < tokens.size
           token = tokens[i].to_s
           if token == '--log-dir'
-            log_dir = tokens[i + 1]
-            i += 2
+            i += 2 # CLAide-rejected form: consume the value, route nothing
           elsif token.start_with?('--log-dir=')
             log_dir = token.sub(/\A--log-dir=/, '')
             i += 1
           elsif token.start_with?('-')
             i += 1
           else
-            verb = tokens[i]
-            break
+            verb ||= tokens[i]
+            i += 1
           end
         end
         verb ||= 'use' # CLAide default_subcommand (D-08: every verb logs)
@@ -153,9 +162,12 @@ module SPMCache
       # per regeneration cycle -- never a rolling session file. The factory
       # seam Command::Watch injects wraps its installer in this decorator;
       # Core::Watcher keeps calling factory.call + perform_install
-      # untouched (watcher.rb:90-93).
-      def self.cycle_wrapper(installer, argv:)
-        CycleWrapper.new(installer, argv: argv)
+      # untouched (watcher.rb:90-93). log_dir: is Command::Watch's
+      # already-CLAide-parsed --log-dir (D-01) -- the wrapper prefers it and
+      # only falls back to scanning the raw argv, so the override is never
+      # hostage to raw-argv shape.
+      def self.cycle_wrapper(installer, argv: [], log_dir: nil)
+        CycleWrapper.new(installer, argv: argv, log_dir: log_dir)
       end
 
       def initialize(path:, file:, previous_current:)
@@ -441,23 +453,23 @@ module SPMCache
       # 12-04's phase markers emitted inside the cycle; finish() restores
       # the previous current (Plan 12-01 save/restore).
       class CycleWrapper
-        def initialize(installer, argv:)
+        def initialize(installer, argv: [], log_dir: nil)
           @installer = installer
           @argv = argv.to_a
+          @log_dir = log_dir
         end
 
         # The only method Core::Watcher calls (watcher.rb:90-93) -- the
         # decorator is invisible to it by construction.
         def perform_install
-          # D-01 at the watch surface: `watch --log-dir X` must not silently
-          # write cycles to the default runs dir. argv is the watch
-          # invocation's own flags, pre-scanned raw exactly like Main.run
-          # (the tee installs before CLAide parses there; the cycle wrapper
-          # sits below parsing here). Cycle opens prune too -- D-07 applies
+          # D-01 at the watch surface: `watch --log-dir=X` must not silently
+          # write cycles to the default runs dir. The CLAide-parsed
+          # --log-dir wins; the raw-argv pre-scan (same semantics as
+          # Main.run) is the fallback. Cycle opens prune too -- D-07 applies
           # at every open (T-12-04: a long watch session stays bounded).
           scan = RunLog.pre_scan(@argv)
           run_log = RunLog.open(
-            runs_dir: scan.log_dir || Config.instance.runs_dir,
+            runs_dir: @log_dir || scan.log_dir || Config.instance.runs_dir,
             command: 'watch',
             argv: @argv,
             trigger: 'watch',
