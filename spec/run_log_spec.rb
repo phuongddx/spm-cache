@@ -160,6 +160,102 @@ RSpec.describe SPMCache::Core::RunLog do
       expect(described_class.current).to be_nil # finish still restores the seam
     end
   end
+
+  # Retention (SC4): count + size hybrid (D-06) applied at run start, after
+  # the new header lands (D-07). Budgets come from Config (Singleton --
+  # reset! around every example). Fabricated prior-run files carry a real
+  # run_start line whose pid controls liveness (Pitfall 6) and optional
+  # padding bytes for the size budget; their 2020… names sort strictly
+  # BEFORE the just-opened run's 2026… file name, so lexicographic ==
+  # chronological holds (EDGE ordering).
+  describe 'retention (SC4: D-06/D-07 — count + size hybrid at run start)' do
+    let(:config) { SPMCache::Core::Config.instance }
+
+    def fabricate_old_run(name, pid: 2_000_000, bytes: 0)
+      path = File.join(runs_dir, name)
+      File.write(path, "#{JSON.generate('event' => 'run_start', 'pid' => pid)}\n")
+      File.open(path, 'a') { |f| f.write('x' * bytes) } if bytes.positive?
+      path
+    end
+
+    before do
+      config.reset!
+      config.raw['runs_keep'] = 50
+      config.raw['runs_max_mb'] = 500
+    end
+
+    after { config.reset! }
+
+    it 'keeps the newest runs_keep prior runs plus the just-opened one (count bound)' do
+      config.raw['runs_keep'] = 2
+      4.times { |i| fabricate_old_run("20200101T00000000#{i}Z-1-use.jsonl") }
+      log = open_log
+      log.finish(0)
+
+      expect(Dir.children(runs_dir).sort).to eq(
+        ['20200101T000000002Z-1-use.jsonl', '20200101T000000003Z-1-use.jsonl', File.basename(log.path)]
+      )
+    end
+
+    it 'prunes oldest-first lexicographic until the size budget fits; newest fabricated survives (size bound + EDGE ordering)' do
+      config.raw['runs_max_mb'] = 1 # 1 MiB budget; fabricated total is 1_800_000 bytes
+      %w[0 1 2].each { |i| fabricate_old_run("20200101T00000000#{i}Z-1-use.jsonl", bytes: 600_000) }
+      log = open_log
+      log.finish(0)
+
+      expect(File.exist?(File.join(runs_dir, '20200101T000000000Z-1-use.jsonl'))).to be(false) # oldest died first
+      expect(File.exist?(File.join(runs_dir, '20200101T000000001Z-1-use.jsonl'))).to be(false)
+      expect(File.exist?(File.join(runs_dir, '20200101T000000002Z-1-use.jsonl'))).to be(true) # newest fabricated survives
+      expect(Dir.children(runs_dir).sort).to eq(['20200101T000000002Z-1-use.jsonl', File.basename(log.path)])
+    end
+
+    it 'never deletes the just-opened run even at zero budgets (current-run immunity; the current file exists during prune — D-07)' do
+      config.raw['runs_keep'] = 0
+      config.raw['runs_max_mb'] = 0
+      fabricate_old_run('20200101T000000000Z-1-use.jsonl')
+      log = open_log
+      log.finish(0)
+
+      expect(Dir.children(runs_dir)).to eq([File.basename(log.path)])
+      expect(File.read(log.path).lines.length).to eq(2) # header + run_end: the run itself was unaffected
+    end
+
+    it 'never prunes a live-pid run even over budget; a dead-pid run is pruned (Pitfall 6 / CP14 at birth)' do
+      config.raw['runs_keep'] = 0
+      config.raw['runs_max_mb'] = 0
+      live = fabricate_old_run('20200101T000000000Z-1-use.jsonl', pid: Process.pid) # alive, no run_end line
+      dead = fabricate_old_run('20200101T000000001Z-2-use.jsonl', pid: 2_000_000) # ESRCH: out-of-range pid
+      log = open_log
+      log.finish(0)
+
+      expect(File.exist?(live)).to be(true)
+      expect(File.exist?(dead)).to be(false)
+      expect(File.exist?(log.path)).to be(true)
+    end
+
+    it 'deletes nothing when the runs dir is under both budgets (EDGE empty)' do
+      2.times { |i| fabricate_old_run("20200101T00000000#{i}Z-1-use.jsonl") }
+      log = open_log
+      log.finish(0)
+
+      expect(Dir.children(runs_dir).length).to eq(3) # 2 prior runs + current, all retained
+    end
+
+    it 'skips a candidate it cannot delete and never raises into the run (degradation)' do
+      config.raw['runs_keep'] = 0
+      config.raw['runs_max_mb'] = 0
+      # A directory matching *.jsonl can never be unlinked by File.delete --
+      # the same per-candidate failure as a file that vanished mid-walk
+      # (concurrent prune): skip, never raise.
+      unprunable = File.join(runs_dir, '20200101T000000000Z-1-use.jsonl')
+      Dir.mkdir(unprunable)
+      log = nil
+      expect { log = open_log }.not_to raise_error
+      expect(File.exist?(unprunable)).to be(true) # skipped, left alone
+      log.finish(0)
+      expect(File.read(log.path).lines.length).to eq(2) # the run proceeded normally
+    end
+  end
 end
 
 RSpec.describe SPMCache::Core::RunLog::TeeIO do
