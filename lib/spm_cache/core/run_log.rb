@@ -214,6 +214,17 @@ module SPMCache
       # record_text inside it acquires @mutex (append), never the reverse,
       # so the two locks cannot deadlock.
       def record_line(str, stream)
+        # CR-05: once degraded, stop before the buffer mutex. The
+        # degradation warning itself travels through $stderr, which with a
+        # tee installed IS this log's TeeIO; re-entering record_line from
+        # warn_once on the same thread would recursively lock
+        # @buffer_mutex (ThreadError: deadlock) -- escaping into the
+        # wrapped command, or out of finish's ensure masking the in-flight
+        # error. safe_append sets @disabled BEFORE warn_once, so this
+        # guard breaks the recursion on exactly the degraded path; the
+        # terminal leg already wrote through and stays live (SC3).
+        return if @disabled
+
         @buffer_mutex.synchronize do
           buffer = (@buffers[stream] ||= +'')
           buffer << str
@@ -357,7 +368,7 @@ module SPMCache
           @file.write("#{yield}\n")
         end
       rescue StandardError => e
-        @disabled = true
+        @disabled = true # MUST precede warn_once: the record_line guard (CR-05) breaks the tee re-entrancy
         warn_once("run log disabled (#{File.basename(@path)}): #{e.message}")
         nil
       end
