@@ -184,11 +184,18 @@ module SPMCache
       end
 
       # Emits one body line. `text` is recorded verbatim (D-05) -- trailing
-      # newline and ANSI bytes included -- via JSON.generate only: hand-rolled
-      # escaping corrupts tailers (RESEARCH "Don't Hand-Roll").
+      # newline and ANSI bytes included. The ONE transformation is UTF-8
+      # scrubbing (CR-01): subprocess output carries arbitrary bytes, and a
+      # JSON::GeneratorError escaping here would kill the Sh reader thread
+      # and fail the wrapped build -- capture never masks, fails, or alters
+      # the operation (LOGS-01). Scrubbed replacement chars keep the file a
+      # valid JSONL document; generation runs INSIDE safe_append so even a
+      # non-encoding generation failure degrades instead of raising.
       def record_text(text, stream)
-        safe_append(JSON.generate('ts' => Time.now.utc.strftime(TIMESTAMP_FORMAT),
-                                  'stream' => stream, 'text' => text))
+        safe_append do
+          JSON.generate('ts' => Time.now.utc.strftime(TIMESTAMP_FORMAT),
+                        'stream' => stream, 'text' => text.to_s.scrub)
+        end
       end
 
       # Core::Sh's live_log duck contract (its reader threads hand lines
@@ -201,8 +208,11 @@ module SPMCache
       # Emits a structured event line (D-04 vocabulary: run_end, phase,
       # package_start/package_end, ...).
       def event(name, **fields)
-        safe_append(JSON.generate({ 'event' => name,
-                                    'ts' => Time.now.utc.strftime(TIMESTAMP_FORMAT) }.merge(fields)))
+        safe_append do
+          scrubbed = fields.transform_values { |value| value.is_a?(String) ? value.scrub : value }
+          JSON.generate({ 'event' => name,
+                          'ts' => Time.now.utc.strftime(TIMESTAMP_FORMAT) }.merge(scrubbed))
+        end
       end
 
       def tee_out(real_io)
@@ -286,15 +296,17 @@ module SPMCache
         end
       end
 
-      # All append paths route through here: a write failure (ENOSPC,
-      # EACCES, closed handle, ...) degrades to unlogged-with-a-single-
-      # warning and NEVER raises into the caller -- the wrapped command must
-      # not fail or change behavior because logging did (LOGS-01).
-      def safe_append(json_line)
+      # All append paths route through here; the line is yielded so JSON
+      # generation itself happens inside the guard (CR-01). A generation or
+      # write failure (ENOSPC, EACCES, closed handle, invalid encoding, ...)
+      # degrades to unlogged-with-a-single-warning and NEVER raises into the
+      # caller -- the wrapped command must not fail or change behavior
+      # because logging did (LOGS-01).
+      def safe_append
         @mutex.synchronize do
           return if @disabled
 
-          @file.write("#{json_line}\n")
+          @file.write("#{yield}\n")
         end
       rescue StandardError => e
         @disabled = true
