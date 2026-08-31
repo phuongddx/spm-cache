@@ -1,7 +1,7 @@
 # frozen_string_literal: true
 
-require "open3"
-require "fileutils"
+require 'open3'
+require 'fileutils'
 
 module SPMCache
   module Core
@@ -9,28 +9,53 @@ module SPMCache
       class << self
         def run(cmd, opts = {})
           live_log = opts[:live_log]
+          # Per-stream sinks (Pitfall 4): a single live_log object cannot
+          # attribute stdout vs stderr -- each reader thread gets its own
+          # sink, falling back to the legacy single object for both streams.
+          out_sink = opts[:live_log_out] || live_log
+          err_sink = opts[:live_log_err] || live_log
           cwd = opts[:cwd]
           env = opts[:env] || {}
-
-          output_lines = []
 
           spawn_opts = {}
           spawn_opts[:chdir] = cwd if cwd
 
-          if live_log
+          if out_sink || err_sink
+            # Bounded per-stream tails restore failure_detail on THIS path --
+            # the capture3 branch below has always had them, but the popen3
+            # branch raised detail-free, discarding every captured line (SC2
+            # discarded-capture gap). The sink still receives the FULL stream
+            # (D-05: only the raised message is bounded to the last
+            # FAILURE_DETAIL_LINES per stream, never the run-log file).
+            out_tail = []
+            err_tail = []
             Open3.popen3(env, cmd, **spawn_opts) do |stdin, stdout, stderr, wait_thr|
               stdin.close
               threads = [
-                Thread.new { stdout.each_line { |l| live_log.output(l) } },
-                Thread.new { stderr.each_line { |l| live_log.output(l) } },
+                Thread.new do
+                  stdout.each_line do |l|
+                    out_sink&.output(l)
+                    out_tail << l
+                    out_tail.shift if out_tail.size > FAILURE_DETAIL_LINES
+                  end
+                end,
+                Thread.new do
+                  stderr.each_line do |l|
+                    err_sink&.output(l)
+                    err_tail << l
+                    err_tail.shift if err_tail.size > FAILURE_DETAIL_LINES
+                  end
+                end
               ]
               threads.each(&:join)
               status = wait_thr.value
               unless status.success?
-                raise GeneralError.new("Command failed (exit #{status.exitstatus}): #{cmd}")
+                msg = "Command failed (exit #{status.exitstatus}): #{cmd}\n#{failure_detail(out_tail.join,
+                                                                                            err_tail.join)}"
+                raise GeneralError.new(msg)
               end
             end
-            { output: "", status: 0 }
+            { output: out_tail.join, error: err_tail.join, status: 0 }
           else
             stdout_str, stderr_str, status = Open3.capture3(env, cmd, **spawn_opts)
             unless status.success?
