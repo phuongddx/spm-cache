@@ -89,10 +89,11 @@ RSpec.describe SPMCache::Core::Sh do
       expect(body.last['text']).to eq("line 100\n")
     end
 
-    it 'returns the tailed output/error strings with status 0 (enriched success return)' do
+    it 'returns the output/error strings with the real status (single-line case)' do
       result = described_class.run('echo ok-line; echo bad-line 1>&2', live_log_out: out_sink, live_log_err: err_sink)
       expect(result).to include(output: "ok-line\n", error: "bad-line\n", status: 0)
     end
+
     # WR-03: the sink path's return value must honor the capture3 contract
     # (FULL streams + real exitstatus). Returning the 60-line failure_detail
     # tail as `output` silently clips data for the next caller that trusts

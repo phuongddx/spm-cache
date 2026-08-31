@@ -21,41 +21,42 @@ module SPMCache
           spawn_opts[:chdir] = cwd if cwd
 
           if out_sink || err_sink
-            # Bounded per-stream tails restore failure_detail on THIS path --
-            # the capture3 branch below has always had them, but the popen3
-            # branch raised detail-free, discarding every captured line (SC2
-            # discarded-capture gap). The sink still receives the FULL stream
-            # (D-05: only the raised message is bounded to the last
-            # FAILURE_DETAIL_LINES per stream, never the run-log file).
-            out_tail = []
-            err_tail = []
+            # Full per-stream accumulation restores failure_detail on THIS
+            # path -- the capture3 branch below has always had it, but the
+            # popen3 branch used to raise detail-free, discarding every
+            # captured line (SC2 discarded-capture gap). The sink still
+            # receives the FULL stream (D-05); only the raised message is
+            # bounded to the last FAILURE_DETAIL_LINES per stream, never the
+            # run-log file. The return value honors the capture3 contract
+            # (WR-03): full streams + the real exitstatus -- never a tailed
+            # preview masquerading as output, never a literal status.
+            out_buf = +''
+            err_buf = +''
+            exit_status = 0
             Open3.popen3(env, cmd, **spawn_opts) do |stdin, stdout, stderr, wait_thr|
               stdin.close
               threads = [
                 Thread.new do
                   stdout.each_line do |l|
                     out_sink&.output(l)
-                    out_tail << l
-                    out_tail.shift if out_tail.size > FAILURE_DETAIL_LINES
+                    out_buf << l
                   end
                 end,
                 Thread.new do
                   stderr.each_line do |l|
                     err_sink&.output(l)
-                    err_tail << l
-                    err_tail.shift if err_tail.size > FAILURE_DETAIL_LINES
+                    err_buf << l
                   end
                 end
               ]
               threads.each(&:join)
-              status = wait_thr.value
-              unless status.success?
-                msg = "Command failed (exit #{status.exitstatus}): #{cmd}\n#{failure_detail(out_tail.join,
-                                                                                            err_tail.join)}"
+              exit_status = wait_thr.value.exitstatus
+              unless wait_thr.value.success?
+                msg = "Command failed (exit #{exit_status}): #{cmd}\n#{failure_detail(out_buf, err_buf)}"
                 raise GeneralError.new(msg)
               end
             end
-            { output: out_tail.join, error: err_tail.join, status: 0 }
+            { output: out_buf, error: err_buf, status: exit_status }
           else
             stdout_str, stderr_str, status = Open3.capture3(env, cmd, **spawn_opts)
             # Structured sh event per completed capture3 call (Pitfall 5 /
