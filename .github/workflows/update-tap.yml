@@ -143,7 +143,7 @@ jobs:
 
   verify-publish:
     needs: update-tap
-    runs-on: macos-15
+    runs-on: macos-latest
     env:
       HOMEBREW_NO_AUTO_UPDATE: "1"
       EXPECTED_VERSION: ${{ needs.update-tap.outputs.version }}
