@@ -63,7 +63,7 @@ Full phase detail: `milestones/v0.4.0-ROADMAP.md` · Audit: `v0.4.0-MILESTONE-AU
   3. Terminal output and exit codes are unchanged by the capture (tee is invisible), and `spm-cache web` itself never writes a run log
   4. Repeated runs accumulate logs without unbounded growth (retention policy caps old runs)
 
-**Plans**: 5 plans
+**Plans**: 0/5 plans executed
 
 Plans:
 **Wave 1**
@@ -163,7 +163,7 @@ Pitfall-to-phase mapping (full set in `research/PITFALLS.md`): CP3 → P12; CP7/
 
 | Phase | Milestone | Plans Complete | Status | Completed |
 |-------|-----------|----------------|--------|-----------|
-| 12. Run-Log Capture Foundation | v0.5.0 | 0/5 | Not started | - |
+| 12. Run-Log Capture Foundation | v0.5.0 | 0/5 | Planned    |  |
 | 13. Server Skeleton + Read-Only Dashboard | v0.5.0 | 0/? | Not started | - |
 | 14. Live Log Streaming + Terminal/Watch Relay | v0.5.0 | 0/? | Not started | - |
 | 15. UI Build Controls | v0.5.0 | 0/? | Not started | - |

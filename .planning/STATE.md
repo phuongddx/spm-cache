@@ -2,14 +2,14 @@
 gsd_state_version: 1.0
 milestone: v0.5.0
 milestone_name: Web Interface
-current_phase: 12 of 16 — Run-Log Capture Foundation (v0.5.0 Web Interface)
+current_phase: 12
 current_phase_name: Run-Log Capture Foundation
-status: planning
-stopped_at: Phase 12 context gathered
-last_updated: "2026-08-31T16:00:00.043Z"
+status: executing
+stopped_at: Completed 12-01-PLAN.md
+last_updated: "2026-08-31T16:38:05.001Z"
 last_activity: 2026-08-31
-last_activity_desc: v0.5.0 roadmap created (Phases 12–16, 19/19 requirements mapped)
-state_head: 0dd0e897aa54133f69d49aecf04500d459c8547d
+last_activity_desc: Phase 12 execution started
+state_head: ab1d25f62ec761aabd55dbed5b2f83e5aed7c211
 progress:
   total_phases: 5
   completed_phases: 0
@@ -21,7 +21,7 @@ progress:
 # Project State: spm-cache
 
 **Initialized:** 2026-08-10
-**Current Phase:** 12 of 16 — Run-Log Capture Foundation (v0.5.0 Web Interface)
+**Current Phase:** 12
 **Project Mode:** Horizontal Layers
 **Direction:** v0.5.0 Web Interface — localhost dashboard, live log streaming, per-package toggles
 
@@ -30,18 +30,18 @@ progress:
 See: .planning/PROJECT.md (updated 2026-08-31)
 
 **Core value:** Reduce Xcode clean build times by serving prebuilt SPM dependency binaries transparently, with automatic fallback to source on cache miss — so a cache hit never breaks a build.
-**Current focus:** v0.5.0 Phase 12 — Run-Log Capture Foundation
+**Current focus:** Phase 12 — Run-Log Capture Foundation
 
 v0.4.0 shipped and released 2026-08-31 (first fully-green tap publish in project history). Full milestone history: `.planning/MILESTONES.md`.
 
 ## Current Position
 
-Phase: 12 (Run-Log Capture Foundation) — READY TO EXECUTE
-Plan: — (not yet planned)
-Status: Roadmap created — ready to plan Phase 12
-Last activity: 2026-08-31 — v0.5.0 roadmap created (Phases 12–16, 19/19 requirements mapped)
+Phase: 12 (Run-Log Capture Foundation) — EXECUTING
+Plan: 2 of 5
+Status: Ready to execute
+Last activity: 2026-08-31 — Phase 12 execution started
 
-Progress: [░░░░░░░░░░░░░░░░░░░░] 0%
+Progress: [░░░░░░░░░░] 0%
 
 ## v0.5.0 Phase Status
 
@@ -78,6 +78,11 @@ Historical velocity (v0.3.0–v0.4.0, plans completed: 31):
 | Phase 08 P01–P02 | sequential autonomous | Phase 09 P01–P03 | sequential autonomous |
 
 Trend: stable (typical plan 10–35 min; outliers involve real xcodebuild runs).
+**Per-Plan Metrics:**
+
+| Plan | Duration | Tasks | Files |
+|------|----------|-------|-------|
+| Phase 12 P01 | 31m | 2 tasks | 7 files |
 
 ## Decisions
 
@@ -87,6 +92,9 @@ Full log: PROJECT.md Key Decisions table. Roadmap decisions (2026-08-31):
 - Run-log capture is Phase 12 alone (no server): the capture sink is the keystone every streaming feature consumes; hermetic and independently verifiable before any web layer exists.
 - WEB-04 (Host/Origin + token middleware, offline assets) mapped to Phase 13 — the middleware must exist before the first mutating endpoint ships (Phase 15), not alongside it.
 - Toggle phase (16) lands last: the only state-writing surface, reusing Phase 15's job machinery for "Apply now".
+- [Phase 12]: Run-log run_start/run_end JSONL vocabulary + RunLog.current seam landed (Plan 12-01); body lines carry only ts/stream/text, never an event key (T-12-01 log-forging mitigation)
+- [Phase 12]: Run-file naming %Y%m%dT%H%M%S%3NZ-<pid>-<verb>.jsonl (ms precision, deliberate deviation from RESEARCH Pattern 6 for same-second watch cycles)
+- [Phase 12]: CLAide 1.1.0 rejects the space-separated --log-dir X form (Unknown option -> Help SystemExit 1); only --log-dir=X is valid CLI syntax — pre_scan still honors both forms so rejected invocations get logged
 
 ## Deferred Items
 
@@ -101,6 +109,6 @@ Items acknowledged and deferred at milestone close, most recent first:
 
 ## Session Continuity
 
-Last session: 2026-08-31T14:47:57.638Z
-Stopped at: Phase 12 context gathered
-Resume file: .planning/phases/12-run-log-capture-foundation/12-CONTEXT.md
+Last session: 2026-08-31T16:37:55.346Z
+Stopped at: Completed 12-01-PLAN.md
+Resume file: None
