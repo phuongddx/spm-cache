@@ -16,7 +16,7 @@
 - **Regression-pinned contract** (TEST-01/02/03): hermetic specs on both production surfaces (Ruby sidecars + Swift graph.json), six-bucket partition with fail-first mutation proofs, 8-class v0.2.x edge matrix — suite grew 258 → **441 examples**, 0 failures.
 - **Release automation repaired** (REL-04…09): rewritten `update-tap.yml` — every failure mode loud, scoped deploy-key auth (operator-authorized pivot from the App design), strict-semver tag gate, integrity-gated download preferring byte-stable attached assets, anchored exactly-one edits with postconditions, idempotent no-diff notice, brew verify with a version assertion that demonstrably fails red; `--version` intercept (exit 0); **live-proven end-to-end including the first real tap push** (`ee27cc7`, 2026-08-31). Two more real defects found and fixed live during verification (tap Ruby-3.4 boot; asset-jq field name). Security 15/15 threats closed.
 
-**Remaining operator step:** the v0.4.0 release cut itself — bump `VERSION` → tag `v0.4.0` → attach `spm-cache-<ver>.tar.gz` (git archive from the tag) → watch the first fully-green verify-publish.
+**Release cut COMPLETED 2026-08-31:** VERSION + Swift proxyVersion bumped in lockstep (the lockstep spec caught the initial miss, as designed), branch squash-merged to main (`9ab76ea`), tagged `v0.4.0`, draft-release published with the attached `spm-cache-0.4.0.tar.gz`, and run 33377121583 went **fully green end-to-end** — update-tap hashed the attached asset and pushed tap `47a0600` (sha `477d12c1…` byte-identical to the local git-archive hash), verify-publish asserted `installed: 0.4.0, expected: 0.4.0`. First fully-green publish in the project's history.
 
 ## v0.3.0 Mixed Cycle (Shipped: 2026-08-24)
 

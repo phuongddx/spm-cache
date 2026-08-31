@@ -313,5 +313,5 @@ None — Phase 9's deferred SC5 human check was executed and PASSED by the opera
 
 ## Operator Next Steps
 
-- ~~Phase 11 gate~~ RESOLVED 2026-08-31 via operator-authorized deploy-key pivot (write deploy key on the tap, `TAP_DEPLOY_KEY` sole repo secret, dead `TAP_REPO_TOKEN` deleted); tap formula boot-fixed to keg-only ruby@3.3; v0.3.0 release now carries the byte-stable `spm-cache-0.3.0.tar.gz` asset and the tap formula pins it. At the v0.4.0 cut: attach `spm-cache-<ver>.tar.gz` (git archive from the tag) and watch the first fully-green verify-publish.
+- ~~Phase 11 gate~~ RESOLVED 2026-08-31 via operator-authorized deploy-key pivot (write deploy key on the tap, `TAP_DEPLOY_KEY` sole repo secret, dead `TAP_REPO_TOKEN` deleted); tap formula boot-fixed to keg-only ruby@3.3; v0.3.0 release now carries the byte-stable `spm-cache-0.3.0.tar.gz` asset and the tap formula pins it. **v0.4.0 CUT 2026-08-31 — done:** main `9ab76ea`, tag `v0.4.0`, attached asset, run 33377121583 fully green (tap `47a0600`). `brew upgrade spm-cache` serves 0.4.0.
 - Deferred (not in v0.4.0): `gem signin` → `gem build`/`gem push` → verify `gem install spm-cache`; then the Action + its smoke CI become viable.
