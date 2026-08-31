@@ -50,6 +50,34 @@ RSpec.describe SPMCache::Core::RunLog do
     end
   end
 
+  # WR-02: the runs dir persists for weeks (retention D-06) and real
+  # invocations carry credential-bearing option values -- e.g.
+  # --remote-url=https://user:token@github.com/... for private SPM deps.
+  # The header records REDACTED argv and says so, so Phase-14 renderers
+  # know the identity header is not byte-faithful (body capture stays
+  # verbatim per D-05).
+  describe 'header credential redaction (WR-02)' do
+    it 'redacts user:password@ in URL argv components and marks the header redacted' do
+      log = described_class.open(runs_dir: runs_dir, command: 'use',
+                                 argv: ['use', '--remote-url=https://user:ghp_secret@github.com/org/repo.git'])
+      log.finish(0)
+
+      header = JSON.parse(File.read(log.path).lines.first)
+      expect(header['argv']).to eq(['use', '--remote-url=https://user:[REDACTED]@github.com/org/repo.git'])
+      expect(header['redacted']).to be(true)
+    end
+
+    it 'records credential-free argv verbatim with redacted: false' do
+      argv = ['use', '--remote-url=https://github.com/org/repo.git', '--sdk=iphonesimulator']
+      log = described_class.open(runs_dir: runs_dir, command: 'use', argv: argv)
+      log.finish(0)
+
+      header = JSON.parse(File.read(log.path).lines.first)
+      expect(header['argv']).to eq(argv)
+      expect(header['redacted']).to be(false)
+    end
+  end
+
   describe 'verbatim capture and JSON escaping' do
     it 'round-trips quotes, backslashes, embedded newlines and ANSI bytes, one JSON document per physical line' do
       log = open_log
