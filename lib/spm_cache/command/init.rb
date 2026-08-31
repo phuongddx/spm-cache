@@ -197,15 +197,23 @@ module SPMCache
         Core::PackageResolved.locate(project_path)
       end
 
+      # Append-once gitignore entries, one per concern (the existing shape):
+      # 'spm-cache/' for the build sandbox, '.spm-cache/' for run logs
+      # (D-02 — run logs live outside the sandbox and never enter VCS,
+      # T-12-05). Each entry is independently idempotent.
       def ensure_gitignore(project_path)
         gitignore = File.join(File.dirname(project_path), '.gitignore')
-        entry = 'spm-cache/'
+        append_gitignore_entry(gitignore, 'spm-cache/', '# spm-cache sandbox')
+        append_gitignore_entry(gitignore, '.spm-cache/', '# spm-cache run logs')
+      end
+
+      def append_gitignore_entry(gitignore, entry, comment)
         lines = File.exist?(gitignore) ? File.readlines(gitignore).map(&:chomp) : []
         return if lines.include?(entry)
 
         File.open(gitignore, 'a') do |f|
           f.puts unless lines.empty?
-          f.puts '# spm-cache sandbox'
+          f.puts comment
           f.puts entry
         end
       end
