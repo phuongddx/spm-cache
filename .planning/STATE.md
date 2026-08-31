@@ -5,16 +5,16 @@ milestone_name: Web Interface
 current_phase: 12
 current_phase_name: Run-Log Capture Foundation
 status: executing
-stopped_at: Completed 12-01-PLAN.md
-last_updated: "2026-08-31T16:38:05.001Z"
+stopped_at: Completed 12-02-PLAN.md
+last_updated: "2026-08-31T17:01:16.179Z"
 last_activity: 2026-08-31
 last_activity_desc: Phase 12 execution started
-state_head: ab1d25f62ec761aabd55dbed5b2f83e5aed7c211
+state_head: 337ef90ebf786c41d549f1472fa7b2382244b382
 progress:
   total_phases: 5
   completed_phases: 0
   total_plans: 5
-  completed_plans: 0
+  completed_plans: 2
   percent: 0
 ---
 
@@ -37,7 +37,7 @@ v0.4.0 shipped and released 2026-08-31 (first fully-green tap publish in project
 ## Current Position
 
 Phase: 12 (Run-Log Capture Foundation) — EXECUTING
-Plan: 2 of 5
+Plan: 3 of 5
 Status: Ready to execute
 Last activity: 2026-08-31 — Phase 12 execution started
 
@@ -83,6 +83,7 @@ Trend: stable (typical plan 10–35 min; outliers involve real xcodebuild runs).
 | Plan | Duration | Tasks | Files |
 |------|----------|-------|-------|
 | Phase 12 P01 | 31m | 2 tasks | 7 files |
+| Phase 12 P02 | 15min | 2 tasks | 2 files |
 
 ## Decisions
 
@@ -95,6 +96,8 @@ Full log: PROJECT.md Key Decisions table. Roadmap decisions (2026-08-31):
 - [Phase 12]: Run-log run_start/run_end JSONL vocabulary + RunLog.current seam landed (Plan 12-01); body lines carry only ts/stream/text, never an event key (T-12-01 log-forging mitigation)
 - [Phase 12]: Run-file naming %Y%m%dT%H%M%S%3NZ-<pid>-<verb>.jsonl (ms precision, deliberate deviation from RESEARCH Pattern 6 for same-second watch cycles)
 - [Phase 12]: CLAide 1.1.0 rejects the space-separated --log-dir X form (Unknown option -> Help SystemExit 1); only --log-dir=X is valid CLI syntax — pre_scan still honors both forms so rejected invocations get logged
+- [Phase 12]: [Phase 12]: Core::Sh popen3 branch gained live_log_out:/live_log_err: per-stream sinks (legacy live_log fallback) + 60-line failure_detail tails — the discarded-capture gap (detail-free live-mode raises) is closed; the run-log file still gets the full stream (D-05), only the raised message is bounded (Plan 12-02)
+- [Phase 12]: [Phase 12]: every completed capture3 call records one structured {event: sh, ts, cmd, status} line via RunLog.current&.event (nil-safe, before any raise) — cmd+status only, never output text (Pitfall 5 / A2 / T-12-01 log-forging) (Plan 12-02)
 
 ## Deferred Items
 
@@ -109,6 +112,6 @@ Items acknowledged and deferred at milestone close, most recent first:
 
 ## Session Continuity
 
-Last session: 2026-08-31T16:37:55.346Z
-Stopped at: Completed 12-01-PLAN.md
+Last session: 2026-08-31T17:01:05.945Z
+Stopped at: Completed 12-02-PLAN.md
 Resume file: None

@@ -63,16 +63,16 @@ Full phase detail: `milestones/v0.4.0-ROADMAP.md` · Audit: `v0.4.0-MILESTONE-AU
   3. Terminal output and exit codes are unchanged by the capture (tee is invisible), and `spm-cache web` itself never writes a run log
   4. Repeated runs accumulate logs without unbounded growth (retention policy caps old runs)
 
-**Plans**: 0/5 plans executed
+**Plans**: 2/5 plans executed
 
 Plans:
 **Wave 1**
 
-- [ ] 12-01-PLAN.md — Tracer: Core::RunLog + Main.run end-to-end run-log slice (tee, header/body/exit, --no-run-log, --log-dir, exit-shape parity)
+- [x] 12-01-PLAN.md — Tracer: Core::RunLog + Main.run end-to-end run-log slice (tee, header/body/exit, --no-run-log, --log-dir, exit-shape parity)
 
 **Wave 2** *(blocked on Wave 1 completion)*
 
-- [ ] 12-02-PLAN.md — Core::Sh popen3 per-stream sink + failure_detail restoration + capture3 sh events (SC2 subprocess capture)
+- [x] 12-02-PLAN.md — Core::Sh popen3 per-stream sink + failure_detail restoration + capture3 sh events (SC2 subprocess capture)
 - [ ] 12-03-PLAN.md — Retention (runs_keep/runs_max_mb count+size hybrid at run start), config keys, yml template, .spm-cache/ gitignore entry (SC4)
 
 **Wave 3** *(blocked on Wave 2 completion)*
@@ -163,7 +163,7 @@ Pitfall-to-phase mapping (full set in `research/PITFALLS.md`): CP3 → P12; CP7/
 
 | Phase | Milestone | Plans Complete | Status | Completed |
 |-------|-----------|----------------|--------|-----------|
-| 12. Run-Log Capture Foundation | v0.5.0 | 0/5 | Planned    |  |
+| 12. Run-Log Capture Foundation | v0.5.0 | 2/5 | In Progress|  |
 | 13. Server Skeleton + Read-Only Dashboard | v0.5.0 | 0/? | Not started | - |
 | 14. Live Log Streaming + Terminal/Watch Relay | v0.5.0 | 0/? | Not started | - |
 | 15. UI Build Controls | v0.5.0 | 0/? | Not started | - |
