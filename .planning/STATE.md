@@ -1,21 +1,16 @@
 ---
 gsd_state_version: 1.0
-milestone: v0.4.0
-milestone_name: Build Fidelity & Release Automation
-current_phase: none — milestone v0.4.0 complete
-current_phase_name: (all 6 phases verified)
-status: complete
-stopped_at: Milestone v0.4.0 complete — 6/6 phases verified (tool's next_phase:6 output was the known phase.complete bug, corrected — no phases remain)
-last_updated: "2026-08-31T03:50:04.865Z"
+milestone: v0.5.0
+milestone_name: Web Interface
+status: planning
+last_updated: "2026-08-31T10:02:23.917Z"
 last_activity: 2026-08-31
-last_activity_desc: v0.4.0 complete — Phase 11 verified + UAT 3/3 (push path live-proven, run 33354678763), security 15/15 closed, suite 441/0
-state_head: c8f102a1f78d17c87845796c27c10c7e070db319
 progress:
-  total_phases: 6
-  completed_phases: 6
-  total_plans: 18
-  completed_plans: 18
-  percent: 100
+  total_phases: 0
+  completed_phases: 0
+  total_plans: 0
+  completed_plans: 0
+  percent: 0
 ---
 
 # Project State: spm-cache
@@ -280,7 +275,6 @@ Resume file: None
 - [Phase 11]: 11-03 (2026-08-30): operator gate resolved via pivot — claimed UI-set App secrets verifiably absent, so the pre-authorized deploy-key substitute was applied API-first (write deploy key on the tap, TAP_DEPLOY_KEY the only repo secret, TAP_REPO_TOKEN deleted); REL-04 truth = long-lived machine credential (non-human, non-expiring). Live v0.3.0 dispatch: update-tap GREEN on the idempotent notice branch (REL-05/06/07/09), verify-publish RED at the version assertion per the documented pre-intercept fail-first proof (REL-08) after pinning macos-15; tap-formula Homebrew-Ruby-3.4 boot defect logged to deferred-items.md (fix needed before the v0.4.0 release's first green verify).
 - [Phase 11 — verification + UAT, 2026-08-31]: Phase verified 6/7 must-haves (0 gaps, REL-04..09 all satisfied; deploy-key pivot carried as dated operator-accepted deviation). UAT closed 3/3 with two defects found AND fixed live during verification: tap formula wrapper now execs keg-only ruby@3.3 (was env-ruby → Homebrew Ruby 3.4 kconv/nkf LoadError; tap@5fd0f0d) and WR-02's asset jq read the REST field name browser_download_url instead of gh's url, so asset preference never fired (spec-pinned + fixed c200a43). Run 33354678763 then proved the never-tested path end-to-end: REAL formula edit + commit ee27cc7 + deploy-key push (tap now pins the byte-stable v0.3.0 asset, sha 1a7d9f76 matching local git-archive hash), verify-publish red exactly at the version assertion. Security 15/15 closed (L1). phase.complete 11 reproduced the known next_phase bug (returned 6; corrected — milestone complete). gh account flip to phuongdoanduy mid-session caused one 403 dispatch; the CLAUDE.md auth-switch rule caught it.
 
-
 ## Deferred Items
 
 Items acknowledged and deferred at milestone close, most recent first:
@@ -294,10 +288,10 @@ Items acknowledged and deferred at milestone close, most recent first:
 
 ## Current Position
 
-Phase: none — v0.4.0 complete (Phases 6–11 all verified)
+Phase: Not started (defining requirements)
 Plan: —
-Status: Milestone ready for completion (/gsd-complete-milestone)
-Last activity: 2026-08-31 — Phase 11 verification + UAT closed: tap boot fix live (ruby@3.3), WR-02 asset path live (real push ee27cc7), deploy-key pivot recorded
+Status: Defining requirements
+Last activity: 2026-08-31 — Milestone v0.5.0 started
 
 ### Historical position (Phase 6, prior to this update)
 

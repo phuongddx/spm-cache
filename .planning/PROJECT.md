@@ -19,10 +19,18 @@ tap push landed 2026-08-31), `--version` intercept working. Remaining operator s
 v0.4.0 release cut itself (bump VERSION → tag → attach tarball asset → watch first fully-green
 verify-publish).
 
-## Next Milestone Goals (not yet defined — run /gsd-new-milestone)
+## Current Milestone: v0.5.0 Web Interface
 
-Candidates on record: `~/.spm-cache` partitioning + content-addressed keys (v0.5 carry-over),
-RubyGems publication (+ GitHub Action viability it unlocks), tap-repo automation hardening.
+**Goal:** Give spm-cache a local web dashboard — live-streaming build logs, per-package
+cache control, and cache/health visibility for the current project.
+
+**Target features:**
+- `spm-cache web` subcommand: localhost server + browser open, dashboard for the current project
+- Live streaming build logs in the browser — from UI-triggered builds (Build/Rebuild button) AND from terminal/`watch`-initiated runs relayed to the server
+- Per-package cache on/off toggles persisted in config, honored by build/use/rollback (same source of truth as `spm-cache off`)
+- Cache state table: per-package sizes, cached/source state, fidelity status
+- Embedded cachemap dependency graph (today's HTML viz as a dashboard view)
+- Doctor health panel reusing the 7-check registry
 
 ## Requirements
 
@@ -53,7 +61,13 @@ RubyGems publication (+ GitHub Action viability it unlocks), tap-repo automation
 
 ### Active
 
-(none — next milestone not yet defined)
+
+- [ ] Web dashboard served locally for the current project (`spm-cache web`)
+- [ ] Live streaming build logs from UI-triggered and terminal/`watch` builds
+- [ ] Per-package cache on/off toggles persisted and honored end-to-end
+- [ ] Cache state table with sizes and fidelity status
+- [ ] Cachemap dependency graph embedded in the dashboard
+- [ ] Doctor health panel in the browser
 
 ### Out of Scope
 
@@ -80,6 +94,7 @@ Known state after v0.3.0: test CI runs the full suite on every PR/push (was: non
 - **Architecture**: proxy-package swap at the SPM manifest level; lockfile (`spm-cache.lock`) + config (`spm-cache.yml`) as the state surface
 - **Compatibility**: no new runtime gem dependencies without justification (watch uses stdlib mtime polling to avoid `listen`)
 - **GitHub Action**: must live in a separate repo per `uses:` resolution rules
+- **Web UI**: localhost-only binding, no remote exposure; server stack must justify any new runtime gem dependency (research question)
 
 ## Key Decisions
 
@@ -124,4 +139,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-08-31 at v0.4.0 milestone close*
+*Last updated: 2026-08-31 after v0.5.0 milestone start (Web Interface)*
