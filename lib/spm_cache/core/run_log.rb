@@ -29,6 +29,10 @@ module SPMCache
       # pid+verb names (D-09). Fixed-width %3N keeps lexicographic ==
       # chronological ordering, which retention (Plan 12-03) relies on.
       FILE_TIMESTAMP_FORMAT = '%Y%m%dT%H%M%S%3NZ'
+      # WR-02: matches scheme://user:password@ inside one argv component.
+      # redact_credentials replaces only the password half; user@ without a
+      # password is not a secret and stays verbatim.
+      CREDENTIAL_PATTERN = %r{([A-Za-z][A-Za-z0-9+.-]*://)([^/@:\s]+):([^/@\s]+)@}
 
       # Process-wide seam consumed by Plans 02 (capture3 sh events), 04
       # (phase/package markers) and 05 (watch cycles). Single-threaded,
@@ -118,13 +122,15 @@ module SPMCache
           path = File.join(runs_dir, "#{base}-#{n}.jsonl")
         end
 
+        recorded_argv = redact_credentials(argv)
         tmp = Tempfile.new(['run_start', '.tmp'], runs_dir)
         begin
           tmp.write("#{JSON.generate(
             'event' => 'run_start',
             'ts' => ts,
             'command' => command,
-            'argv' => argv.to_a,
+            'argv' => recorded_argv,
+            'redacted' => recorded_argv != argv.to_a,
             'pid' => Process.pid,
             'started_at' => ts,
             'spm_cache_version' => SPMCache::VERSION,
@@ -156,6 +162,18 @@ module SPMCache
       rescue StandardError => e
         Core::UI.warn "run log disabled: could not open run log in #{runs_dir}: #{e.message}"
         nil
+      end
+
+      # WR-02: credential redaction for the run_start header. The runs dir
+      # persists for weeks (retention D-06) and real invocations carry
+      # credential-bearing option values (--remote-url=https://user:token@...,
+      # embedded PATs for private SPM deps). The password half of any
+      # scheme://user:password@ component is replaced with [REDACTED];
+      # everything else stays verbatim. open records whether any component
+      # changed so renderers know the header is not byte-faithful (the BODY
+      # remains verbatim per D-05 -- redaction is header-identity only).
+      def self.redact_credentials(argv)
+        argv.to_a.map { |component| component.gsub(CREDENTIAL_PATTERN, '\1\2:[REDACTED]@') }
       end
 
       # D-09 / SC1 (LOGS-01): the watch daemon writes ONE complete run log
