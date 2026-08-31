@@ -263,6 +263,24 @@ RSpec.describe SPMCache::Core::RunLog do
       expect(File.exist?(log.path)).to be(true)
     end
 
+    # CR-03 / T-12-04: every prior cycle of a RUNNING watch session carries
+    # the watch process's own (alive) pid. Liveness protection exists for
+    # CONCURRENT runs (Pitfall 6) -- a same-pid prior cycle is by
+    # construction finished (its run_end landed in finish) -- so exempting
+    # it left intra-session growth unbounded until process exit.
+    it 'prunes a finished prior cycle of the SAME process; the third cycle of a watch session bounds the first (CR-03)' do
+      config.raw['runs_keep'] = 1
+      config.raw['runs_max_mb'] = 500
+      first = fabricate_old_run('20200101T000000000Z-1-watch.jsonl', pid: Process.pid)
+      second = fabricate_old_run('20200101T000000001Z-1-watch.jsonl', pid: Process.pid)
+      log = open_log # third cycle of the same process
+      log.finish(0)
+
+      expect(File.exist?(first)).to be(false)  # oldest same-pid cycle pruned
+      expect(File.exist?(second)).to be(true)  # within keep budget
+      expect(Dir.children(runs_dir).sort).to eq([File.basename(second), File.basename(log.path)])
+    end
+
     it 'deletes nothing when the runs dir is under both budgets (EDGE empty)' do
       2.times { |i| fabricate_old_run("20200101T00000000#{i}Z-1-use.jsonl") }
       log = open_log
