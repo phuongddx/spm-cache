@@ -340,6 +340,30 @@ RSpec.describe SPMCache::Core::RunLog, 'cycle_wrapper (D-09 per-cycle run logs)'
       end
     end
 
+    # CR-04 / D-03: --no-run-log is "persist nothing for this invocation" --
+    # the cycle layer must honor the opt-out exactly like Main.run does.
+    it 'writes ZERO cycle files when --no-run-log precedes the verb (D-03/CR-04)' do
+      config.project_dir = tmpdir
+
+      with_swapped_streams do
+        described_class.cycle_wrapper(CycleDouble.new, argv: ['--no-run-log', 'watch']).perform_install
+      end
+
+      expect(cycle_files(tmpdir)).to be_empty
+      expect(File.exist?(File.join(tmpdir, '.spm-cache'))).to be(false)
+    end
+
+    it 'writes ZERO cycle files when --no-run-log follows the verb (the real argv order; D-03/CR-04)' do
+      config.project_dir = tmpdir
+
+      with_swapped_streams do
+        described_class.cycle_wrapper(CycleDouble.new, argv: ['watch', '--no-run-log']).perform_install
+      end
+
+      expect(cycle_files(tmpdir)).to be_empty
+      expect(File.exist?(File.join(tmpdir, '.spm-cache'))).to be(false)
+    end
+
     it 'captures only the cycle own output: writes printed between cycles (no tee active) land in no file' do
       config.project_dir = tmpdir
       runs = File.join(tmpdir, '.spm-cache', 'runs')
