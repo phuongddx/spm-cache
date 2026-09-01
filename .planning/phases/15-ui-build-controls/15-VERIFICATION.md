@@ -1,18 +1,29 @@
 ---
 phase: 15-ui-build-controls
-verified: 2026-09-02T00:00:00Z
+verified: 2026-09-01T20:39:35Z
+head: a3326f6
 status: passed
 score: 6/6 must-haves verified
 behavior_unverified: 0
 overrides_applied: 0
+re_verification:
+  kind: stamp-refresh
+  previous_verified: 2026-09-02T00:00:00Z
+  previous_head: 35ac544
+  previous_status: passed
+  previous_score: 6/6
+  gaps_closed: []
+  gaps_remaining: []
+  regressions: []
+  note: "git log 35ac544..HEAD --stat touches only .planning markdown (4 new plan SUMMARYs 15-01..15-04); zero source or spec files changed. Evidence and score carried forward unchanged."
 ---
 
 # Phase 15: UI Build Controls Verification Report
 
 **Phase Goal:** Users can trigger builds and rollback from the dashboard with the same locking, live output, and failure visibility as the terminal
-**Verified:** 2026-09-02T00:00:00Z (HEAD 35ac544)
+**Verified:** 2026-09-01T20:39:35Z (HEAD a3326f6; source unchanged since 35ac544 — stamp refresh only)
 **Status:** passed
-**Re-verification:** No — initial verification
+**Re-verification:** Stamp refresh — HEAD advanced 35ac544→a3326f6 via docs-only commits (4 plan SUMMARYs 15-01..15-04); zero source/spec changes, score unchanged
 
 ## Goal Achievement
 
@@ -67,7 +78,7 @@ overrides_applied: 0
 | Behavior | Command | Result | Status |
 |---|---|---|---|
 | Phase-15 unit/integration specs are green | `bundle exec rspec spec/web_jobs_spec.rb spec/web_build_routes_spec.rb spec/installer_rollback_lock_spec.rb spec/run_log_trigger_spec.rb spec/command_build_rebuild_spec.rb` | 50 examples, 0 failures | ✓ PASS |
-| Full suite green at HEAD (35ac544) | `bundle exec rspec` | 984 examples, 0 failures | ✓ PASS |
+| Full suite green at HEAD 35ac544 (source identical through current HEAD a3326f6 — no code/spec commits landed between them) | `bundle exec rspec` | 984 examples, 0 failures | ✓ PASS |
 | Mutex-atomic race (8 real threads) | `spec/web_jobs_spec.rb:176` (included in the run above) | exactly 1 non-nil spawn among 8 racers | ✓ PASS |
 | Rollback lock ordering + release-on-raise | `spec/installer_rollback_lock_spec.rb:128,160` (included in the run above) | sandbox survives while held, gone after release; raise still releases | ✓ PASS |
 
@@ -103,9 +114,9 @@ None. All interactive/browser-dependent behavior was already exercised and recor
 
 ### Gaps Summary
 
-No gaps. All 6 derived observable truths (covering ROADMAP SC1-4 and REQUIREMENTS BLD-01..04) are verified against actual code, with behavioral evidence (unit tests exercising concurrency/ordering invariants, plus the recorded real-browser probe) rather than presence alone. Full suite is green (984/0) at HEAD `35ac544`. Code review's one critical and one warning finding are fixed and regression-tested; the one info finding is a documented, pre-existing, self-correcting edge case.
+No gaps. All 6 derived observable truths (covering ROADMAP SC1-4 and REQUIREMENTS BLD-01..04) are verified against actual code, with behavioral evidence (unit tests exercising concurrency/ordering invariants, plus the recorded real-browser probe) rather than presence alone. Full suite is green (984/0) at HEAD `35ac544`; confirmed still current at HEAD `a3326f6` via `git log 35ac544..HEAD --stat` (4 doc-only plan SUMMARYs, zero source/spec changes). Code review's one critical and one warning finding are fixed and regression-tested; the one info finding is a documented, pre-existing, self-correcting edge case.
 
 ---
 
-_Verified: 2026-09-02T00:00:00Z_
+_Verified: 2026-09-01T20:39:35Z (stamp refresh at HEAD a3326f6; initial verification 2026-09-02T00:00:00Z at HEAD 35ac544)_
 _Verifier: Claude (gsd-verifier)_
