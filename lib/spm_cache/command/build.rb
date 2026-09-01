@@ -5,34 +5,38 @@ module SPMCache
     class Build < Command
       include BaseOptions
 
-      self.summary = "Build SPM targets into xcframeworks"
-      self.description = "Builds specified targets into xcframeworks and stores them in the cache."
+      self.summary = 'Build SPM targets into xcframeworks'
+      self.description = 'Builds specified targets into xcframeworks and stores them in the cache.'
 
       def self.options
-        [["--recursive", "Build recursive dependencies"]].concat(super)
+        [
+          ['--recursive', 'Build recursive dependencies'],
+          ['--rebuild', 'Rebuild cached targets too, not only missed ones (D-01)']
+        ].concat(super)
       end
 
       def initialize(argv)
         @targets = argv.arguments!
-        @recursive = argv.flag?("recursive", false)
+        @recursive = argv.flag?('recursive', false)
+        @rebuild = argv.flag?('rebuild', false)
         super
       end
 
       def run
-        require "spm_cache/installer/build"
+        require 'spm_cache/installer/build'
         project_path = find_project
-        raise "No .xcodeproj found" unless project_path
+        raise 'No .xcodeproj found' unless project_path
 
-        require "xcodeproj"
-        installer = Installer::Build.new(project: project_path, config: config, targets: @targets)
+        require 'xcodeproj'
+        installer = Installer::Build.new(project: project_path, config: config, targets: @targets, rebuild: @rebuild)
         installer.perform_install
-        puts "Build complete!"
+        puts 'Build complete!'
       end
 
       private
 
       def find_project
-        Dir.glob("*.xcodeproj").first
+        Dir.glob('*.xcodeproj').first
       end
     end
   end
