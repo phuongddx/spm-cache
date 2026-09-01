@@ -69,8 +69,8 @@ All values inherited verbatim from the shipped token sheet; the table pins the c
 |------|-------|------------------------|
 | Dominant (60%) | `#0D1117` | Page background (unchanged) |
 | Secondary (30%) | `#161B22` | Panels, quiet Cancel button fill; borders `#30363D` (unchanged) |
-| Accent (10%) | `#2196F3` | Build and Rebuild all buttons (solid fill, white text — the existing `.btn` action pattern; accent = actions per 13's vocabulary). Focus rings on accent and quiet controls |
-| Destructive | `#F44336` | FIRST destructive actions in the dashboard: the Rollback button and the confirm bar's Confirm button (solid fill, white text — `.btn-danger` mirrors `.btn` with the fail token). Phase 14's dual role as `:fail` continues unchanged for verdicts/banners |
+| Accent (10%) | `#2196F3` | Build and Rebuild all buttons (solid fill, `#0D1117` text ≈6.1:1 — AA-amended 2026-09-02 per 14-UI-REVIEW W1: white measured ≈3.1:1, a fail; the same amendment applies retroactively to 14's accent-fill pill labels in the Phase-15 polish task). Focus rings on accent and quiet controls |
+| Destructive | `#F44336` | FIRST destructive actions in the dashboard: the Rollback button and the confirm bar's Confirm button (solid fill, `#0D1117` text ≈6.0:1 — same AA amendment; white measured ≈3.8:1). `.btn-danger` mirrors `.btn` with the fail token. Phase 14's dual role as `:fail` continues unchanged for verdicts/banners |
 
 Status message coloring (all pre-existing tokens):
 
