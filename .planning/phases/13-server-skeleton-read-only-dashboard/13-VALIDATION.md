@@ -3,8 +3,8 @@ phase: "13"
 slug: "server-skeleton-read-only-dashboard"
 # status lifecycle: draft (seeded by plan-phase) → validated (set by validate-phase §6)
 # audit-milestone §5.5 distinguishes NOT-VALIDATED (draft) from PARTIAL (validated + nyquist_compliant: false) (#2117)
-status: draft
-nyquist_compliant: false
+status: validated
+nyquist_compliant: true
 wave_0_complete: false
 created: "2026-09-01"
 ---
@@ -97,14 +97,13 @@ created: "2026-09-01"
 
 ---
 
-## Validation Sign-Off
+- [x] All tasks have `<automated>` verify or Wave 0 dependencies
+- [x] Sampling continuity: no 3 consecutive tasks without automated verify
+- [x] Wave 0 covers all MISSING references
+- [x] No watch-mode flags
+- [x] Feedback latency < 60 s
+- [x] `nyquist_compliant: true` set in frontmatter
+- [x] Manual-only table executed and recorded (7 items above — executed 2026-09-01 and recorded in [13-UAT.md](13-UAT.md): browser walkthrough / token bootstrap / auto-poll + error resilience / Ctrl-C exit / judgment prohibitions all PASS live; offline physical check skipped-with-reason (loopback unaffected by network disconnect; zero-external-ref architecture grep-proven); auto-open accepted on code+spec evidence by user 2026-09-01; WR-02 reuse UX accepted as block-then-replace by user 2026-09-01)
 
-- [ ] All tasks have `<automated>` verify or Wave 0 dependencies
-- [ ] Sampling continuity: no 3 consecutive tasks without automated verify
-- [ ] Wave 0 covers all MISSING references
-- [ ] No watch-mode flags
-- [ ] Feedback latency < 60 s
-- [ ] `nyquist_compliant: true` set in frontmatter
-- [ ] Manual-only table executed and recorded (7 items above)
+**Approval:** validated 2026-09-01 — manual items executed and recorded in 13-UAT.md; post-gap-closure (G-13-1 fixed by 13-05) re-verified live in a real browser.
 
-**Approval:** pending
