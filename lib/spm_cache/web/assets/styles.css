@@ -243,11 +243,13 @@ body {
 /* Inline command references in empty-state copy: accent, NOT anchors —
  * empty states navigate nowhere (13-UI-SPEC Accent rules).
  * Phase 14 (A3 amendment): this ONE declaration stays the sheet's
- * only accent-TEXT home, now shared with the sanctioned liveness
- * surfaces — the ● running status and the ● connected pill. Verdict
+ * only accent-TEXT home, shared with the sanctioned liveness surfaces
+ * — the ● running status, the ● connected pill, and 14-05's active
+ * anchor chip (text on a 10%-alpha fill — the badge pattern). Verdict
  * glyphs never join this group: ✓/!/✗ keep :ok/:warn/:fail. */
 .cmd,
-.log-live {
+.log-live,
+.log-chip-active {
   color: var(--c-accent);
   font-family: var(--font-mono);
 }
@@ -518,6 +520,53 @@ body {
   color: var(--c-muted);
 }
 
+/* Anchor chips (D-07/D-08, 14-05): stacked in the rail's group
+ * containers — one vertical stack, labels are names. Mono at Label
+ * size; the label ellipsizes at the 200px rail width with the full
+ * name on hover (long-text row). */
+.log-chip {
+  display: block;
+  width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  text-align: left;
+  cursor: pointer;
+  background: var(--c-panel);
+  color: var(--c-text);
+  border: 1px solid var(--c-border);
+  border-radius: 4px;
+  padding: var(--space-xs) var(--space-sm);
+  font-family: var(--font-mono);
+  font-size: 12px;   /* Label role */
+  font-weight: 400;
+  line-height: 1.4;
+}
+
+/* The active chip renders in the accent badge style (D-09): accent
+ * text on a 10%-alpha fill of the same color — the text color joins
+ * the ONE accent declaration's group above (badges carry no border
+ * rule; the chip's base border stays). */
+.log-chip-active {
+  background: rgba(33, 150, 243, 0.1);
+}
+
+/* Active filter (A5): non-matching lines render text AND glyph in
+ * muted — DIM, never hidden; positions stay stable, which is what
+ * makes D-10's real-position jump possible. The two-class selector
+ * outranks the per-stream color rules (.log-err/.log-divider). */
+.log-line.log-dim {
+  color: var(--c-muted);
+}
+
+/* The filter pill (D-09): the accent solid-fill control at pill size;
+ * the label ellipsizes at a 240px max-width with itself as tooltip. */
+.log-filter-pill {
+  max-width: 240px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
 /* Overlay pill row: inside the viewport's bottom edge, centered. */
 .log-overlay {
   position: absolute;

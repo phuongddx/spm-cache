@@ -620,10 +620,12 @@ RSpec.describe 'spm-cache web dashboard frontend (Plan 13-03)' do
         expect(styles_css).to include('.log-viewport')
         expect(styles_css).to include('white-space: pre-wrap')
         expect(styles_css).to include('background: var(--c-bg)')
-        # A3: accent TEXT stays a single declaration; the .cmd group now
-        # also carries the sanctioned liveness surfaces (never verdicts).
+        # A3: accent TEXT stays a single declaration; the .cmd group
+        # carries the sanctioned liveness surfaces (never verdicts) —
+        # 14-05 widens it once more for the active anchor chip (D-09's
+        # accent-badge style), preserving the eq(1) count invariant.
         expect(styles_css.scan(/color: var\(--c-accent\)/).size).to eq(1)
-        expect(styles_css).to match(/\.cmd,\s*\.log-live\s*\{/)
+        expect(styles_css).to match(/\.cmd,\s*\.log-live,\s*\.log-chip-active\s*\{/)
       end
     end
 
