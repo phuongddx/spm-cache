@@ -1,45 +1,35 @@
 {
   "version": "1.0",
-  "timestamp": "2026-08-29T08:01:03.504Z",
-  "phase": "8",
-  "phase_name": "Drift Read-Back, Fidelity Status & Provenance",
-  "phase_dir": ".planning/phases/08-drift-read-back-fidelity-status-provenance",
-  "plan": 1,
+  "timestamp": "2026-09-01T14:20:36.455Z",
+  "phase": "14",
+  "phase_name": "Live Log Streaming + Terminal/Watch Relay",
+  "phase_dir": "/Users/ddphuong/Projects/next-labs/spm-cache/.planning/phases/14-live-log-streaming-terminal-watch-relay",
+  "plan": 5,
   "task": 0,
-  "total_tasks": 5,
+  "total_tasks": 3,
   "status": "paused",
   "completed_tasks": [
-    {"id": "phase-7-verify", "name": "Phase 7 canonical goal-backward verification (5/5 must-haves)", "status": "done", "commit": "n/a (subagent write)"},
-    {"id": "phase-7-review", "name": "Phase 7 code review: 2 Critical (1 residual, self-caught) + 5 Warning fixed, 1 Warning + 3 Info deliberately deferred", "status": "done", "commit": "a2eb4bc"},
-    {"id": "phase-7-transition", "name": "Phase 7 -> Phase 8 transition (STATE.md/PROJECT.md/ROADMAP.md), corrected a phase.complete tool bug (wrong next_phase)", "status": "done", "commit": "1c4e1e4"},
-    {"id": "phase-8-m2", "name": "Phase 8 M2 measurement: 0/17 packages resolution-incompatible on reference project, no rescope trigger", "status": "done", "commit": "5ed3fb3"},
-    {"id": "phase-8-discuss", "name": "Phase 8 smart-discuss: 4 grey areas, 16 decisions, all accepted as recommended", "status": "done", "commit": "6b56057"},
-    {"id": "phase-8-research", "name": "Phase 8 research: found ROADMAP's '.shims.json/GraphEntry.Status reuse' claim half-wrong, mapped exact insertion points", "status": "done", "commit": "7d7b402"},
-    {"id": "phase-8-patterns", "name": "Phase 8 pattern mapping: 5 files classified, analogs found for 4/5", "status": "done", "commit": "n/a (folded into 2f49bd1)"},
-    {"id": "phase-8-plan", "name": "Phase 8 planning: 08-01-PLAN.md (Wave 1) + 08-02-PLAN.md (Wave 2), plan-checker VERIFICATION PASSED, requirements coverage 4/4", "status": "done", "commit": "5791011, 92bbb5b, 2f49bd1"}
+    {"id": "14-01", "name": "Web::Events tailer + broadcaster + /api/events SSE route (tracer slice)", "status": "done", "commit": "9c9ca1c"},
+    {"id": "14-02", "name": "D-05 lock-wait line at both Installer flock sites", "status": "done", "commit": "abf8e87"},
+    {"id": "14-03", "name": "/api/runs read model + CP10 derivation + pinned ?run= + SSE integration weld", "status": "done", "commit": "a5ee2e4"},
+    {"id": "14-04", "name": "log-view frontend: stream core, identity card, follow/banner/jump, anchor rail", "status": "done", "commit": "04ab687"}
   ],
   "remaining_tasks": [
-    {"id": "08-01-execute", "name": "Execute 08-01-PLAN.md (Wave 1): drift read-back, resolution-incompatible classification, provenance sidecar write/cleanup", "status": "not_started"},
-    {"id": "08-02-execute", "name": "Execute 08-02-PLAN.md (Wave 2, depends on 08-01): cache list fidelity-status column", "status": "not_started"},
-    {"id": "phase-8-code-review", "name": "Code review Phase 8 changes (execute:post code-review capability is active)", "status": "not_started"},
-    {"id": "phase-8-verify", "name": "Canonical goal-backward verification of Phase 8", "status": "not_started"},
-    {"id": "phase-8-transition", "name": "Phase 8 -> Phase 9 transition", "status": "not_started"},
-    {"id": "phases-9-11", "name": "Cache Identity & Invalidation (9), Fidelity Regression Coverage (10), Homebrew Release Automation (11) -- discuss/plan/execute each", "status": "not_started"}
+    {"id": "14-05-T1", "name": "Auto-switch + recent-runs dropdown + notice rendering (TDD, 12 RED examples; {run-id} MUST come from previously-DISPLAYED run, not the event's previous field — pinned in plan row 2)", "status": "not_started"},
+    {"id": "14-05-T2", "name": "Full-suite pre-probe gate + spec weld", "status": "not_started"},
+    {"id": "14-05-T3", "name": "D-14 recorded agent-browser streaming probe (plan autonomous:false/human-check — but D-14 locked it as AGENT-executable via the browser tool: real terminal run → live render → second-tab mid-run replay → kill/restart reconnect without loss/duplication → failing-run banner + filter-pierce → watch-cycle auto-switch from a dropdown-pinned older run)", "status": "not_started"}
   ],
-  "blockers": [
-    {"description": "Phase 11 needs a GitHub App created by the repo owner (Contents: read&write, Metadata: read, installed on homebrew-spm-cache only) before its tap-token work can complete -- autonomous will pause here regardless of context budget", "type": "human_action", "workaround": "Create the App ahead of time to avoid a mid-run pause"}
-  ],
+  "blockers": [],
   "async_jobs": [],
-  "human_actions_pending": [
-    {"action": "Create a GitHub App for the Homebrew tap token before Phase 11", "context": "Locked decision 2026-08-27: durable token fix is a GitHub App installation token, not a re-minted classic PAT", "blocking": true}
-  ],
+  "human_actions_pending": [],
   "decisions": [
-    {"decision": "M2 measurement run retroactively via static manifest analysis (swift package dump-package against Xcode's own already-resolved checkouts) instead of a live resolve/build sweep", "rationale": "Genuinely report-only, no network/build cost, and the actual resolution-incompatible detection machinery is Phase 8's own deliverable -- can't use it to measure the gate that precedes building it", "phase": "8"},
-    {"decision": "M4 found moot by direct code inspection rather than run: BuildPipeline#seed_host_graph already classifies vendored_xcodeproj? checkouts as not-graph-pinned and skips seeding unconditionally, before any build -- nothing is ever claimed pinned on that path, so there is nothing for Phase 8 to detect drift against", "rationale": "Phase 7 took the conservative branch of M4's conditional preemptively; re-litigating it in Phase 8 discuss would be re-deriving an already-settled answer", "phase": "8"},
-    {"decision": "Single consolidated drift/provenance insertion point in BuildPipeline.run (right after perform_build succeeds), not duplicated across the three artifact-producing paths", "rationale": "Simpler, DRYer, and makes the Class-E (copy_prebuilt_binary_target) path get a correct provenance sidecar for free", "phase": "8"},
-    {"decision": "Fidelity status line printed from inside BuildPipeline.run rather than changing its return contract to a richer struct", "rationale": "Avoids an unrelated forced edit to command/pkg/build.rb, which treats the return value as a bare path string", "phase": "8"}
+    {"decision": "SSE endpoint ALWAYS answers 200 text/event-stream; auth failure (401/403) is deliberately terminal; '503 + Retry, never 204' milestone guidance is FALSIFIED (WHATWG §9.2.3: any non-200 permanently kills EventSource)", "rationale": "machine-verified against the WHATWG spec text + webrick 1.9.2 source during 14-RESEARCH; amended into 14-CONTEXT.md", "phase": "14"},
+    {"decision": "Shutdown sentinel ends every SSE client loop (WEBrick accept loop joins connection threads — a looping proc hangs server.shutdown and breaks WEB-03 exit-0)", "rationale": "webrick server.rb:210 read + verified; wave 1 implemented + integration spec asserts shutdown-with-open-stream < 10s", "phase": "14"},
+    {"decision": "Pinned-connection contract: pinning scopes ENTRY delivery only; switch/notice broadcasts still reach pinned connections; the CLIENT drops the pin, closes EventSource, reconnects unpinned; switch-notice {run-id} = previously-DISPLAYED run (view state), never the event's previous field", "rationale": "plan-checker iteration-2 finding, pinned in 14-03/14-05 after revision", "phase": "14"},
+    {"decision": "Exactly-once replay handoff: after disk replay, drop queued entries with composite id (file, byte-offset) <= last delivered id", "rationale": "plan-checker W2; route row 7 opens the window live and asserts exactly-once", "phase": "14"},
+    {"decision": "Resume-id regex includes optional (-\\d+)? collision suffix (run_log.rb:120-123)", "rationale": "plan-checker W3; -1-suffixed fixture resumes exactly", "phase": "14"}
   ],
-  "uncommitted_files": [],
-  "next_action": "Run /gsd-execute-phase 8 (or /gsd-autonomous --from 8 to resume the full autonomous chain) -- this re-enters execute-phase at Wave 1 (08-01-PLAN.md), spawning a sequential gsd-executor (workflow.use_worktrees=false for this project, so no worktree isolation/cleanup applies -- single agent on the main working tree).",
-  "context_notes": "This was a very long, deep single-turn session: Phase 7 verification+code-review+fix (including catching a fixer agent that crashed mid-run and left an incomplete/wrong-test-asserting fix, corrected via re-review) + full Phase 8 discuss/research/measure/plan/check, all before any Phase 8 code was written. Paused deliberately at the cleanest possible boundary -- Phase 8 fully planned and checker-verified, zero implementation started -- rather than begin real code-writing execution at 65% context used. Two real tool bugs were found and one was filed as feedback this session: gsd-tools.cjs phase.complete computed a wrong next_phase (6 instead of 8) when the completed phase wasn't the lowest incomplete one; commit --files also appears to silently drop already-deleted files from a commit (not yet filed, minor)."
+  "uncommitted_files": [".planning/REQUIREMENTS.md (TRUE Phase-13 completion tick of WEB-01/02/03 — commit with the handoff)", ".planning/phases/12-run-log-capture-foundation/12-VERIFICATION.md (pre-existing local mod from before this session — left alone)"],
+  "next_action": "Resume the autonomous run: execute Phase 14 wave 3 = plan 14-05 (dispatch ONE gsd-executor for tasks 1-2 TDD; task 3 is the D-14 browser probe — the ORCHESTRATOR executes it itself with the browser tool against a real `spm-cache web` boot on the reference project, then records results in 14-VALIDATION/UAT per the plan's human-check row). Then: execute:post chain (code review + fix), verification (spawn gsd-verifier), phase.complete + transition, UI review, then phases 15 and 16 full cycles, then milestone lifecycle (audit → complete → cleanup).",
+  "context_notes": "Autonomous run /gsd-autonomous --from 14 --to 16 paused by user after wave 2. Waves 1+2 are committed, gate-verified (schema-drift clear, codebase-drift clear, UI safety-gate clear) and fully green: 873 examples, 0 failures (14-03's post-wave run; nothing changed since a5ee2e4). All 5 plans checker-converged at 0 blockers. Full suite grew 787 → 873 this phase. The 12-VERIFICATION.md local modification predates this session and was deliberately never touched."
 }

@@ -10,9 +10,9 @@ Requirements for milestone v0.5.0. Each maps to roadmap phases (traceability bel
 
 ### Web server
 
-- [ ] **WEB-01**: `spm-cache web` starts a localhost-only server (explicit 127.0.0.1 binding, port probing that skips known-occupied ports including AirPlay 5000/7000) and opens the dashboard in the default browser
-- [ ] **WEB-02**: Re-running `spm-cache web` while a server is live is idempotent (marker file with pid-liveness check reuses the running instance), not an error
-- [ ] **WEB-03**: Server exits cleanly on SIGTERM/SIGINT — cleanup, exit 0 (watch-style signal contract)
+- [x] **WEB-01**: `spm-cache web` starts a localhost-only server (explicit 127.0.0.1 binding, port probing that skips known-occupied ports including AirPlay 5000/7000) and opens the dashboard in the default browser
+- [x] **WEB-02**: Re-running `spm-cache web` while a server is live is idempotent (marker file with pid-liveness check reuses the running instance), not an error
+- [x] **WEB-03**: Server exits cleanly on SIGTERM/SIGINT — cleanup, exit 0 (watch-style signal contract)
 - [x] **WEB-04**: Mutating endpoints validate Host/Origin plus a per-launch token; all dashboard assets are vendored and load fully offline (no CDN)
 
 ### Dashboard panels
@@ -82,9 +82,9 @@ Which phases cover which requirements. Updated during roadmap creation.
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| WEB-01 | Phase 13 | Pending |
-| WEB-02 | Phase 13 | Pending |
-| WEB-03 | Phase 13 | Pending |
+| WEB-01 | Phase 13 | Complete |
+| WEB-02 | Phase 13 | Complete |
+| WEB-03 | Phase 13 | Complete |
 | WEB-04 | Phase 13 | Complete |
 | DASH-01 | Phase 13 | Complete |
 | DASH-02 | Phase 13 | Complete |
