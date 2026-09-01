@@ -179,7 +179,8 @@ RSpec.describe 'SPMCache::Web one-boot integration matrix', order: :defined do
       content_types = {
         'assets/styles.css' => 'text/css',
         'assets/cytoscape.min.js' => 'application/javascript',
-        'assets/app.js' => 'application/javascript'
+        'assets/app.js' => 'application/javascript',
+        'assets/log.js' => 'application/javascript'
       }
       refs.each do |ref|
         # Browser resolution: each scanned ref resolved via URI.join

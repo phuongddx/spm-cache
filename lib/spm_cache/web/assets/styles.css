@@ -241,8 +241,13 @@ body {
 }
 
 /* Inline command references in empty-state copy: accent, NOT anchors —
- * empty states navigate nowhere (13-UI-SPEC Accent rules). */
-.cmd {
+ * empty states navigate nowhere (13-UI-SPEC Accent rules).
+ * Phase 14 (A3 amendment): this ONE declaration stays the sheet's
+ * only accent-TEXT home, now shared with the sanctioned liveness
+ * surfaces — the ● running status and the ● connected pill. Verdict
+ * glyphs never join this group: ✓/!/✗ keep :ok/:warn/:fail. */
+.cmd,
+.log-live {
   color: var(--c-accent);
   font-family: var(--font-mono);
 }
@@ -362,3 +367,169 @@ body {
   height: 12px;
   border-radius: 50%;
 }
+
+/* -- run log panel (14-UI-SPEC, Phase 14 — zero new tokens) --------- */
+
+/* Connection pill: the panel's liveness marker. The connecting state
+ * owns the neutral color — deliberately NOT muted (single owner). */
+.conn-pill {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  font-weight: 400;
+  line-height: 1.4;
+  color: var(--c-neutral);
+}
+
+.conn-pill-reconnecting { color: var(--c-warn); }
+/* .conn-pill-connected takes accent text via the ONE accent-color
+ * declaration on the .cmd/.log-live group above (A3). */
+
+/* Identity card (D-06): sm padding, xl break before the stream group
+ * (the token 13 reserved for exactly this). */
+.log-card {
+  padding: var(--space-sm);
+  border: 1px solid var(--c-border);
+  border-radius: 8px;
+  margin-bottom: var(--space-xl);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-xs);
+}
+
+.log-card-main {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-sm);
+  flex-wrap: wrap;
+  min-width: 0;
+}
+
+.log-status {
+  font-family: var(--font-mono);
+  font-size: 14px;   /* Body role */
+  font-weight: 400;
+  line-height: 1.5;
+}
+
+.log-ok { color: var(--c-ok); }
+.log-warn { color: var(--c-warn); }
+.log-fail { color: var(--c-fail); }
+
+.log-command {
+  font-family: var(--font-mono);
+  font-size: 14px;   /* Body role at mono weight 600 (D-06 row 1) */
+  font-weight: 600;
+  line-height: 1.5;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.log-config { color: var(--c-muted); }
+
+.log-card-meta {
+  font-family: var(--font-mono);
+  font-size: 12px;   /* Label role */
+  font-weight: 400;
+  line-height: 1.4;
+  color: var(--c-muted);
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Failure banner (D-03): single-line bar between card and stream;
+ * wraps on narrow viewports, never clips. */
+.log-banner {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  flex-wrap: wrap;
+  padding: var(--space-xs) var(--space-sm);
+  border-radius: 4px;
+  margin-bottom: var(--space-sm);
+}
+
+.log-banner-fail { background: rgba(244, 67, 54, 0.1); }
+.log-banner-warn { background: rgba(255, 152, 0, 0.1); }
+.log-banner-glyph { font-weight: 600; }
+.log-banner-text {
+  font-size: 14px;   /* Body role */
+  font-weight: 400;
+  line-height: 1.5;
+}
+
+/* Stream row: the viewport is the panel's one sanctioned inner-scroll
+ * surface (a fixed height, graph-canvas precedent); the rail
+ * inner-scrolls at the same height. */
+.log-stream-row {
+  display: flex;
+  gap: var(--space-sm);
+}
+
+.log-stream-col {
+  position: relative; /* the overlay pill row anchors here */
+  flex: 1;
+  min-width: 0;
+}
+
+.log-viewport {
+  height: 480px;
+  overflow-y: auto;
+  background: var(--c-bg);
+  border: 1px solid var(--c-border);
+  border-radius: 4px;
+  padding: var(--space-sm);
+}
+
+/* A log is read, not scanned: lines wrap at the viewport width —
+ * never ellipsized, never horizontally scrolled. */
+.log-line {
+  font-family: var(--font-mono);
+  font-size: 12px;   /* Label role */
+  font-weight: 400;
+  line-height: 1.4;
+  white-space: pre-wrap;
+  overflow-wrap: break-word;
+}
+
+.log-err { color: var(--c-fail); }
+.log-divider { color: var(--c-muted); }
+.log-notice { color: var(--c-warn); }
+.log-elision { color: var(--c-muted); }
+
+/* Anchor rail (D-08): group labels always render; chips are 14-05. */
+.log-rail {
+  flex: none;
+  width: 200px;
+  height: 480px;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-sm);
+}
+
+.log-rail-label {
+  font-size: 12px;   /* Label role */
+  font-weight: 400;
+  line-height: 1.4;
+  color: var(--c-muted);
+}
+
+/* Overlay pill row: inside the viewport's bottom edge, centered. */
+.log-overlay {
+  position: absolute;
+  bottom: var(--space-xs);
+  left: var(--space-sm);
+  right: var(--space-sm);
+  display: flex;
+  justify-content: center;
+  gap: var(--space-sm);
+}
+
+/* Accent solid-fill control at pill size (the .btn pattern) and the
+ * keyboard focus rings for every log-surface control land with the
+ * Task-2 interaction mechanics (follow pill, jump button, chips,
+ * select slot). */

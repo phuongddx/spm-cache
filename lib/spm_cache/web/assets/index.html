@@ -12,6 +12,48 @@
     <span class="port-label" id="port-label"></span>
   </header>
   <main class="content">
+    <!-- Run Log FIRST (14-UI-SPEC A1): the live tail is the phase's
+         purpose and D-13 guarantees it is never empty-or-embarrassing
+         on cold load. The connection pill is the panel's liveness
+         marker — no Refresh button, no timestamp stamp. -->
+    <section class="panel">
+      <div class="panel-header">
+        <h2>Run Log</h2>
+        <div class="panel-actions">
+          <span class="conn-pill" id="conn-pill" aria-live="polite">● connecting…</span>
+          <span class="log-runs-slot" id="runs-slot" hidden></span>
+        </div>
+      </div>
+      <div class="panel-body" id="log-body">
+        <div class="log-card" id="log-card" hidden>
+          <div class="log-card-main">
+            <span class="log-status" id="log-status" aria-live="polite"></span>
+            <span class="badge badge-neutral" id="log-trigger"></span>
+            <span class="log-command" id="log-command"></span>
+            <span class="mono log-config" id="log-config"></span>
+          </div>
+          <div class="log-card-meta" id="log-started"></div>
+          <div class="log-card-meta" id="log-argv"></div>
+          <div class="log-card-meta" id="log-runid"></div>
+        </div>
+        <div class="log-banner" id="log-banner" role="alert" hidden></div>
+        <div class="log-switch" id="log-switch" hidden></div>
+        <div class="log-stream-row">
+          <div class="log-stream-col">
+            <div class="log-viewport" id="log-viewport" role="log" aria-live="off" aria-label="Run output" tabindex="0"></div>
+            <div class="log-overlay" id="log-overlay"></div>
+          </div>
+          <div class="log-rail" id="log-rail">
+            <div class="log-rail-group" id="rail-phases">
+              <div class="log-rail-label">Phases</div>
+            </div>
+            <div class="log-rail-group" id="rail-packages">
+              <div class="log-rail-label">Packages</div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
     <section class="panel">
       <div class="panel-header">
         <h2>Cache State</h2>
@@ -55,5 +97,6 @@
   </main>
   <script src="assets/cytoscape.min.js"></script>
   <script type="module" src="assets/app.js"></script>
+  <script type="module" src="assets/log.js"></script>
 </body>
 </html>

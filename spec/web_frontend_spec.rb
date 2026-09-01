@@ -616,7 +616,7 @@ RSpec.describe 'spm-cache web dashboard frontend (Plan 13-03)' do
       end
 
       it 'styles: log rules on the existing sheet — fixed-height viewport, pre-wrap mono lines, ONE accent-text home' do
-        expect(styles_css.scan(/height: 480px/).size).to eq(2) # graph canvas + log viewport
+        expect(styles_css.scan(/height: 480px/).size).to eq(3) # graph canvas + log viewport + anchor rail
         expect(styles_css).to include('.log-viewport')
         expect(styles_css).to include('white-space: pre-wrap')
         expect(styles_css).to include('background: var(--c-bg)')
