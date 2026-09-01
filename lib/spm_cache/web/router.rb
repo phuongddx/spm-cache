@@ -302,16 +302,24 @@ module SPMCache
                                            'lock' => @read_models[:runs].lock_state(config: @config)))
       end
 
-      # POST /api/toggle (D-08, 16-01 tracer arm): the instant config
+      # POST /api/toggle (D-08, 16-04: the completed matrix -- 16-01
+      # landed the tracer shape this extends): the instant config
       # write through the shared Config mutator. Mirrors api_mutate's
       # gate ORDER -- token first (401), then the house 404 for
-      # anything but POST -- then the tracer-scope body validation:
-      # parseable JSON, `package` a non-empty String, `cached`
-      # EXACTLY true or false with no truthy coercion (V5). NEVER
-      # references @jobs: the slot governs Apply-now only, so a
-      # toggle stays live while a run holds the slot. The full
-      # validation matrix (unknown_package, not_toggleable,
-      # config_write_failed, revert, apply) is 16-04's.
+      # anything but POST -- then body validation: parseable JSON,
+      # `package` a non-empty, non-blank String, `cached` EXACTLY
+      # true or false with no truthy coercion (V5) -- then the SAME
+      # read model the dashboard renders decides permission,
+      # re-derived from disk on EVERY request (the stale-DOM defense:
+      # a client-side disabled attribute is never trusted): a package
+      # absent from the row set is 404 `unknown_package` (the row set
+      # IS the universe -- a typo can never plant a phantom entry);
+      # a row the model marks non-toggleable is 400 `not_toggleable`.
+      # Only then does the mutator run, its raise rescued into 500
+      # `config_write_failed` -- nothing escapes to WEBrick's error
+      # log (T-13-03). NEVER references @jobs: the slot governs
+      # Apply-now only, so a toggle stays live while a run holds the
+      # slot (D-08).
       def api_toggle(req, res, supplied)
         unless Middleware.valid_token?(token: supplied, expected_token: @token)
           return reject(res, 401, 'missing or invalid token')
@@ -324,7 +332,7 @@ module SPMCache
           return respond_json(res, 400, error_envelope('malformed request body', reason: 'bad_body'))
         end
         package = body.is_a?(Hash) ? body['package'] : nil
-        unless package.is_a?(String) && !package.empty?
+        unless package.is_a?(String) && !package.strip.empty?
           return respond_json(res, 400, error_envelope('package must be a non-empty string', reason: 'bad_package'))
         end
 
@@ -333,8 +341,18 @@ module SPMCache
           return respond_json(res, 400, error_envelope('cached must be true or false', reason: 'bad_cached'))
         end
 
-        # cached: true KEEPS the package cached -> ignore entry absent.
-        @config.set_ignored(package, !cached)
+        row = @read_models[:state].call(config: @config)['packages'].find { |r| r['name'] == package }
+        return respond_json(res, 404, error_envelope('unknown package', reason: 'unknown_package')) unless row
+        unless row['toggleable']
+          return respond_json(res, 400, error_envelope('package is not toggleable', reason: 'not_toggleable'))
+        end
+
+        begin
+          # cached: true KEEPS the package cached -> ignore entry absent.
+          @config.set_ignored(package, !cached)
+        rescue StandardError => e
+          return respond_json(res, 500, error_envelope(e.message, reason: 'config_write_failed'))
+        end
         respond_json(res, 200, ok_envelope('package' => package, 'cached' => cached))
       end
 
