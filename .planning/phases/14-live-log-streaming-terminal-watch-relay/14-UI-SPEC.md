@@ -71,7 +71,7 @@ All values inherited verbatim from the shipped token sheet; the table below pins
 | Accent (10%) | `#2196F3` | Phase 14 additions, confined to the controls-and-liveness family: follow-tail pill button, `Jump to first error` button, switch-notice run-id control, active anchor chip (text on 10%-alpha fill), `● running` dot+word, `● connected` pill, keyboard focus rings. NEVER on verdict glyphs — `✓`/`!`/`✗` stay `:ok`/`:warn`/`:fail` |
 | Destructive | `#F44336` | No destructive actions exist in Phase 14; keeps its existing dual role as `:fail` |
 
-Text: primary `#E6EDF3`, muted `#8B949E` (dimmed filter lines, notices, argv/started/run-id rows, rail labels, connecting pill).
+Text: primary `#E6EDF3`, muted `#8B949E` (dimmed filter lines, notices, argv/started/run-id rows, rail labels). The connecting pill is NOT muted — it uses neutral `#9E9E9E` per the status-colors table below (single owner for that surface).
 
 ### Status colors (locked vocabulary — extended mapping, same tokens)
 
@@ -109,9 +109,10 @@ Every dynamic string the log surface can render, pinned. `{…}` slots substitut
 | Ring elision notice (D-02) | `… {N} earlier lines — reload to replay from start` — `{N}` = total lines evicted from the displayed run's ring; plain text, never clickable |
 | Failure banner — non-zero exit (D-03) | `Run failed — exit status {N}` + button `Jump to first error` |
 | Failure banner — CP14 interrupt | `Run interrupted — exit unknown.` + button `Jump to first error` |
-| Jump target | the first error-styled line (stream `err`); fallback when the run carries no err line: the run's final line |
+| Jump target | the first error-styled line (stream `err`); fallback when the run carries no err line: the run's final line. **Under ring eviction (D-02):** when the target line has been evicted from the 500-line ring, the jump lands on the oldest retained line — the head elision notice already states how to see earlier output (`reload to replay from start`). The same degradation applies to anchor-chip jumps whose target is evicted. Never a dead control, never a silent no-op |
 | Filter piercing (D-10) | the banner renders regardless of filter state; activating `Jump to first error` CLEARS the filter (pill removed, chips revert) and then jumps to the error's real position — failure visibility beats filter intent |
-| Switch notice (D-04) | `switched to new run — previous: {run-id}` — persistent bar between card and stream; `{run-id}` is the interactive control that loads the previous run; one slot (a newer switch replaces the text); never auto-dismissed |
+| Switch notice (D-04) | `switched to new run — previous: {run-id}` — persistent bar between card and stream; `{run-id}` is the interactive control that loads the previous run; one slot (a newer switch replaces the text); never auto-dismissed. **No notice renders when there is no previously-displayed run** (first run of the session, or a switch arriving into the empty state) — the card simply populates |
+| External-run lock state (LOGS-05) | the hello frame's `lock` field is server-internal and the client renders NOTHING for it. A build held by another process becomes visible ONLY through the blocked run's own `Waiting for build lock…` line (next row) — there is no separate lock badge, banner, or pill in Phase 14. (Pinned to close the planner-guess gap the UI checker flagged; a surfaced lock indicator would be a Phase 15 decision, alongside its build controls.) |
 | Lock-wait line (D-05) | `Waiting for build lock…` — Installer-authored (`Core::UI.info` at both flock sites), tee'd into the blocked run's log, rendered VERBATIM in-stream as a normal out line — no badge, no special styling; the attribution IS the line, and terminal users see the identical string |
 | Filter pill (D-09) | `filtered: {package}` for a package anchor; `filtered: {phase}` for a phase marker — one button; activating it clears the filter (view position stays) |
 | Anchor rail group labels | `Phases` then `Packages` (Label size, muted, always rendered) |
