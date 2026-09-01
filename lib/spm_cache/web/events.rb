@@ -740,11 +740,28 @@ module SPMCache
         # listing (retention pruned the served run) keeps its held fd --
         # POSIX keeps an unlinked file readable (D-07) -- and an absent
         # runs dir (transient) is simply no glob hits.
+        #
+        # CR-02: the very-first attach (@path.nil? -- server boot before
+        # any run exists, or the switch_to rescue's Errno::ENOENT
+        # recovery resetting @path to nil) is symmetric with switch_to:
+        # replay from byte 0 AND publish a Switch(previous: nil). A
+        # client already parked in pop_loop's idle hello (run: nil) has
+        # no replay of its own to cover the new run -- it depends
+        # entirely on the tailer to deliver identity + content. This is
+        # safe unconditionally: pop_loop's exactly-once dedup (id <=
+        # last delivered, and `next if item.run == last_file`) already
+        # suppresses these now-published entries/switch for any client
+        # whose own connect-time replay already covered the range, so
+        # only the previously-idle client newly receives what it was
+        # missing.
         def discover
           newest = Dir.glob(File.join(@config.runs_dir, '*.jsonl')).sort.last
+          return unless newest
+
           if @path.nil?
-            attach(newest, from_byte0: false) if newest
-          elsif newest && newest > @path
+            attach(newest, from_byte0: true)
+            @broadcaster.publish_switch(run: File.basename(newest), previous: nil)
+          elsif newest > @path
             switch_to(newest)
           end
         end

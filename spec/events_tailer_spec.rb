@@ -101,6 +101,22 @@ RSpec.describe 'SPMCache::Web::Events tailer' do
     end
   end
 
+  # CR-02: the tailer's very-first attach now replays whatever is
+  # already on disk symmetrically with switch_to -- a Switch(previous:
+  # nil) followed by one Entry per already-complete line -- before any
+  # entries for appends made after that attach. Most of this file's
+  # tests register a client directly against the tailer's own queue
+  # (no per-connection replay to absorb the duplication the way
+  # Events#stream's exactly-once dedup does), so they drain that
+  # initial settle here before asserting on post-attach appends.
+  def drain_first_attach!(client, run_name, existing_line_count)
+    switch = events_class.pop_with_timeout(client.queue, 5)
+    expect(switch).to be_a(events_class::Switch)
+    expect(switch.run).to eq(run_name)
+    expect(switch.previous).to be_nil
+    existing_line_count.times { events_class.pop_with_timeout(client.queue, 5) }
+  end
+
   it 'follows a run file: entry ids are <basename>:<byte-offset>, monotonic, advancing by each line bytesize' do
     header = header_line(command: 'build', trigger: 'terminal')
     line1 = body_line("line one\n")
@@ -109,6 +125,7 @@ RSpec.describe 'SPMCache::Web::Events tailer' do
     events = start_events
     client = events.register(StringIO.new)
     wait_until { events.tailer.path }
+    drain_first_attach!(client, RUN_A, 2) # header + line1 (CR-02 settle)
 
     line2 = body_line("second\n")
     line3 = body_line("third\n")
@@ -132,6 +149,7 @@ RSpec.describe 'SPMCache::Web::Events tailer' do
     events = start_events
     client = events.register(StringIO.new)
     wait_until { events.tailer.path }
+    drain_first_attach!(client, RUN_A, 1) # header (CR-02 settle)
 
     append_run(RUN_A, 'par')
     sleep 0.1 # several poll ticks with the partial line outstanding
@@ -195,6 +213,7 @@ RSpec.describe 'SPMCache::Web::Events tailer' do
     events = start_events
     client = events.register(StringIO.new)
     wait_until { events.tailer.path }
+    drain_first_attach!(client, WATCH_RUN, 1) # header (CR-02 settle)
 
     line = body_line("cycle output\n")
     append_run(WATCH_RUN, line)
@@ -210,6 +229,7 @@ RSpec.describe 'SPMCache::Web::Events tailer' do
     events = start_events
     client = events.register(StringIO.new)
     wait_until { events.tailer.path }
+    drain_first_attach!(client, RUN_A, 1) # header (CR-02 settle)
 
     appended = [body_line("verbatim one\n"), body_line("verbatim two\n")]
     append_run(RUN_A, appended.join)
@@ -231,6 +251,7 @@ RSpec.describe 'SPMCache::Web::Events tailer' do
       events = start_events
       client = events.register(StringIO.new)
       wait_until { events.tailer.path }
+      drain_first_attach!(client, RUN_A, 1) # header_a (CR-02 settle)
 
       header_b = header_line(command: 'use', trigger: 'terminal')
       line_b1 = body_line("new run first\n")
@@ -255,6 +276,7 @@ RSpec.describe 'SPMCache::Web::Events tailer' do
       events = start_events
       client = events.register(StringIO.new)
       wait_until { events.tailer.path }
+      drain_first_attach!(client, RUN_A, 1) # header (CR-02 settle)
 
       writer = File.open(run_path(RUN_A), 'a') # hold an append handle...
       begin
@@ -307,6 +329,7 @@ RSpec.describe 'SPMCache::Web::Events tailer' do
       events = start_events
       client = events.register(StringIO.new)
       wait_until { events.tailer.path }
+      drain_first_attach!(client, RUN_A, 1) # header_a (CR-02 settle)
 
       FileUtils.rm_rf(runs_dir) # transiently absent (no glob hits, no crash)
       sleep 0.1 # several poll ticks under the failure
@@ -340,6 +363,7 @@ RSpec.describe 'SPMCache::Web::Events tailer' do
       events2 = start_events
       client2 = events2.register(StringIO.new)
       wait_until { events2.tailer.path == run_path(RUN_B) }
+      drain_first_attach!(client2, RUN_B, 2) # header_b + line_b1 (CR-02 settle)
       line_b2 = body_line("fresh run two\n")
       append_run(RUN_B, line_b2)
       entry = events_class.pop_with_timeout(client2.queue, 5)
