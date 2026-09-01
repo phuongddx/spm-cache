@@ -121,6 +121,34 @@ module SPMCache
             end
           end
 
+          # Web::Jobs' slot-release derivation (D-05/CP10): the newest
+          # run whose header pid equals the given pid, or nil when no
+          # run file is attributable to it yet -- the pre-header spawn
+          # window Jobs falls back to a raw pid_alive? probe for.
+          def derive_for_pid(pid, runs_dir:)
+            run_files(runs_dir).reverse_each do |path|
+              derived = derive(path)
+              return derived if derived && derived['header']['pid'] == pid
+            end
+            nil
+          end
+
+          # run_log.rb:395-402 semantics (private there): Process.kill(0,
+          # pid) probes liveness -- ESRCH means dead; any other error
+          # (e.g. EPERM) means the pid exists, so treat as alive. Public
+          # so Web::Jobs can consume the SAME derivation status_for
+          # already uses below -- no second liveness vocabulary.
+          def pid_alive?(pid)
+            return false unless pid.is_a?(Integer)
+
+            Process.kill(0, pid)
+            true
+          rescue Errno::ESRCH
+            false
+          rescue StandardError
+            true
+          end
+
           private
 
           def run_files(runs_dir)
@@ -179,20 +207,6 @@ module SPMCache
             else
               INTERRUPTED
             end
-          end
-
-          # run_log.rb:395-402 semantics (private there): Process.kill(0,
-          # pid) probes liveness -- ESRCH means dead; any other error
-          # (e.g. EPERM) means the pid exists, so treat as alive.
-          def pid_alive?(pid)
-            return false unless pid.is_a?(Integer)
-
-            Process.kill(0, pid)
-            true
-          rescue Errno::ESRCH
-            false
-          rescue StandardError
-            true
           end
         end
       end

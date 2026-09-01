@@ -9,6 +9,7 @@ require 'spm_cache/web/read_models/graph'
 require 'spm_cache/web/read_models/runs'
 require 'spm_cache/web/read_models/doctor'
 require 'spm_cache/web/events'
+require 'spm_cache/web/jobs'
 
 module SPMCache
   module Web
@@ -38,7 +39,7 @@ module SPMCache
       # syncs this after ephemeral-port (port: 0) resolution.
       attr_accessor :port
 
-      def initialize(token:, port:, assets: nil, read_models: {}, events: nil,
+      def initialize(token:, port:, assets: nil, read_models: {}, events: nil, jobs: nil,
                      config: Core::Config.instance)
         @token = token
         @port = port
@@ -60,6 +61,10 @@ module SPMCache
         # /api/events register -- so every non-streaming boot stays
         # thread-free. Injectable for specs (short poll/heartbeat).
         @events = events || Web::Events.new(config: config)
+        # Jobs: the ONE UI-mutation spawner (15-01), defaulted exactly
+        # like events -- Command::Web#build_server needs NO edit, and
+        # specs inject a fake-bin-backed Jobs through this same seam.
+        @jobs = jobs || Web::Jobs.new(config: config)
       end
 
       def service(req, res)
@@ -102,6 +107,8 @@ module SPMCache
           api_read(req, res, supplied, :graph)
         when '/api/runs'
           api_read(req, res, supplied, :runs)
+        when '/api/build'
+          api_mutate(req, res, supplied)
         when '/api/doctor'
           api_doctor(req, res, supplied)
         when '/api/events'
@@ -224,6 +231,49 @@ module SPMCache
         end
       end
 
+      # POST /api/build (BLD-01, D-04/D-05): shares api_read's gate
+      # ORDER -- token first (401), then a request-method check that
+      # answers the house 404 for anything but POST (api_read
+      # precedent) -- then reads and JSON-parses the body. scope must
+      # be one of Jobs::SCOPES' frozen keys (V5: rejected 400 BEFORE
+      # any spawn attempt, never interpolated into argv). Jobs answers
+      # nil for a held slot (409, machine-readable reason 'slot_busy')
+      # or raises on a genuine spawn failure (500, 'spawn_failed');
+      # either reason is for programs, never rendered by the frontend
+      # (UI-SPEC A9). A 2xx envelope carries the claimed scope plus a
+      # freshly derived lock snapshot (D-06) so the UI's waiting
+      # flavor can light up without waiting for the next poll.
+      def api_mutate(req, res, supplied)
+        unless Middleware.valid_token?(token: supplied, expected_token: @token)
+          return reject(res, 401, 'missing or invalid token')
+        end
+        return reject(res, 404, 'not found') unless req.request_method == 'POST'
+
+        body = begin
+          JSON.parse(req.body.to_s)
+        rescue JSON::ParserError
+          return respond_json(res, 400, error_envelope('malformed request body', reason: 'malformed_body'))
+        end
+        scope = body.is_a?(Hash) ? body['scope'] : nil
+        unless Jobs::SCOPES.key?(scope)
+          return respond_json(res, 400, error_envelope('unknown scope', reason: 'unknown_scope'))
+        end
+
+        pid =
+          begin
+            @jobs.spawn_run(scope: scope)
+          rescue StandardError => e
+            return respond_json(res, 500, error_envelope(e.message, reason: 'spawn_failed'))
+          end
+        if pid.nil?
+          return respond_json(res, 409,
+                              error_envelope('a build or rollback is already running', reason: 'slot_busy'))
+        end
+
+        respond_json(res, 200, ok_envelope('scope' => scope,
+                                           'lock' => @read_models[:runs].lock_state(config: @config)))
+      end
+
       # -- helpers ---------------------------------------------------------
       # Every response, rejection or payload alike: clickjacking (T-13-07)
       # and token-in-URL hygiene (T-13-03) -- nothing may be cached.
@@ -256,8 +306,10 @@ module SPMCache
           'generated_at' => Time.now.utc.iso8601 }
       end
 
-      def error_envelope(message)
-        { 'status' => 'error', 'data' => { 'message' => message },
+      def error_envelope(message, reason: nil)
+        data = { 'message' => message }
+        data['reason'] = reason if reason
+        { 'status' => 'error', 'data' => data,
           'generated_at' => Time.now.utc.iso8601 }
       end
     end
