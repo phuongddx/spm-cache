@@ -626,5 +626,78 @@ RSpec.describe 'spm-cache web dashboard frontend (Plan 13-03)' do
         expect(styles_css).to match(/\.cmd,\s*\.log-live\s*\{/)
       end
     end
+
+    describe 'follow/pause + banners + a11y (Plan 14-04 Task 2)' do
+      it 'follow pins instantly: scrollTop = scrollHeight on append, no smooth behavior, ANY upward scroll disengages' do
+        expect(log_js).to include('viewport.scrollTop = viewport.scrollHeight')
+        expect(log_js).not_to include('smooth')
+        expect(log_js).not_to include('scrollIntoView')
+        expect(log_js).to include('viewport.scrollTop < lastScrollTop')
+      end
+
+      it 'the pause pill is ONE button carrying the whole label; {N} live and uncapped; activation re-engages + clears + removes' do
+        expect(log_js).to include('paused: (n) => `paused — ${n} new lines · jump to live`')
+        expect(log_js).to include('if (!replaying && !follow && pending >= 1)')
+        expect(log_js).to include('pending += 1')
+        expect(log_js).to include('pending = 0')
+        expect(log_js).to include("type: 'button'")
+        expect(log_js).to include('text: COPY.paused(pending)')
+      end
+
+      it 'during initial replay the pill never shows; follow engages at completion (D-01/D-13)' do
+        expect(log_js).to include('if (replaying && atBottom()) replaying = false;')
+        expect(log_js).to include("viewport.addEventListener('scroll'")
+        expect(log_js).to include('const atBottom = () =>')
+      end
+
+      it 'non-zero run_end → sticky Run failed banner with the jump button, role=alert, NO dismiss control' do
+        expect(log_js).to include('failedBanner: (status) => `Run failed — exit status ${status}`')
+        expect(log_js).to include("jumpToError: 'Jump to first error'")
+        expect(log_js).to include('bannerEl.hidden = false')
+        expect(log_js).not_to match(/dismiss/i)
+        expect(log_js).not_to include("'Close'")
+      end
+
+      it 'CP14 interrupt → Run interrupted — exit unknown. banner with the same jump button' do
+        expect(log_js).to include("interruptedBanner: 'Run interrupted — exit unknown.'")
+        expect(log_js).to include("showBanner('interrupted')")
+      end
+
+      it 'the aria-live status container flips on the corresponding event (card flip)' do
+        expect(log_js).to include('const onRunEnd = (data) => {')
+        expect(log_js).to include("setCardStatus('failed')")
+        expect(log_js).to include("setCardStatus('success')")
+      end
+
+      it 'jump chain: first err line → final line → oldest retained under ring eviction; never a silent no-op (D-02/D-03)' do
+        expect(log_js).to include('const RING_LIMIT = 500;')
+        expect(log_js).to include('elision: (n) =>')
+        expect(log_js).to include('let firstErrEl = null;')
+        expect(log_js).to include('let errEvicted = false;')
+        expect(log_js).to include("querySelectorAll('.log-line.log-err')")
+        expect(log_js).to include('const jumpTarget = () => {')
+        expect(log_js).to include('const clearFilter = () => {')
+      end
+
+      it 'the banner belongs to the displayed run — switching re-derives the slot, never a user dismiss' do
+        expect(log_js.scan(/hideBanner\(\)/).size).to be >= 2
+        expect(log_js).to match(/resetForRun = \(name, followOn\) => \{[\s\S]*?hideBanner\(\);/)
+        expect(log_js).to match(/resetForRun\(data\.run, \{ followOn: true \}\)/)
+      end
+
+      it 'focus-visible accent rings cover pill/chip/select controls; native button only; pill name = full label' do
+        %w[.log-pill-btn .log-chip .log-runs-select].each do |rule|
+          expect(styles_css).to include("#{rule}:focus-visible")
+        end
+        expect(styles_css).to include('outline: 2px solid var(--c-accent)')
+        expect(log_js.scan(/el\('button'/).size).to be >= 2 # the pause pill + the jump button — native controls only
+      end
+
+      it 'teardown safety: the token-invalid replacement stops every stream handler (app.js bail-out guard)' do
+        expect(log_js).to include('let dead = false;')
+        expect(log_js.scan(/if \(!alive\(\)\) return;/).size).to be >= 4
+        expect(log_js).to include("byId('log-viewport')")
+      end
+    end
   end
 end
