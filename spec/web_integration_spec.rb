@@ -29,6 +29,21 @@ RSpec.describe 'SPMCache::Web one-boot integration matrix', order: :defined do
     { 'module' => 'SnapKit', 'status' => 'missed', 'hasMacro' => true }
   ].freeze
 
+  # Phase 14 weld fixture: a runs-dir run whose header pid is THIS
+  # spec process (genuinely alive → 'running'), two body lines, no
+  # run_end — the SSE rows below replay and follow it.
+  WELD_RUN = "20260901T093000123Z-#{Process.pid}-build.jsonl"
+  WELD_HEADER = JSON.generate(
+    'event' => 'run_start', 'ts' => '2026-09-01T09:30:00Z', 'command' => 'build',
+    'argv' => %w[build Alamofire], 'redacted' => false, 'pid' => Process.pid,
+    'started_at' => '2026-09-01T09:30:00Z', 'spm_cache_version' => '0.5.0',
+    'trigger' => 'terminal', 'cycle' => false
+  ) + "\n"
+  WELD_LINE1 = JSON.generate('ts' => '2026-09-01T09:30:01Z', 'stream' => 'out',
+                             'text' => "weld replay one\n") + "\n"
+  WELD_LINE2 = JSON.generate('ts' => '2026-09-01T09:30:02Z', 'stream' => 'out',
+                             'text' => "weld replay two\n") + "\n"
+
   before(:all) do
     @boot_started = Process.clock_gettime(Process::CLOCK_MONOTONIC)
     @previous_project_dir = SPMCache::Core::Config.instance.project_dir
@@ -42,8 +57,20 @@ RSpec.describe 'SPMCache::Web one-boot integration matrix', order: :defined do
     # the Doctor instance) and the default assets root, so the
     # served dashboard is the one the gem ships (13-03).
     SPMCache::Core::Config.configure(project_dir: @project_dir)
+
+    # Phase 14 weld: the runs fixture + a REAL Events instance at
+    # spec speed (the boot constructs the Router, so the short
+    # poll/heartbeat is injected here) — every SSE row rides the
+    # production code path (research § Code Examples boot-harness
+    # anchor). Still exactly ONE boot (CP7).
+    runs_dir = SPMCache::Core::Config.instance.runs_dir
+    FileUtils.mkdir_p(runs_dir)
+    File.write(File.join(runs_dir, WELD_RUN), [WELD_HEADER, WELD_LINE1, WELD_LINE2].join)
+    weld_events = SPMCache::Web::Events.new(config: SPMCache::Core::Config.instance,
+                                            poll_interval: 0.05, heartbeat_seconds: 0.25)
     router = SPMCache::Web::Router.new(token: @token, port: 0,
-                                       assets: SPMCache::Web::Assets.new)
+                                       assets: SPMCache::Web::Assets.new,
+                                       events: weld_events)
     @server = SPMCache::Web::Server.new(port: 0, token: @token, router: router)
     @thread = Thread.new { @server.start }
     WebServerBoot.wait_accepting(@server.port)
@@ -253,6 +280,125 @@ RSpec.describe 'SPMCache::Web one-boot integration matrix', order: :defined do
     it 'runs the entire matrix from the single boot in under 15 seconds' do
       elapsed = Process.clock_gettime(Process::CLOCK_MONOTONIC) - @boot_started
       expect(elapsed).to be < 15.0
+    end
+  end
+
+  # The Phase 14 weld (LOGS-03 + WEB-03, plan 14-03): the phase's
+  # transport claims proven from the ONE real boot above — replay,
+  # liveness, exact resume, and the shutdown-with-open-stream sentinel
+  # proof. Defined AFTER the runtime-bound example (order: :defined)
+  # so the 15s bound still measures the pre-SSE matrix; every read
+  # here is bounded (≤ 2s) and the shutdown row is the FILE's final
+  # example, so closing the server harms nothing after it.
+  describe 'live log stream (Phase 14 weld)' do
+    before(:all) { @weld_started = Process.clock_gettime(Process::CLOCK_MONOTONIC) }
+
+    def raw_stream(last_event_id: nil)
+      headers = {}
+      headers['Last-Event-ID'] = last_event_id if last_event_id
+      WebServerBoot.raw_stream_open(handle, "/api/events?token=#{@token}", headers)
+    end
+
+    def read_until(sock, pattern, timeout: 2)
+      WebServerBoot.raw_read_until(sock, pattern, timeout: timeout)
+    end
+
+    def append_weld(text)
+      File.open(File.join(SPMCache::Core::Config.instance.runs_dir, WELD_RUN), 'a') { |f| f.write(text) }
+    end
+
+    def body_line(text)
+      JSON.generate('ts' => '2026-09-01T09:30:05Z', 'stream' => 'out', 'text' => text) + "\n"
+    end
+
+    it 'answers 200 text/event-stream with no-store, X-Frame-Options DENY, and Connection close' do
+      sock = raw_stream
+      begin
+        bytes = read_until(sock, 'event: hello')
+        head, _terminator, = bytes.partition("\r\n\r\n")
+        status_line, *header_lines = head.split("\r\n")
+        expect(status_line).to start_with('HTTP/1.1 200') # ALWAYS 200 once authed
+        headers = header_lines.map { |l| l.split(':', 2) }.to_h { |k, v| [k.strip, v.strip] }
+        expect(headers['Content-Type']).to eq('text/event-stream')
+        expect(headers['Cache-Control']).to eq('no-store')
+        expect(headers['X-Frame-Options']).to eq('DENY')
+        expect(headers['Connection'].downcase).to eq('close') # keep_alive=false, one-shot
+      ensure
+        WebServerBoot.raw_close(sock)
+      end
+    end
+
+    it 'replays from byte 0: hello (running + lock + now) then both fixture lines with byte-offset ids' do
+      sock = raw_stream
+      begin
+        bytes = read_until(sock, 'weld replay two')
+        hello = bytes.match(/event: hello\ndata: (\{[^\n]*\})\n/)
+        data = JSON.parse(hello[1])
+        expect(data['run']).to eq(WELD_RUN)
+        expect(data['status']).to eq('running') # header pid = this spec process, no run_end
+        expect(data['header']['command']).to eq('build')
+        expect(data['lock']['state']).to eq('free')
+        expect(data['now']).to match(/\A\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z\z/)
+        id1 = "#{WELD_RUN}:#{WELD_HEADER.bytesize + WELD_LINE1.bytesize}"
+        id2 = "#{WELD_RUN}:#{WELD_HEADER.bytesize + WELD_LINE1.bytesize + WELD_LINE2.bytesize}"
+        expect(bytes).to include("id: #{id1}\nevent: entry\ndata: #{WELD_LINE1.chomp}\n")
+        expect(bytes).to include("id: #{id2}\nevent: entry\ndata: #{WELD_LINE2.chomp}\n")
+      ensure
+        WebServerBoot.raw_close(sock)
+      end
+    end
+
+    it 'delivers a line appended after connect within the poll bound (LIVE)' do
+      sock = raw_stream
+      begin
+        read_until(sock, 'weld replay two') # replay drained
+        append_weld(body_line("weld live\n"))
+        bytes = read_until(sock, 'weld live') # poll 0.05s; 2s bound
+        expect(bytes).to include('event: entry')
+        expect(bytes).to include("id: #{WELD_RUN}:")
+      ensure
+        WebServerBoot.raw_close(sock)
+      end
+    end
+
+    it 'resumes exactly on Last-Event-ID across a reconnect: neither loss nor duplication' do
+      sock = raw_stream
+      begin
+        append_weld(body_line("resume anchor\n"))
+        bytes = read_until(sock, 'resume anchor')
+        resume_id = bytes.scan(/id: ([^\n]*)\n/).flatten.last
+        expect(resume_id).to start_with("#{WELD_RUN}:")
+      ensure
+        WebServerBoot.raw_close(sock)
+      end
+
+      append_weld(body_line("after anchor A\n"))
+      append_weld(body_line("after anchor B\n"))
+      sock = raw_stream(last_event_id: resume_id)
+      begin
+        bytes = read_until(sock, 'after anchor B')
+        payloads = bytes.scan(/event: entry\ndata: (\{[^\n]*\})\n/).map { |(raw)| JSON.parse(raw) }
+        expect(payloads.map { |p| p['text'] }).to eq(["after anchor A\n", "after anchor B\n"])
+        expect(bytes.scan('id: ').length).to eq(2) # exactly two entry frames, no duplicates
+      ensure
+        WebServerBoot.raw_close(sock)
+      end
+    end
+
+    it 'keeps the SSE phase bounded (each read ≤ 2s; the phase stays well inside the file budget)' do
+      elapsed = Process.clock_gettime(Process::CLOCK_MONOTONIC) - @weld_started
+      expect(elapsed).to be < 10.0 # CP7: whole file under ~25s, SSE share a fraction of it
+    end
+
+    it 'shuts down within bound WITH an open stream (the sentinel proof, WEB-03)' do
+      sock = raw_stream
+      read_until(sock, 'event: hello') # the stream is genuinely open and parked in its pop
+      started = Process.clock_gettime(Process::CLOCK_MONOTONIC)
+      WebServerBoot.shutdown(@server) # Server#shutdown: broadcaster sentinel BEFORE @http.shutdown
+      joined = @thread.join(10) # WEBrick's accept loop joins the stream's connection thread
+      expect(joined).to be_truthy # webrick server.rb:210 did NOT hang on the open body proc
+      expect(Process.clock_gettime(Process::CLOCK_MONOTONIC) - started).to be < 10.0
+      WebServerBoot.raw_close(sock)
     end
   end
 end
