@@ -129,6 +129,15 @@ RSpec.describe SPMCache::Web::Marker do
       described_class.clear(path: marker_path)
       expect(File.exist?(marker_path)).to be(false)
     end
+
+    it 'never raises when the marker vanishes between the check and the unlink (review WR-03)' do
+      # Simulate the race: the liveness check saw a marker, but a
+      # concurrent clearer unlinked it before our unlink ran. The old
+      # exist?-then-unlink body raised Errno::ENOENT from here -- i.e.
+      # from Command::Web's shutdown ensure -- breaking WEB-03's exit 0.
+      allow(File).to receive(:exist?).with(marker_path).and_return(true)
+      expect { described_class.clear(path: marker_path) }.not_to raise_error
+    end
   end
 end
 

@@ -66,7 +66,12 @@ module SPMCache
         def clear(pid: nil, path: default_path)
           return if pid && (entry = read(path: path)) && entry['pid'] != pid
 
-          File.unlink(path) if File.exist?(path)
+          # Bare unlink + ENOENT rescue (review WR-03): the old
+          # exist?-then-unlink raced a concurrent clearer and could
+          # raise FROM Command::Web's shutdown ensure -- breaking
+          # WEB-03's exit-0 contract after a successful stop.
+          File.unlink(path)
+        rescue Errno::ENOENT
           nil
         end
 
