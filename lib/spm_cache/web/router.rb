@@ -109,6 +109,11 @@ module SPMCache
           api_read(req, res, supplied, :runs)
         when '/api/build'
           api_mutate(req, res, supplied)
+        when '/api/rollback'
+          # D-07: the scope is IMPLIED by the route, never read from
+          # the body -- rollback takes no scope, so an empty or absent
+          # body is the documented shape.
+          api_mutate(req, res, supplied, fixed_scope: 'rollback')
         when '/api/doctor'
           api_doctor(req, res, supplied)
         when '/api/events'
@@ -231,30 +236,38 @@ module SPMCache
         end
       end
 
-      # POST /api/build (BLD-01, D-04/D-05): shares api_read's gate
-      # ORDER -- token first (401), then a request-method check that
-      # answers the house 404 for anything but POST (api_read
-      # precedent) -- then reads and JSON-parses the body. scope must
-      # be one of Jobs::SCOPES' frozen keys (V5: rejected 400 BEFORE
-      # any spawn attempt, never interpolated into argv). Jobs answers
-      # nil for a held slot (409, machine-readable reason 'slot_busy')
-      # or raises on a genuine spawn failure (500, 'spawn_failed');
+      # The mutation routes (BLD-01/BLD-04, D-04/D-05/D-07): POST
+      # /api/build (scope from the JSON body) and POST /api/rollback
+      # (scope implied by the route, fixed_scope: -- an empty or
+      # absent body is its documented shape). Both share api_read's
+      # gate ORDER -- token first (401), then a request-method check
+      # that answers the house 404 for anything but POST -- then
+      # read and JSON-parse the body. scope must be one of
+      # Jobs::SCOPES' frozen keys (V5: rejected 400 BEFORE any spawn
+      # attempt, never interpolated into argv). Jobs answers nil for
+      # a held slot (409, machine-readable reason 'slot_busy') or
+      # raises on a genuine spawn failure (500, 'spawn_failed');
       # either reason is for programs, never rendered by the frontend
       # (UI-SPEC A9). A 2xx envelope carries the claimed scope plus a
       # freshly derived lock snapshot (D-06) so the UI's waiting
       # flavor can light up without waiting for the next poll.
-      def api_mutate(req, res, supplied)
+      def api_mutate(req, res, supplied, fixed_scope: nil)
         unless Middleware.valid_token?(token: supplied, expected_token: @token)
           return reject(res, 401, 'missing or invalid token')
         end
         return reject(res, 404, 'not found') unless req.request_method == 'POST'
 
+        raw = req.body.to_s
         body = begin
-          JSON.parse(req.body.to_s)
+          # An empty (or whitespace-only) body is the empty object:
+          # rollback's documented POST shape (and a scopeless build
+          # POST still fails the whitelist below with 'unknown
+          # scope', never 'malformed').
+          raw.strip.empty? ? {} : JSON.parse(raw)
         rescue JSON::ParserError
           return respond_json(res, 400, error_envelope('malformed request body', reason: 'malformed_body'))
         end
-        scope = body.is_a?(Hash) ? body['scope'] : nil
+        scope = fixed_scope || (body.is_a?(Hash) ? body['scope'] : nil)
         unless Jobs::SCOPES.key?(scope)
           return respond_json(res, 400, error_envelope('unknown scope', reason: 'unknown_scope'))
         end

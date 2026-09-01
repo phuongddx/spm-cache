@@ -20,7 +20,10 @@ require_relative 'support/web_server_boot'
 # every spawned child is reaped in an ensure so no example leaks a
 # process past the suite.
 RSpec.describe 'SPMCache::Web mutation routes (/api/build, /api/rollback)' do
-  FAKE_BIN = File.expand_path('fixtures/fake_spm_cache_bin.rb', __dir__)
+  # Named uniquely (not FAKE_BIN/FAKE_BIN_PATH): describe-block
+  # constants land on Object under RSpec's class_exec, so a shared
+  # name would redefinition-warn whenever sibling web specs co-load.
+  MUTATE_FAKE_BIN = File.expand_path('fixtures/fake_spm_cache_bin.rb', __dir__)
 
   around do |example|
     Dir.mktmpdir('spm-cache-mutate') do |project_dir|
@@ -67,7 +70,7 @@ RSpec.describe 'SPMCache::Web mutation routes (/api/build, /api/rollback)' do
   end
 
   def default_jobs
-    SPMCache::Web::Jobs.new(config: SPMCache::Core::Config.instance, bin_path: FAKE_BIN)
+    SPMCache::Web::Jobs.new(config: SPMCache::Core::Config.instance, bin_path: MUTATE_FAKE_BIN)
   end
 
   def with_server(jobs: default_jobs, &block)

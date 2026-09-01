@@ -31,11 +31,15 @@ module SPMCache
 
       # The frozen scope->argv table (V5, Pitfall 5): the request's
       # scope string is looked up here and NEVER interpolated,
-      # concatenated, or splatted into the spawned command line. This
-      # plan ships exactly the 'build' fragment; 15-04 widens the
-      # table with 'rebuild' and rollback's route-implied scope.
+      # concatenated, or splatted into the spawned command line.
+      # 'build' is the incremental verb; 'rebuild' is the SAME verb
+      # plus 15-03's forced flag (A8 -- the argv row self-documents
+      # which verb ran); 'rollback' is the rollback verb (D-07), the
+      # route-implied scope of POST /api/rollback.
       SCOPES = {
-        'build' => ['build'].freeze
+        'build' => ['build'].freeze,
+        'rebuild' => ['build', '--rebuild'].freeze,
+        'rollback' => ['rollback'].freeze
       }.freeze
 
       def initialize(config: Core::Config.instance, bin_path: BIN_PATH)
