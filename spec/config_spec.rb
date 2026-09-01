@@ -72,11 +72,50 @@ RSpec.describe SPMCache::Core::Config do
     end
   end
 
+  # Dashboard state-table auto-poll interval (13-UI-SPEC
+  # "server-configurable"). Same Integer-coercion posture as runs_keep:
+  # spm-cache.yml is user-authored, not adversarial (research V5).
+  describe '#web_poll_seconds' do
+    def write_yml(keys)
+      dir = Dir.mktmpdir
+      path = File.join(dir, 'spm-cache.yml')
+      File.write(path, YAML.dump(keys))
+      config.config_path = path
+      config.load
+    ensure
+      FileUtils.remove_entry(dir)
+    end
+
+    it 'defaults to 5' do
+      expect(config.web_poll_seconds).to eq(5)
+    end
+
+    it 'reads an override from a written spm-cache.yml' do
+      write_yml('web_poll_seconds' => 12)
+      expect(config.web_poll_seconds).to eq(12)
+    end
+
+    it 'coerces a non-integer back to 5' do
+      config.raw['web_poll_seconds'] = 'often'
+      expect(config.web_poll_seconds).to eq(5)
+    end
+
+    it 'coerces nil back to 5' do
+      config.raw['web_poll_seconds'] = nil
+      expect(config.web_poll_seconds).to eq(5)
+    end
+  end
+
   describe 'spm-cache.yml template' do
     it 'documents the retention keys as commented defaults (discoverability surface, D-06)' do
       template = SPMCache::ROOT.join('lib/spm_cache/assets/templates/spm-cache.yml.template').read
       expect(template).to include('# runs_keep: 50')
       expect(template).to include('# runs_max_mb: 500')
+    end
+
+    it 'documents web_poll_seconds as a commented default (dashboard poll interval)' do
+      template = SPMCache::ROOT.join('lib/spm_cache/assets/templates/spm-cache.yml.template').read
+      expect(template).to include('# web_poll_seconds: 5')
     end
   end
 
