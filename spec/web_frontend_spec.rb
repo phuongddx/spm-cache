@@ -329,9 +329,9 @@ RSpec.describe 'spm-cache web dashboard frontend (Plan 13-03)' do
   end
 
   describe 'app.js locked budget' do
-    it 'stays within the 300–400 LOC vanilla-JS budget' do
+    it 'stays within the 300–440 LOC vanilla-JS budget (Phase 15 raised the 13-era 400 cap by the controls section: POST helper + row state machine + confirm bar + progress listener)' do
       expect(app_js.lines.length).to be >= 300
-      expect(app_js.lines.length).to be <= 400
+      expect(app_js.lines.length).to be <= 440
     end
   end
 
@@ -910,12 +910,18 @@ RSpec.describe 'spm-cache web dashboard frontend (Plan 13-03)' do
       expect(events_rb).to include('run log pruned while viewing; switching to newest')
     end
 
-    it "lock-wait: 'Waiting for build lock…' renders as a plain out line — no badge, no card lock state, no special-case path in log.js (A11; the hello lock field is server-internal)" do
-      expect(log_js).not_to include('Waiting for build lock')
+    it "lock-wait: 'Waiting for build lock…' renders as a plain out line — no badge, no card lock state, no special-case RENDER path (A11; 15-05 A10 adds the byte-compare emission constant only)" do
+      # 15-05 A10 amendment: log.js now carries the frozen line ONCE,
+      # as the milestone emission's byte-compare constant. The RENDER
+      # contract stands — the line takes the exact plain path every out
+      # line takes: no class, no badge, no card surface, no hello field.
+      expect(log_js.scan(/Waiting for build lock…/).size).to eq(1)
       expect(log_js).not_to include('.lock')
       expect(log_js).not_to include('lock-wait')
       expect(log_js).not_to include('payload.lock')
       expect(log_js).to include("class: isErr ? 'log-line log-err' : 'log-line',") # the exact path every out line takes
+      append = log_js[/const appendBody = \(data\) => \{[\s\S]*?\n  \};/]
+      expect(append).not_to include('Waiting for build lock') # the render path references the constant, never a literal
       # the card path renders status only — where a lock surface would
       # have lived, nothing lands (the hello deepening stays status-only)
       expect(log_js).to include('} else if (cardPending) {')
@@ -1051,7 +1057,7 @@ RSpec.describe 'spm-cache web dashboard frontend (Plan 13-03)' do
       expect(bar).to include('<span class="build-confirm-text">Restore source mode — this removes proxy packages from the Xcode project</span>')
       expect(bar).to include('<button type="button" class="btn btn-danger" id="ctl-confirm">Confirm</button>')
       expect(bar).to include('<button type="button" class="btn btn-quiet" id="ctl-cancel">Cancel</button>')
-      expect(index_html[%r{<div class="build-controls"[\s\S]*?</div>}]).not_to include(' hidden')
+      expect(index_html).to include('<div class="build-controls" id="build-controls">') # the row container ships VISIBLE (the message slot inside it may hide)
       expect(app_js).to include('const disarmBar = () => { bar.hidden = true; row.hidden = false; };')
     end
 
@@ -1100,7 +1106,10 @@ RSpec.describe 'spm-cache web dashboard frontend (Plan 13-03)' do
       append = log_js[/const appendBody = \(data\) => \{[\s\S]*?\n  \};/]
       expect(append).to include("emitProgress('waiting');")
       expect(append).to include("emitProgress('active');")
-      %w[app.js log.js].each { |f| expect(File.read(File.join(asset_dir, f))).not_to include('import ') }
+      # no ES import statements — the modules stay independent
+      %w[app.js log.js].each do |f|
+        expect(File.read(File.join(asset_dir, f))).not_to match(/^\s*import\s/m)
+      end
       expect(log_js).not_to include('setTimeout')
     end
 
