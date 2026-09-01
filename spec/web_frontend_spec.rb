@@ -450,4 +450,181 @@ RSpec.describe 'spm-cache web dashboard frontend (Plan 13-03)' do
       end
     end
   end
+  # Plan 14-04 — the Run Log panel and its second ES module, pinned
+  # the same way: SERVED bytes for the route rows, FILE bytes for
+  # every copy string and mechanic. The 14-UI-SPEC is BINDING and its
+  # Prohibitions section is testable here: no markup-writing APIs, no
+  # client clock, no scheme-absolute refs, no color-only status.
+  describe 'log.js + Run Log panel (Plan 14-04)' do
+    let(:log_js) { File.read(File.join(asset_dir, 'log.js')) }
+
+    describe 'serving + module registration' do
+      it 'serves /assets/log.js as JavaScript, referenced RELATIVE after app.js, and ships in the gem' do
+        res = served('/assets/log.js')
+        expect(res.code).to eq('200')
+        expect(res['Content-Type']).to eq('application/javascript')
+        # G-13-1: the relative assets/<name> form resolves through the
+        # router's /assets/* arm. log.js rides after app.js and needs
+        # no ordering — the modules share only sessionStorage, never
+        # globals.
+        expect(index_html).to include('<script type="module" src="assets/log.js"></script>')
+        expect(index_html.index('assets/app.js')).to be < index_html.index('assets/log.js')
+        files = Dir.chdir(SPMCache::ROOT) do
+          Gem::Specification.load('spm_cache.gemspec').files
+        end
+        expect(files).to include('lib/spm_cache/web/assets/log.js')
+      end
+    end
+
+    describe 'stream wiring (14-01 contract)' do
+      it 'reads the shared sessionStorage token key and connects EventSource on the query param' do
+        expect(log_js).to include("'spm-cache-web-token'")
+        expect(log_js).to include("new EventSource('/api/events?token=' + token)")
+      end
+
+      it 'registers named listeners for hello/entry/switch/notice — the module ships whole' do
+        %w[hello entry switch notice].each do |name|
+          expect(log_js).to include("addEventListener('#{name}'")
+        end
+      end
+    end
+
+    describe 'connection states' do
+      it 'pins the three pill states; CLOSED replaces main content with the locked token-invalid page' do
+        expect(log_js).to include("'● connecting…'")
+        expect(log_js).to include("'● connected'")
+        expect(log_js).to include("'↻ reconnecting…'")
+        expect(log_js).to include('readyState === EventSource.CLOSED')
+        expect(log_js)
+          .to include("This page's access token is no longer valid. Restart spm-cache web and open the URL it prints.")
+        expect(log_js).to include("querySelector('main.content')")
+      end
+    end
+
+    describe 'cold load (D-13)' do
+      it 'live run: ● running card, replay renders with follow off until completion' do
+        expect(log_js).to include("running: { glyph: '●', word: 'running', cls: 'log-live' }")
+        expect(log_js).to include('follow = false')
+        expect(log_js).to include('replaying = true')
+      end
+
+      it 'finished run: end-state card + the Started/completed time row' do
+        expect(log_js).to include('Started ${fmtStamp(')
+        expect(log_js).to include(' · completed ${relative(endIso)} ago')
+        expect(log_js).to include("word: 'success'")
+        expect(log_js).to include("word: 'failed'")
+      end
+
+      it 'empty runs dir: pinned empty state in the accent .cmd span; only the pill lives' do
+        expect(log_js).to include("'No runs yet'")
+        expect(log_js).to include("'spm-cache build'")
+        expect(log_js).to include("' to produce the first run log.'")
+        expect(log_js).to include("class: 'cmd'")
+        expect(log_js).to include("=== 'idle'")
+      end
+
+      it 'muted Loading… before the first stream byte; no card until hello' do
+        expect(log_js).to include("'Loading…'")
+        expect(log_js).to include("class: 'loading'")
+        expect(log_js).to include('card.hidden = false')
+      end
+    end
+
+    describe 'line rendering (T-12-01)' do
+      it 'out lines verbatim via textContent; err lines carry the ✗ prefix in :fail' do
+        expect(log_js).to include("data.stream === 'err'")
+        expect(log_js).to include('COPY.errPrefix + text')
+        expect(log_js).to include("errPrefix: '✗ '")
+        expect(log_js).to include("replace(/\\n$/, '')")
+        expect(log_js).to include('log-line log-err')
+      end
+
+      it 'dividers ── name ── for package_start/phase; no line for run_start/run_end/package_end/sh; unknown keys ignored' do
+        expect(log_js).to include('divider: (name) => `── ${name} ──`')
+        expect(log_js).to include("data.event === 'package_start' || data.event === 'phase'")
+        expect(log_js).to include("data.event === 'package_end' || data.event === 'sh'")
+        expect(log_js).to include('data.event !== undefined')
+        expect(log_js).to include("data.event === 'run_start'")
+      end
+    end
+
+    describe 'identity card (D-06/D-11)' do
+      it 'rows: status · trigger badge · mono-600 command · Config · Started(+completed) · argv + run id with titles · redacted suffix' do
+        expect(log_js).to include('Config ${')
+        expect(log_js).to include("'—'")
+        expect(log_js).to include("spm-cache ${parts.join(' ')}")
+        expect(log_js).to include(' · credentials redacted')
+        expect(log_js).to include('.title = ')
+      end
+
+      it 'trigger renders verbatim — a class map only, never a value allowlist' do
+        expect(log_js).to include("watch: 'plugin'")
+        expect(log_js).to include("TRIGGER_CLASS[currentHeader.trigger] || 'neutral'")
+        expect(log_js).not_to include("['terminal'")
+      end
+
+      it 'card status vocabulary: glyph+word pairs exactly per the UI-SPEC table (CP14 phrase included)' do
+        expect(log_js).to include("word: 'running'")
+        expect(log_js).to include("word: 'success'")
+        expect(log_js).to include("word: 'failed'")
+        expect(log_js).to include("word: 'interrupted — exit unknown'")
+      end
+    end
+
+    describe 'prohibitions (14-UI-SPEC)' do
+      it 'zero markup-writing APIs — every dynamic string flows through el()/textContent (T-14-16)' do
+        %w[innerHTML insertAdjacentHTML document.write outerHTML].each do |api|
+          expect(log_js).not_to include(api)
+        end
+        expect(log_js).to include('node.textContent = opts.text')
+      end
+
+      it 'no client clock — relative times derive from the hello now stamp + event ts (T-14-17)' do
+        expect(log_js).not_to include('Date.now')
+        expect(log_js).to include('new Date(payload.now)')
+        expect(log_js).to include('new Date(iso)')
+      end
+
+      it 'offline: zero scheme-absolute URLs, zero cdn. references' do
+        expect(log_js).not_to match(%r{https?://}i)
+        expect(log_js).not_to match(/cdn\./i)
+      end
+
+      it "independence: no timers of any kind in log.js — the state poll stays app.js's only timer" do
+        expect(log_js).not_to include('setTimeout')
+        expect(log_js).not_to include('setInterval')
+        expect(log_js).not_to include('requestAnimationFrame')
+        expect(log_js.scan(/new EventSource\(/).size).to eq(1)
+      end
+
+      it 'glyph inventory: ● and ↻ added; the verdict triple ✓/!/✗ reused' do
+        %w[● ↻ ✓ ✗].each { |glyph| expect(log_js).to include(glyph) }
+        expect(log_js).to include("glyph: '!'")
+      end
+    end
+
+    describe 'index.html + styles.css skeleton' do
+      it 'Run Log panel FIRST with the a11y-complete skeleton' do
+        expect(index_html.index('<h2>Run Log</h2>')).to be < index_html.index('<h2>Cache State</h2>')
+        expect(index_html).to include('<div class="log-viewport" id="log-viewport" role="log" aria-live="off" aria-label="Run output" tabindex="0"></div>')
+        expect(index_html).to include('>Phases</div>')
+        expect(index_html).to include('>Packages</div>')
+        expect(index_html).to include('id="log-overlay"')
+        expect(index_html).to include('id="log-banner" role="alert"')
+        # exactly two polite live regions: the card status flip + the pill
+        expect(index_html.scan(/aria-live="polite"/).size).to eq(2)
+      end
+
+      it 'styles: log rules on the existing sheet — fixed-height viewport, pre-wrap mono lines, ONE accent-text home' do
+        expect(styles_css.scan(/height: 480px/).size).to eq(2) # graph canvas + log viewport
+        expect(styles_css).to include('.log-viewport')
+        expect(styles_css).to include('white-space: pre-wrap')
+        expect(styles_css).to include('background: var(--c-bg)')
+        # A3: accent TEXT stays a single declaration; the .cmd group now
+        # also carries the sanctioned liveness surfaces (never verdicts).
+        expect(styles_css.scan(/color: var\(--c-accent\)/).size).to eq(1)
+        expect(styles_css).to match(/\.cmd,\s*\.log-live\s*\{/)
+      end
+    end
+  end
 end
