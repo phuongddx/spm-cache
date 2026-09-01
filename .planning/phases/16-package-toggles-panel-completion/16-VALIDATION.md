@@ -1,0 +1,96 @@
+---
+phase: "16"
+slug: "package-toggles-panel-completion"
+# status lifecycle: draft (seeded by plan-phase) → validated (set by validate-phase §6)
+# audit-milestone §5.5 distinguishes NOT-VALIDATED (draft) from PARTIAL (validated + nyquist_compliant: false) (#2117)
+status: draft
+nyquist_compliant: false
+wave_0_complete: false
+created: "2026-09-02"
+---
+
+# Phase 16 — Validation Strategy
+
+> Per-phase validation contract for feedback sampling during execution.
+> Source: `16-RESEARCH.md` § Validation Architecture (all seams anchored at file:line; write-path semantics machine-probed 2026-09-02 — probes P1-P7: Psych comment loss, off write shape, stale-writer clobber, cross-process flock, rename-breaks-lock-chain, sidecar stability, fnmatch exactness).
+
+---
+
+## Test Infrastructure
+
+| Property | Value |
+|----------|-------|
+| **Framework** | RSpec ~> 3.12 (dev dep; hermetic suite per CP7) |
+| **Config file** | none beyond `.rspec` defaults (per `.planning/codebase/TESTING.md`) |
+| **Quick run command** | `bundle exec rspec spec/config_mutator_spec.rb spec/command_off_shared_mutator_spec.rb spec/web_toggle_routes_spec.rb spec/web_state_spec.rb spec/web_jobs_spec.rb` |
+| **Full suite command** | `bundle exec rspec` (Makefile `make test`) |
+| **Estimated runtime** | new specs are hermetic units (tmpdir configs + graph fixtures, no real xcodebuild); integration row extends the ONE port-0 boot |
+
+---
+
+## Sampling Rate
+
+- **After every task commit:** the new/extended spec files for the task's module (fast, hermetic)
+- **After every plan wave:** `bundle exec rspec` (full suite; hermetic posture intact — CP7)
+- **Before `/gsd-verify-work`:** full suite green AND the manual/agent-browser probe table executed
+- **Max feedback latency:** 60 s
+
+---
+
+## Per-Task Verification Map
+
+| Task ID | Plan | Wave | Requirement | Threat Ref | Secure Behavior | Test Type | Automated Command | File Exists | Status |
+|---------|------|------|-------------|------------|-----------------|-----------|-------------------|-------------|--------|
+| (planner) | (planner) | 1 | TOGL-01 / D-03, D-04 | V5, Pitfall 1-4 | Shared mutator merge-write: flock on the SIDECAR (`spm-cache.yml.lock` — PROBED P5/P6: the yml inode is unsound under rename), `load` INSIDE the lock (never the boot snapshot), key-level ASSIGN (never `<<` — DEFAULT_CONFIG arrays are shared), same-dir Tempfile+rename save, unlock in ensure (release-on-raise asserted); stale-writer scenario cannot clobber (P3 as a spec); `flock(LOCK_NB)` verdict read as TRUTHINESS (returns false, never raises — Pitfall 4); DEFAULT_CONFIG pristine after mutation | unit (tmpdir config + sidecar; thread/fork-held flock for contention) | `bundle exec rspec spec/config_mutator_spec.rb` | ❌ Wave 0 | ⬜ pending |
+| (planner) | (planner) | 1 | TOGL-01 / D-03 | T-16 off-contract | `off` behavior-preserving through the shared mutator: the two output lines byte-exact (off.rb:24-25), exit status unchanged, uncontended written file byte-identical to today's full 9-key YAML.dump shape (PROBED P2), config_spec.rb rows untouched — NO Off spec exists today; these pins ARE the D-03 contract | unit | `bundle exec rspec spec/command_off_shared_mutator_spec.rb` | ❌ Wave 0 | ⬜ pending |
+| (planner) | (planner) | 2 | TOGL-02 / TOGL-03 / D-06, D-09 | CP10 | `/api/state` rows gain `toggleable`/`reason` + saved/applied: derived ONCE server-side per call from a FRESH disk read (the model never loads config today — state.rb:15-17); reason matrix: `pattern-managed` (`should_ignore? && !include?`), `plugin` (status `plugin`), `excluded` (status `excluded`), `fidelity` (provenance `resolution-incompatible` per research recommendation), `binary-target` per the planner's Q4 option; divergence = `saved_ignored != (applied == 'ignored')`; nil-graph rows contribute no divergence | unit (web_state_spec conventions: tmpdir project/cache_root + `write_graph` helper) | `bundle exec rspec spec/web_state_spec.rb` | ✅ extend | ⬜ pending |
+| (planner) | (planner) | 2 | TOGL-01/02/03 / D-08 | V5, V4 | Toggle/revert route matrix: token 401, GET → house 404, malformed JSON → 400 `bad_body`, `package` non-empty String → 400 `bad_package`, `cached` EXACTLY boolean (no coercion) → 400 `bad_cached`, unknown package → 404 `unknown_package`, non-toggleable attempt → 400 `not_toggleable`, mutator raise → 500 `config_write_failed`, 2xx `ok_envelope('package'…, 'cached'…)`; toggle/revert NEVER touch the slot (D-08); revert is batched-in-one-lock per research recommendation | unit (web_build_routes_spec conventions) | `bundle exec rspec spec/web_toggle_routes_spec.rb` | ❌ Wave 0 | ⬜ pending |
+| (planner) | (planner) | 2 | TOGL-02 / D-07 | — | `/api/apply` = `api_mutate(fixed_scope: 'use')` verbatim; `Jobs::SCOPES` gains `'use' => ['use']` (bare `use` verified — command/use.rb); 409 `slot_busy` + 500 `spawn_failed` + 2xx lock snapshot unchanged | unit | `bundle exec rspec spec/web_jobs_spec.rb` | ✅ extend | ⬜ pending |
+| (planner) | (planner) | 3 | UI contract (UI-SPEC) | UI-SPEC prohibitions 1-13 | Frontend pins: sixth `Cached` column in `COLS`/`COL_CLASS`, native checkbox + `aria-label="Toggle caching for {package}"` with the RAW name, reason/pending chips verbatim-neutral fallback, `#state-sync-bar` markup/copy byte-exact (D-05 sentence, ONE `Apply now`), `CTRL.busy` amended to the THREE-verb string (supersedes app.js:324 — A4), freeze set covers four buttons (A5), poll-skip guard covers redraw AND stamp | unit (source/byte pins — no JS runtime in CI; the browser net is the manual table) | `bundle exec rspec spec/web_frontend_spec.rb` | ✅ extend | ⬜ pending |
+| (planner) | (planner) | 3 | TOGL-01/02 | — | THE integration row (extends `web_integration_spec.rb` / `WebServerBoot`): toggle POST → `/api/state` shows saved≠applied (bar condition) → `/api/apply` spawns a fake-bin `use` → its run streams → a post-run `/api/state` shows convergence (bar clears). Server shutdown stays exit-0 with the apply in flight (P5 of 15-RESEARCH posture) | integration (port 0, loopback) | `bundle exec rspec spec/web_integration_spec.rb` | ✅ extend | ⬜ pending |
+
+*Status: ⬜ pending · ✅ green · ❌ red · ⚠️ flaky*
+*(Task IDs filled by the planner; the requirement → spec-file mapping above is fixed by research and must be preserved.)*
+
+---
+
+## Wave 0 Requirements
+
+- [ ] `spec/config_mutator_spec.rb` — merge-write under sidecar flock, clobber-proof stale-writer row, release-on-raise, DEFAULT_CONFIG-pristine assertion, LOCK_NB-false handling
+- [ ] `spec/command_off_shared_mutator_spec.rb` — the D-03 byte-identical free-path pins (no Off spec exists today — these rows are the contract)
+- [ ] `spec/web_toggle_routes_spec.rb` — token/verb/body/package/cached/unknown/not_toggleable/500/2xx matrix
+- [ ] Extend `spec/web_state_spec.rb` — toggleable/reason/saved/applied derivation matrix (fresh-read assertion)
+- [ ] Extend `spec/web_jobs_spec.rb` — `'use'` scope row (spawn shape unchanged)
+- [ ] Extend `spec/web_frontend_spec.rb` — sixth column + bar + chips + A4 amendment + poll-skip pins
+- [ ] Extend `spec/web_integration_spec.rb` (+ `spec/support/web_server_boot.rb` as needed) — toggle→apply→convergence row
+
+---
+
+## Manual-Only Verifications
+
+> The repo has no JS runtime; the toggle surface's client behavior is verified by an **agent-driven real browser** — the D-14/D-15 probe-net pattern (14's net caught G-13-1; 15's net proved the controls end-to-end). Reference project + scratch project as in 14-05/15-06.
+
+| Behavior | Requirement | Why Manual | Test Instructions |
+|----------|-------------|------------|-------------------|
+| ⬜ Toggle → instant save + pending chip + bar appears | TOGL-01, TOGL-02 / D-06, D-08 | Real click + checkbox visual + cross-request state | Click a package's checkbox → no bounce, `pending` chip renders in-cell, `#state-sync-bar` appears above the table with the byte-exact D-05 sentence; on disk the yml's ignore list changed accordingly (and comments are gone — D-05's honesty is visibly true) |
+| ⬜ Disabled rows show WHY (all five reasons) | TOGL-03 / D-09 | Visual chip render + tooltips | Fixture config exercising pattern rows, plugin-only package, cache-only exclusion, resolution-incompatible provenance (+ binary flag per planner option): each disabled row renders exactly one reason chip verbatim, tooltip matches, unknown-reason row renders verbatim in neutral |
+| ⬜ Apply now → real `use` run → stream → convergence | TOGL-02 / D-07, A5, A7 | Real spawn + EventSource + poll convergence | With divergence present: `Apply now` disables, message `Applying…`, run appears in Run Log with `ui` badge; while it runs, Build/Rebuild/Rollback are disabled too (four-button freeze); on completion the poll clears the bar and `pending` chips — bar clears on server truth, never on POST success |
+| ⬜ Apply 409 while a build holds the slot | TOGL-02 / D-05, A4 | Cross-request UI state | Start a Build, then click `Apply now`: 409, the amended THREE-verb busy string renders in the bar's message slot (`A build, rollback, or apply is already running — wait for it to finish.`), button re-enables |
+| ⬜ Revert all restores applied state | TOGL-02 / A3 | Batch write + poll honesty | Diverge ≥2 rows → `Revert all` → both buttons re-enable, bar REMAINS until a poll shows zero divergence (honest lag ≤1 cycle), ignore list back to the applied state on disk |
+| ⬜ Toggle during a build stays live | TOGL-01 / D-08 | The not-slot-gated contract | While a build streams: toggle a third package → POST succeeds instantly (no 409), `pending` chip appears; the running build is unaffected |
+| ⬜ Toggle save failure survives polls | TOGL-01 / UI-SPEC error row | Failure-line persistence vs re-render | (Force a failure — e.g. read-only yml) → the pinned `Couldn't save the toggle for {package}…` fail line renders above the table and SURVIVES ≥2 poll cycles; checkbox keeps server truth; cleared by the next successful mutation or Refresh |
+| ⬜ Poll-skip: no checkbox bounce mid-POST | TOGL-02 / A8 | Race between POST and the 5s poll | Rapidly toggle a package and watch ≥1 poll cycle land while the POST is in flight: the table (and stamp) does NOT redraw to the old value; the next cycle renders persisted truth |
+
+---
+
+## Validation Sign-Off
+
+- [ ] All tasks have `<automated>` verify or Wave 0 dependencies
+- [ ] Sampling continuity: no 3 consecutive tasks without automated verify
+- [ ] Wave 0 covers all MISSING references
+- [ ] No watch-mode flags
+- [ ] Feedback latency < 60 s
+- [ ] `nyquist_compliant: true` set in frontmatter
+- [ ] Manual-only table executed and recorded (8 rows above, D-14/D-15 pattern)
+
+**Approval:** pending
