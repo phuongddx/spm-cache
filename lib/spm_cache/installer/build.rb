@@ -77,7 +77,17 @@ module SPMCache
         path = @config.build_lock_path
         FileUtils.mkdir_p(File.dirname(path))
         lock = File.open(path, File::CREAT | File::RDWR)
-        lock.flock(File::LOCK_EX)
+        # D-05: probe -> announce -> block. LOCK_NB returns false (never
+        # raises) under contention, so only a genuinely contended run
+        # announces -- the free path stays byte-identical. UI.info rides
+        # $stdout, so the Phase 12 tee captures the line into THIS run's
+        # JSONL. Pinned wording, user-visible on two surfaces (terminal +
+        # Phase 14 stream), feeds Phase 15's BLD-02 copy: frozen once
+        # landed.
+        unless lock.flock(File::LOCK_EX | File::LOCK_NB)
+          Core::UI.info 'Waiting for build lock…'
+          lock.flock(File::LOCK_EX)
+        end
         lock
       end
 

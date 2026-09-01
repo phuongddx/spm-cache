@@ -72,7 +72,16 @@ module SPMCache
         FileUtils.mkdir_p(File.dirname(path))
         lock = File.open(path, File::CREAT | File::RDWR)
         begin
-          lock.flock(File::LOCK_EX)
+          # D-05: probe -> announce -> block -- the identical three-step
+          # shape as Installer::Build#acquire_build_lock. LOCK_NB returns
+          # false under contention (never raises); the free path stays
+          # byte-identical. UI.info rides $stdout, so the Phase 12 tee
+          # captures the line into THIS run's JSONL. Pinned wording, two
+          # surfaces, frozen (BLD-02).
+          unless lock.flock(File::LOCK_EX | File::LOCK_NB)
+            Core::UI.info 'Waiting for build lock…'
+            lock.flock(File::LOCK_EX)
+          end
           yield
         ensure
           lock.flock(File::LOCK_UN)
