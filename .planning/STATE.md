@@ -36,10 +36,10 @@ v0.4.0 shipped and released 2026-08-31 (first fully-green tap publish in project
 
 ## Current Position
 
-Phase: 14 (Live Log Streaming + Terminal/Watch Relay) — planning next (needs `--research-phase` per roadmap flag)
-Plan: Not started
-Status: Ready to plan
-Last activity: 2026-09-01 — Phase 13 complete (5/5 plans + G-13-1 gap closure; verification passed 23/23; UAT 6/6; SECURITY SECURED 23/23)
+Phase: 14 (Live Log Streaming + Terminal/Watch Relay) — PLANNED, ready to execute
+Plan: 5 plans across 3 waves (14-01/14-02 wave 1 · 14-03/14-04 wave 2 · 14-05 wave 3); 13 tasks, 12 TDD
+Status: Ready to execute
+Last activity: 2026-09-01 — Phase 14 planned (research + UI-SPEC + PATTERNS + VALIDATION complete; plan-checker converged at 0 blockers after 2 iterations; requirements 4/4, decisions 14/14)
 
 Progress: [████░░░░░░] 40%
 
@@ -49,13 +49,13 @@ Progress: [████░░░░░░] 40%
 |-------|------|--------|--------|
 | 12 | Run-Log Capture Foundation | Complete (2026-09-01) | gsd/v0.5.0-web-interface |
 | 13 | Server Skeleton + Read-Only Dashboard | Complete (2026-09-01) | gsd/v0.5.0-web-interface |
-| 14 | Live Log Streaming + Terminal/Watch Relay | Ready to plan | — |
+| 14 | Live Log Streaming + Terminal/Watch Relay | Planned — 5 plans, ready to execute | gsd/v0.5.0-web-interface |
 | 15 | UI Build Controls | Not started | — |
 | 16 | Package Toggles + Panel Completion | Not started | — |
 
 Hard chain: 12 → 13 → 14 → 15 → 16.
 
-Research flags: **Phase 14** needs `--research-phase` during planning (heaviest integration surface — SSE lifecycle/backpressure + watcher interplay, pitfalls CP5/CP6/CP10/CP11/CP12). Phases 12/13/15/16 reuse established code-anchored patterns.
+Research flags: **Phase 14 — SATISFIED 2026-09-01** (`14-RESEARCH.md`, HIGH confidence: webrick 1.9.2 gem source read at file:line + three transport behaviors machine-probed live; CP5/CP6/CP10/CP11/CP12 all addressed). Two milestone-research corrections came out of it: the "503 + `Retry:`, never 204" SSE clause is FALSIFIED (any non-200 permanently kills EventSource — always answer 200 and hold), and WEBrick's accept loop joins connection threads on shutdown, so an SSE body proc needs a shutdown sentinel or `server.shutdown` hangs and breaks WEB-03's exit-0 contract. Phases 12/13/15/16 reuse established code-anchored patterns.
 
 ## v0.5.0 Planning Context
 
