@@ -220,4 +220,131 @@ RSpec.describe 'SPMCache::Web::Events tailer' do
       expect(JSON.parse(entry.line)).to eq(JSON.parse(raw)) # still valid JSONL
     end
   end
+
+  describe 'discovery, switch, and retention interplay (D-04/D-07)' do
+    PRUNED_NOTICE = 'run log pruned while viewing; switching to newest'
+
+    it 'switches to a newer run with a switch event naming run and previous (D-04)' do
+      header_a = header_line(command: 'build', trigger: 'terminal')
+      write_run(RUN_A, [header_a])
+
+      events = start_events
+      client = events.register(StringIO.new)
+      wait_until { events.tailer.path }
+
+      header_b = header_line(command: 'use', trigger: 'terminal')
+      line_b1 = body_line("new run first\n")
+      write_run(RUN_B, [header_b, line_b1]) # sorts after A: chronological
+
+      items = 3.times.map { client.queue.pop(timeout: 5) }
+      switch = items.find { |item| item.respond_to?(:run) }
+      expect(switch.run).to eq(RUN_B) # the switch event names the new run
+      expect(switch.previous).to eq(RUN_A) # ...and the previous one
+      # Continues from B's byte 0: the header and first body line arrive as
+      # entries carrying B's filename, at B's own offsets.
+      entries = items.compact.reject { |item| item.respond_to?(:run) }
+      expect(entries.map(&:line)).to eq([header_b, line_b1])
+      expect(entries.map(&:file)).to eq([RUN_B, RUN_B])
+      expect(entries.first.id).to eq("#{RUN_B}:#{header_b.bytesize}")
+    end
+
+    it 'keeps delivering through its open fd after the served file is unlinked (POSIX, D-07)' do
+      header = header_line(command: 'build', trigger: 'terminal')
+      write_run(RUN_A, [header])
+
+      events = start_events
+      client = events.register(StringIO.new)
+      wait_until { events.tailer.path }
+
+      writer = File.open(run_path(RUN_A), 'a') # hold an append handle...
+      begin
+        File.unlink(run_path(RUN_A)) # ...then retention unlinks the path
+        line = body_line("post-unlink bytes\n")
+        writer.write(line)
+        writer.flush
+
+        entry = client.queue.pop(timeout: 5)
+        expect(entry.line).to eq(line) # surfaced through the held fd
+        expect(entry.file).to eq(RUN_A)
+      ensure
+        writer.close
+      end
+    end
+
+    it "notices 'run log pruned while viewing; switching to newest' and replays the newest run on a vanished resume id" do
+      write_run(RUN_A, [header_line(command: 'build', trigger: 'terminal', pid: DEAD_PID), run_end_line])
+      header_b = header_line(command: 'use', trigger: 'terminal')
+      line_b = body_line("newest body\n")
+      write_run(RUN_B, [header_b, line_b]) # B is the live newest run
+
+      resume_id = "#{RUN_A}:0"
+      File.delete(run_path(RUN_A)) # retention pruned the viewed run mid-session
+      resume = events_class.parse_resume_id(resume_id, runs_dir: runs_dir)
+      expect(resume[:exists]).to be(false) # well-formed name, vanished file
+
+      out = StringIO.new
+      events = start_events
+      client = events.register(out)
+      thread = Thread.new { events.stream(client, resume: resume) }
+      begin
+        frames = wait_until(timeout: 5) { out.string.include?(PRUNED_NOTICE) ? out.string : nil }
+        # The notice is followed by fresh replay of the newest run (B).
+        expect(frames).to include('event: notice')
+        expect(frames.index(PRUNED_NOTICE)).to be > frames.index('event: hello')
+        expect(frames).to include('event: entry')
+        hello = frames.match(/event: hello\ndata: (\{[^\n]*\})\n/)
+        expect(JSON.parse(hello[1])['run']).to eq(RUN_B)
+      ensure
+        events.shutdown!
+        thread.join(2)
+      end
+    end
+
+    it 'survives a transiently absent runs dir: the thread lives and recovers on the next tick' do
+      header_a = header_line(command: 'build', trigger: 'terminal')
+      write_run(RUN_A, [header_a])
+
+      events = start_events
+      client = events.register(StringIO.new)
+      wait_until { events.tailer.path }
+
+      FileUtils.rm_rf(runs_dir) # transiently absent (no glob hits, no crash)
+      sleep 0.1 # several poll ticks under the failure
+      expect(events.tailer.running?).to be(true) # the thread never died
+
+      FileUtils.mkdir_p(runs_dir)
+      header_b = header_line(command: 'use', trigger: 'terminal')
+      line_b = body_line("recovery line\n")
+      write_run(RUN_B, [header_b, line_b])
+      items = 3.times.map { client.queue.pop(timeout: 5) } # discovery recovers
+      entries = items.compact.reject { |item| item.respond_to?(:run) }
+      expect(entries.map(&:line)).to eq([header_b, line_b])
+      expect(entries.map(&:file)).to eq([RUN_B, RUN_B])
+    end
+
+    it 'never memoizes identity: a new instance picks up a run that appeared after the old one stopped (CP10/Pitfall 7)' do
+      write_run(RUN_A, [header_line(command: 'build', trigger: 'terminal')])
+      events1 = start_events
+      client1 = events1.register(StringIO.new)
+      wait_until { events1.tailer.path }
+      events1.shutdown! # stop the old instance
+
+      header_b = header_line(command: 'use', trigger: 'terminal')
+      line_b1 = body_line("fresh run one\n")
+      write_run(RUN_B, [header_b, line_b1]) # appeared AFTER the stop
+
+      # Fresh-connect choice re-derives from disk -- the registry, the
+      # hello derivation, and the follow all read the runs dir anew.
+      expect(events_class.choose_run(runs_dir: runs_dir)).to eq(run_path(RUN_B))
+
+      events2 = start_events
+      client2 = events2.register(StringIO.new)
+      wait_until { events2.tailer.path == run_path(RUN_B) }
+      line_b2 = body_line("fresh run two\n")
+      append_run(RUN_B, line_b2)
+      entry = client2.queue.pop(timeout: 5)
+      expect(entry.file).to eq(RUN_B)
+      expect(entry.line).to eq(line_b2)
+    end
+  end
 end
