@@ -1156,4 +1156,73 @@ RSpec.describe 'spm-cache web dashboard frontend (Plan 13-03)' do
       expect(controls.lines.any? { |l| l.include?('lock') && l.include?('disabled') }).to be(false)
     end
   end
+
+  describe '14-UI-REVIEW polish fold (Plan 15-05 Task 3)' do
+    let(:log_js) { File.read(File.join(asset_dir, 'log.js')) }
+
+    it 'W1: the shared button and pill-button rules render labels in the amended dark foreground on the accent fill (retroactive to the follow pill, filter pill, jump button and run-id control); the danger rule does the same on the fail fill' do
+      btn = styles_css[/\.btn\s*\{[^}]*\}/]
+      expect(btn).to include('background: var(--c-accent)')
+      expect(btn).to include('color: var(--c-bg)') # #0D1117 on accent ≈6.1:1 (AA)
+      pill = styles_css[/\.log-pill-btn\s*\{[^}]*\}/]
+      expect(pill).to include('background: var(--c-accent)')
+      expect(pill).to include('color: var(--c-bg)')
+      danger = styles_css[/\.btn-danger\s*\{[^}]*\}/]
+      expect(danger).to include('background: var(--c-fail)')
+      expect(danger).to include('color: var(--c-bg)') # ≈6.0:1 on fail
+    end
+
+    it 'W1 regression: no rule anywhere in the sheet still pairs a pure-white label with the accent or fail fill' do
+      expect(styles_css).not_to include('color: #FFFFFF')
+      expect(styles_css).not_to include('color: #fff')
+    end
+
+    it 'W5: the switch notice carries the pinned sm bottom margin — no longer flush against the stream row' do
+      sw = styles_css[/\.log-switch\s*\{[^}]*\}/]
+      expect(sw).to include('margin-bottom: var(--space-sm)')
+    end
+
+    it 'M1: the identity card internal row gap is the pinned sm token (14 own spacing contract)' do
+      card = styles_css[/\.log-card\s*\{[^}]*\}/]
+      expect(card).to include('gap: var(--space-sm)')
+    end
+
+    it 'W3 pills: the pause and filter controls are persistent nodes whose visibility and label are patched — the overlay is never wholesale replaced on a queued line' do
+      pill_fn = log_js[/const renderPill = \(\) => \{[\s\S]*?\n  \};/]
+      expect(pill_fn).not_to include('overlay.replaceChildren')
+      expect(pill_fn).to include('if (!pauseBtn) {')
+      expect(pill_fn).to include('pauseBtn.hidden = false;')
+      expect(pill_fn).to include('pauseBtn.hidden = true;')
+      expect(pill_fn).to include('pauseBtn.textContent = COPY.paused(pending);')
+      expect(pill_fn).to include('if (!filterBtn) {')
+      expect(pill_fn).to include('filterBtn.hidden = false;')
+      expect(pill_fn).to include('filterBtn.hidden = true;')
+    end
+
+    it 'W3 chips: chips reconcile against the anchor set rather than being removed and recreated — the active state is patched in place on the surviving node' do
+      chips_fn = log_js[/const renderChips = \(\) => \{[\s\S]*?\n  \};/]
+      expect(chips_fn).not_to include('}).forEach((chip) => chip.remove());') # the unconditional wipe is gone
+      expect(chips_fn).to include("chip.setAttribute('aria-pressed', isActive ? 'true' : 'false');")
+      expect(chips_fn).to include("chip.classList.toggle('log-chip-active', isActive)")
+      expect(chips_fn).to include('if (!chip || !chip.isConnected) {') # append only for genuinely new anchors
+    end
+
+    it 'W3 focus proof: the reconciliation detaches nothing when unrelated anchors arrive — creation-append is guarded, removal fires only for chips whose anchor left the set' do
+      chips_fn = log_js[/const renderChips = \(\) => \{[\s\S]*?\n  \};/]
+      expect(chips_fn.index('if (!chip || !chip.isConnected) {')).to be < chips_fn.index('.append(chip);')
+      expect(chips_fn).to include('if (!anchors.some((a) => a.chipEl === chip)) chip.remove();')
+      expect(chips_fn).not_to include('railPhases.replaceChildren')
+      expect(chips_fn).not_to include('railPackages.replaceChildren')
+    end
+
+    it 'W4: exactly one narrow-viewport breakpoint stacks the anchor rail below the stream at full width; the overlay pill row and panel actions wrap; no fixed rail width applies below it' do
+      expect(styles_css.scan(/@media/).size).to eq(1)
+      media = styles_css[styles_css.index('@media')..]
+      expect(media).to include('@media (max-width: 800px)')
+      expect(media[/\.log-stream-row\s*\{[^}]*\}/]).to include('flex-direction: column')
+      expect(media[/\.log-rail\s*\{[^}]*\}/]).to include('width: 100%')
+      expect(media[/\.log-overlay\s*\{[^}]*\}/]).to include('flex-wrap: wrap')
+      expect(media[/\.panel-actions\s*\{[^}]*\}/]).to include('flex-wrap: wrap')
+    end
+  end
 end
