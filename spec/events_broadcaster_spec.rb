@@ -134,7 +134,7 @@ RSpec.describe 'SPMCache::Web::Events broadcaster' do
     expect(thread.join(1)).to be_truthy
     # The stream consumed its sentinel; a duplicate (double fan-out) would
     # still sit in the queue.
-    expect(client.queue.pop(timeout: 0.2)).to be_nil
+    expect(events_class.pop_with_timeout(client.queue, 0.2)).to be_nil
 
     quiet = events_class.new(config: config, heartbeat_seconds: 0.05)
     expect { quiet.shutdown! }.not_to raise_error

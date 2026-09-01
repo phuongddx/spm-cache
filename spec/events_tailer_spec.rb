@@ -114,7 +114,7 @@ RSpec.describe 'SPMCache::Web::Events tailer' do
     line3 = body_line("third\n")
     append_run(RUN_A, line2)
     append_run(RUN_A, line3)
-    entries = 2.times.map { client.queue.pop(timeout: 5) }
+    entries = 2.times.map { events_class.pop_with_timeout(client.queue, 5) }
 
     # The id offset is recorded AFTER the consumed newline (Pitfall 5), so
     # resuming at an id seeks exactly to the next line.
@@ -135,13 +135,13 @@ RSpec.describe 'SPMCache::Web::Events tailer' do
 
     append_run(RUN_A, 'par')
     sleep 0.1 # several poll ticks with the partial line outstanding
-    expect(client.queue.pop(timeout: 0.2)).to be_nil
+    expect(events_class.pop_with_timeout(client.queue, 0.2)).to be_nil
 
     append_run(RUN_A, "tial\n")
-    entry = client.queue.pop(timeout: 5)
+    entry = events_class.pop_with_timeout(client.queue, 5)
     expect(entry.line).to eq("partial\n")
     expect(entry.id).to eq("#{RUN_A}:#{header.bytesize + 8}")
-    expect(client.queue.pop(timeout: 0.2)).to be_nil # exactly one entry, no split halves
+    expect(events_class.pop_with_timeout(client.queue, 0.2)).to be_nil # exactly one entry, no split halves
   end
 
   it 'resume-at-id yields exactly the NEXT line for multi-byte UTF-8 content' do
@@ -198,7 +198,7 @@ RSpec.describe 'SPMCache::Web::Events tailer' do
 
     line = body_line("cycle output\n")
     append_run(WATCH_RUN, line)
-    entry = client.queue.pop(timeout: 5)
+    entry = events_class.pop_with_timeout(client.queue, 5)
     expect(entry.line).to eq(line)
     expect(entry.id).to eq("#{WATCH_RUN}:#{header.bytesize + line.bytesize}")
   end
@@ -213,7 +213,7 @@ RSpec.describe 'SPMCache::Web::Events tailer' do
 
     appended = [body_line("verbatim one\n"), body_line("verbatim two\n")]
     append_run(RUN_A, appended.join)
-    entries = 2.times.map { client.queue.pop(timeout: 5) }
+    entries = 2.times.map { events_class.pop_with_timeout(client.queue, 5) }
 
     entries.zip(appended).each do |entry, raw|
       expect(entry.line).to eq(raw) # byte-for-byte, trailing newline included
@@ -236,7 +236,7 @@ RSpec.describe 'SPMCache::Web::Events tailer' do
       line_b1 = body_line("new run first\n")
       write_run(RUN_B, [header_b, line_b1]) # sorts after A: chronological
 
-      items = 3.times.map { client.queue.pop(timeout: 5) }
+      items = 3.times.map { events_class.pop_with_timeout(client.queue, 5) }
       switch = items.find { |item| item.respond_to?(:run) }
       expect(switch.run).to eq(RUN_B) # the switch event names the new run
       expect(switch.previous).to eq(RUN_A) # ...and the previous one
@@ -263,7 +263,7 @@ RSpec.describe 'SPMCache::Web::Events tailer' do
         writer.write(line)
         writer.flush
 
-        entry = client.queue.pop(timeout: 5)
+        entry = events_class.pop_with_timeout(client.queue, 5)
         expect(entry.line).to eq(line) # surfaced through the held fd
         expect(entry.file).to eq(RUN_A)
       ensure
@@ -316,7 +316,7 @@ RSpec.describe 'SPMCache::Web::Events tailer' do
       header_b = header_line(command: 'use', trigger: 'terminal')
       line_b = body_line("recovery line\n")
       write_run(RUN_B, [header_b, line_b])
-      items = 3.times.map { client.queue.pop(timeout: 5) } # discovery recovers
+      items = 3.times.map { events_class.pop_with_timeout(client.queue, 5) } # discovery recovers
       entries = items.compact.reject { |item| item.respond_to?(:run) }
       expect(entries.map(&:line)).to eq([header_b, line_b])
       expect(entries.map(&:file)).to eq([RUN_B, RUN_B])
@@ -342,7 +342,7 @@ RSpec.describe 'SPMCache::Web::Events tailer' do
       wait_until { events2.tailer.path == run_path(RUN_B) }
       line_b2 = body_line("fresh run two\n")
       append_run(RUN_B, line_b2)
-      entry = client2.queue.pop(timeout: 5)
+      entry = events_class.pop_with_timeout(client2.queue, 5)
       expect(entry.file).to eq(RUN_B)
       expect(entry.line).to eq(line_b2)
     end

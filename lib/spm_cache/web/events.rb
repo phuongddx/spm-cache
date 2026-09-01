@@ -2,6 +2,7 @@
 
 require 'json'
 require 'time'
+require 'timeout'
 
 require 'spm_cache/web/read_models/runs'
 
@@ -192,6 +193,22 @@ module SPMCache
           parts << "data: #{data.to_s.sub(/\n\z/, '')}"
           "#{parts.join("\n")}\n\n"
         end
+
+        # CR-01: SizedQueue#pop only gained a `timeout:` keyword on Ruby
+        # 3.2 -- on 3.1 (the gem's own declared minimum, and a CI-tested
+        # leg) the C implementation absorbs the Hash as the legacy
+        # positional `non_block` argument, so `pop(timeout: N)` silently
+        # degenerates into a NON-blocking `pop(true)` that raises
+        # ThreadError on an empty queue instead of blocking. This
+        # Timeout-based wrapper blocks on a plain `queue.pop` (portable
+        # across 3.1-3.3) and bounds the wait from the outside, so it
+        # behaves identically to `pop(timeout:)` on every supported
+        # Ruby.
+        def pop_with_timeout(queue, timeout)
+          Timeout.timeout(timeout) { queue.pop }
+        rescue Timeout::Error
+          nil
+        end
       end
 
       attr_reader :broadcaster, :tailer
@@ -375,7 +392,7 @@ module SPMCache
         timeout = follow ? [@heartbeat_seconds, @poll_interval].min : @heartbeat_seconds
         last_ping = Time.now
         loop do
-          item = client.queue.pop(timeout: timeout)
+          item = self.class.pop_with_timeout(client.queue, timeout)
           case item
           when ShutdownSentinel
             break
