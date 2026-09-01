@@ -920,4 +920,124 @@ RSpec.describe 'spm-cache web dashboard frontend (Plan 13-03)' do
       expect(log_js).to include('} else if (cardPending) {')
     end
   end
+
+  # Plan 15-05 — the controls surface. Same pin idiom: served HTML for
+  # structure and order, asset-file source for behavior contracts and
+  # prohibitions. The 15-UI-SPEC is BINDING: the copy table is
+  # byte-exact, the row renders unconditionally (A5), and the busy
+  # answer must be branchable from a failure at the call site.
+  describe 'build controls row (Plan 15-05 Task 1)' do
+    let(:log_js) { File.read(File.join(asset_dir, 'log.js')) }
+
+    it 'structure: the row is the Run Log panel body FIRST child, ahead of the identity card; three native buttons in pinned DOM order + the right-aligned message slot' do
+      body_at = index_html.index('<div class="panel-body" id="log-body">')
+      row_at = index_html.index('<div class="build-controls" id="build-controls">')
+      card_at = index_html.index('id="log-card"')
+      expect(row_at).to be > body_at
+      expect(row_at).to be < card_at
+      # A5: static markup — never data-gated, so the cold 'No runs yet'
+      # dashboard renders the enabled row (not hidden in the source).
+      expect(index_html).not_to include('build-controls" hidden')
+      row = index_html[%r{<div class="build-controls"[\s\S]*?</div>}]
+      expect(row).to include('<button type="button" class="btn" id="ctl-build">Build</button>')
+      expect(row).to include('<button type="button" class="btn" id="ctl-rebuild">Rebuild all</button>')
+      expect(row).to include('<button type="button" class="btn btn-danger" id="ctl-rollback">Rollback</button>')
+      expect(row.index('id="ctl-build"')).to be < row.index('id="ctl-rebuild"')
+      expect(row.index('id="ctl-rebuild"')).to be < row.index('id="ctl-rollback"')
+      expect(row).to include('<span class="ctl-message" id="ctl-message" aria-live="polite" hidden></span>')
+    end
+
+    it 'copy: the three button labels are byte-exact against the 15-UI-SPEC copy table (Rebuild all capitalized)' do
+      expect(index_html.scan(%r{<button[^>]*>(Build|Rebuild all|Rollback)</button>}).flatten)
+        .to eq(['Build', 'Rebuild all', 'Rollback'])
+    end
+
+    it 'accessibility: every control is a native button with an explicit non-submit type; the message slot is polite-live and starts hidden' do
+      %w[ctl-build ctl-rebuild ctl-rollback].each do |id|
+        expect(index_html).to match(/<button type="button"[^>]*id="#{id}">/)
+      end
+      expect(index_html.scan(/<button type="button"/).size).to be >= 3
+      expect(index_html).to include('id="ctl-message" aria-live="polite" hidden')
+    end
+
+    it 'POST helper: launch token in the X-SPM-Token header with a JSON content type, the HTTP status returned beside the parsed envelope — never a throw, never a token in a URL' do
+      helper = app_js[/const requestPost = async \(path, body\) => \{[\s\S]*?\n  \};/]
+      expect(helper).to include("'X-SPM-Token': token")
+      expect(helper).to include("'Content-Type': 'application/json'")
+      expect(helper).to include('status: res.status')
+      expect(helper).not_to include('throw')
+      expect(app_js.scan(/const requestPost = /).size).to eq(1)
+      expect(app_js).not_to include('token=')
+    end
+
+    it 'auth inheritance: 401/403 on the POST path reuses the shared token-invalid page replacement, never a row message' do
+      helper = app_js[/const requestPost = async \(path, body\) => \{[\s\S]*?\n  \};/]
+      expect(helper).to include('res.status === 401 || res.status === 403')
+      expect(helper).to include('renderTokenInvalid();')
+      settle = app_js[/const settle = \(name, ans\) => \{[\s\S]*?\n  \};/]
+      expect(settle).to include('if (ans.status === 401 || ans.status === 403) return;')
+    end
+
+    it 'bodies: the incremental click sends the build scope and the forced click the rebuild scope, to /api/build exactly as 15-04 shipped it' do
+      expect(app_js).to include("requestPost('/api/build', { scope })")
+      expect(app_js).to include("clickBuild('build')")
+      expect(app_js).to include("clickBuild('rebuild')")
+    end
+
+    it 'pending state: a click disables all three controls before the request resolves (the double-submit guard)' do
+      click = app_js[/const clickBuild = \(scope\) => \{[\s\S]*?\n  \};/]
+      expect(click.index('freeze(true);')).to be < click.index('requestPost(')
+      freeze = app_js[/const freeze = \(on\) =>[^\n]+/]
+      expect(freeze).to include('Object.values(ctl).forEach')
+      expect(freeze).to include('b.disabled = on')
+    end
+
+    it 'in-flight state: a 2xx sets the verb pinned message and keeps the controls disabled' do
+      settle = app_js[/const settle = \(name, ans\) => \{[\s\S]*?\n  \};/]
+      expect(settle).to include('freeze(true);')
+      expect(settle).to include('say(CTRL.inflight[name])')
+      expect(app_js).to include("inflight: { build: 'Building…', rebuild: 'Rebuilding all…', rollback: 'Restoring source mode…' }")
+    end
+
+    it 'busy state: a 409 branches BEFORE the failure arm, renders the pinned busy sentence and re-enables; the server reason value appears nowhere in the assets' do
+      settle = app_js[/const settle = \(name, ans\) => \{[\s\S]*?\n  \};/]
+      expect(settle.index('ans.status === 409')).to be < settle.index('!ans.ok')
+      expect(settle).to include('say(CTRL.busy, true)')
+      expect(app_js).to include("busy: 'A build or rollback is already running — wait for it to finish.'")
+      [app_js, log_js, index_html].each do |asset|
+        expect(asset).not_to include('slot_busy')
+        expect(asset).not_to include('spawn slot busy')
+      end
+    end
+
+    it 'failure state: a non-409 failure renders the POST-failure template with the envelope message interpolated, and re-enables' do
+      expect(app_js).to include(
+        "failure: (name, message) => `Couldn't start the ${name}: ${message}. Check that spm-cache web is still running, then try again.`"
+      )
+      settle = app_js[/const settle = \(name, ans\) => \{[\s\S]*?\n  \};/]
+      expect(settle).to include('say(CTRL.failure(name, data.message || `HTTP ${ans.status}`), true)')
+    end
+
+    it 'prohibitions: no markup assignment and no native dialog in the new code; every asset reference in the served index resolves (G-13-1 gate)' do
+      %w[innerHTML insertAdjacentHTML document.write outerHTML].each { |api| expect(app_js).not_to include(api) }
+      [app_js, log_js].each { |asset| expect(asset).not_to match(/\balert\(|\bconfirm\(|\bprompt\(/) }
+      # T-15-22: envelope messages are server-authored strings — the
+      # message slot is the new DOM surface they reach, textContent only.
+      expect(app_js).to include('msg.textContent = text')
+      refs = index_html.scan(/(?:href|src)="([^"]+)"/).flatten
+      expect(refs).not_to be_empty
+      refs.each do |ref|
+        expect(ref).to start_with('assets/')
+        expect(File.exist?(File.join(asset_dir, File.basename(ref)))).to be(true)
+      end
+    end
+
+    it 'no new timer and no client clock in the controls code: the state-table poll stays app.js only scheduled work' do
+      expect(app_js.scan(/set(?:Timeout|Interval)|requestAnimationFrame/).size).to eq(1)
+      expect(app_js).not_to include('Date.now')
+      controls = app_js[%r{// -- 11\. build controls[\s\S]*?boot\(\);}]
+      expect(controls).not_to include('setTimeout')
+      expect(controls).not_to include('setInterval')
+    end
+  end
 end
