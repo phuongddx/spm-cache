@@ -346,5 +346,33 @@ RSpec.describe 'SPMCache::Web::Events tailer' do
       expect(entry.file).to eq(RUN_B)
       expect(entry.line).to eq(line_b2)
     end
+
+    it 'delivers switch + replay to an already-parked idle client when the first run appears (CR-02)' do
+      events = start_events
+      out = StringIO.new
+      client = events.register(out)
+      thread = Thread.new { events.stream(client) } # idle hello: no run exists yet
+      begin
+        wait_until { out.string.include?('event: hello') }
+        hello = out.string.match(/event: hello\ndata: (\{[^\n]*\})\n/)
+        expect(JSON.parse(hello[1])['run']).to be_nil # idle: nothing on disk yet
+
+        header = header_line(command: 'build', trigger: 'terminal')
+        line = body_line("first output\n")
+        write_run(RUN_A, [header, line]) # the very first run appears
+
+        frames = wait_until(timeout: 5) { out.string.include?('event: switch') ? out.string : nil }
+        switch = JSON.parse(frames.match(/event: switch\ndata: (\{[^\n]*\})\n/)[1])
+        expect(switch['run']).to eq(RUN_A) # the idle client learns the run exists
+        expect(switch['previous']).to be_nil # nothing was previously displayed
+
+        frames = wait_until(timeout: 5) { out.string.scan('event: entry').length >= 2 ? out.string : nil }
+        entry_data = frames.scan(/event: entry\ndata: (\{[^\n]*\})\n/).map(&:first)
+        expect(entry_data).to eq([header.chomp, line.chomp]) # existing content is replayed, not skipped
+      ensure
+        events.shutdown!
+        thread.join(2)
+      end
+    end
   end
 end
