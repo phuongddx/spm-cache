@@ -1041,4 +1041,110 @@ RSpec.describe 'spm-cache web dashboard frontend (Plan 13-03)' do
       expect(controls).not_to include('setInterval')
     end
   end
+
+  describe 'rollback confirm bar + run-progress coupling (Plan 15-05 Task 2)' do
+    let(:log_js) { File.read(File.join(asset_dir, 'log.js')) }
+
+    it 'confirm bar structure: grouped + labelled region with the pinned sentence, a danger Confirm and a quiet Cancel; the bar and the row are a hidden swap — exactly one visible' do
+      bar = index_html[%r{<div class="build-confirm"[\s\S]*?</div>}]
+      expect(bar).to include('id="build-confirm" role="group" aria-label="Confirm rollback" hidden')
+      expect(bar).to include('<span class="build-confirm-text">Restore source mode — this removes proxy packages from the Xcode project</span>')
+      expect(bar).to include('<button type="button" class="btn btn-danger" id="ctl-confirm">Confirm</button>')
+      expect(bar).to include('<button type="button" class="btn btn-quiet" id="ctl-cancel">Cancel</button>')
+      expect(index_html[%r{<div class="build-controls"[\s\S]*?</div>}]).not_to include(' hidden')
+      expect(app_js).to include('const disarmBar = () => { bar.hidden = true; row.hidden = false; };')
+    end
+
+    it 'confirm copy byte-exact — sentence, Confirm label, Cancel label, em dash included' do
+      expect(index_html).to include('Restore source mode — this removes proxy packages from the Xcode project')
+      expect(index_html).to include('>Confirm</button>')
+      expect(index_html).to include('>Cancel</button>')
+    end
+
+    it 'arming: the rollback click hides the row, shows the bar, and moves focus to Cancel — the safe default (A6)' do
+      arm = app_js[/ctl\.rollback\.addEventListener\('click', \(\) => \{[\s\S]*?\n  \}\);/]
+      expect(arm).to include('row.hidden = true;')
+      expect(arm).to include('bar.hidden = false;')
+      expect(arm.index('barCancel.focus();')).to be > arm.index('bar.hidden = false;')
+    end
+
+    it 'cancelling: Cancel restores the row and returns focus to the rollback button' do
+      cancel = app_js[/barCancel\.addEventListener\('click',[\s\S]*?\n  \}\);/]
+      expect(cancel).to include('disarmBar();')
+      expect(cancel).to include('ctl.rollback.focus();')
+    end
+
+    it 'confirming: Confirm disables both bar buttons before the POST, sends the rollback path an empty body, and settles into the row on every answer' do
+      confirm = app_js[/barConfirm\.addEventListener\('click',[\s\S]*?\n  \}\);/]
+      expect(confirm.index('barConfirm.disabled = true;')).to be < confirm.index('requestPost(')
+      expect(confirm).to include('barCancel.disabled = true;')
+      expect(confirm).to include("requestPost('/api/rollback', {})")
+      expect(confirm).to include('disarmBar();')
+      expect(confirm).to include("settle('rollback', ans)")
+      expect(app_js).to include("rollback: 'Restoring source mode…'")
+    end
+
+    it 'no native dialog function anywhere in the asset set (prohibition 3)' do
+      [app_js, log_js, index_html].each { |asset| expect(asset).not_to match(/\balert\(|\bconfirm\(|\bprompt\(/) }
+      # the inline affordances ARE the no-dialog mechanism: the bar's
+      # own Cancel button, in-DOM, never a modal (D-08)
+      bar = index_html[%r{<div class="build-confirm"[\s\S]*?</div>}]
+      expect(bar).to include('id="ctl-cancel"')
+      expect(bar).not_to match(/dialog|modal/i)
+    end
+
+    it 'emission points: exactly three dispatch sites at the pre-existing body-line and run-end code points — no traversal, no timer, no second stream, no module import' do
+      expect(log_js.scan(/emitProgress\(/).size).to eq(3)
+      expect(log_js.scan(/new CustomEvent\('spm-run-progress'/).size).to eq(1)
+      expect(log_js.scan(/new EventSource\(/).size).to eq(1)
+      append = log_js[/const appendBody = \(data\) => \{[\s\S]*?\n  \};/]
+      expect(append).to include("emitProgress('waiting');")
+      expect(append).to include("emitProgress('active');")
+      %w[app.js log.js].each { |f| expect(File.read(File.join(asset_dir, f))).not_to include('import ') }
+      expect(log_js).not_to include('setTimeout')
+    end
+
+    it 'waiting phase: a body line byte-equal to the frozen Installer line carries waiting; any following body line carries active (A2)' do
+      expect(log_js).to include("const WAIT_LINE = 'Waiting for build lock…';")
+      expect(log_js).to include('text === WAIT_LINE')
+      installer = File.read(File.join(SPMCache::ROOT, 'lib/spm_cache/installer/build.rb'))
+      expect(installer).to include("Core::UI.info 'Waiting for build lock…'")
+    end
+
+    it 'ended phase: the run-end path carries ended, from the same facts that flip the identity card' do
+      on_run_end = log_js[/const onRunEnd = \(data\) => \{[\s\S]*?\n  \};/]
+      expect(on_run_end).to include("emitProgress('ended');")
+    end
+
+    it 'listener mapping: app.js maps waiting to the frozen wait string, active to the verb baseline message, ended to idle — buttons re-enabled, message cleared' do
+      listener = app_js[/document\.addEventListener\('spm-run-progress'[\s\S]*?\n  \}\);/]
+      expect(listener).to include("phase === 'ended'")
+      expect(listener).to include('freeze(false); verb = null;')
+      expect(listener).to include("say('')")
+      expect(listener).to include("phase === 'waiting'")
+      expect(listener).to include('say(CTRL.wait)')
+      expect(listener).to include("phase === 'active'")
+      expect(listener).to include('say(CTRL.inflight[verb])')
+      expect(app_js).to include("wait: 'Waiting for build lock…'")
+    end
+
+    it 'entry assist: an accepted spawn whose answer reports the lock held shows the waiting message immediately; a free lock shows the verb baseline (the 15-04 snapshot)' do
+      settle = app_js[/const settle = \(name, ans\) => \{[\s\S]*?\n  \};/]
+      expect(settle.index("data.lock.state === 'held'")).to be < settle.index('say(CTRL.inflight[name])')
+      expect(settle).to include('say(CTRL.wait);')
+      # D-06's one-string-three-surfaces: the row message and log.js's
+      # emission constant are the SAME bytes the Installer prints.
+      expect(app_js).to include("wait: 'Waiting for build lock…'")
+      expect(log_js).to include("const WAIT_LINE = 'Waiting for build lock…';")
+    end
+
+    it 'A3: nothing in the controls code disables a button because lock data says held — disabled derives only from this tab own pending POST or in-flight run' do
+      controls = app_js[%r{// -- 11\. build controls[\s\S]*?boot\(\);}]
+      expect(controls.scan(/\w+\.disabled = /).uniq.sort)
+        .to eq(['b.disabled = ', 'barCancel.disabled = ', 'barConfirm.disabled = '])
+      freeze_block = controls[/const freeze = \(on\) =>[^\n]+/]
+      expect(freeze_block).to include('b.disabled = on') # the row buttons only ever disable via freeze()
+      expect(controls.lines.any? { |l| l.include?('lock') && l.include?('disabled') }).to be(false)
+    end
+  end
 end
