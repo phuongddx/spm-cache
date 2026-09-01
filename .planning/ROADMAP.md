@@ -96,7 +96,7 @@ Plans:
   4. The cache-state table shows per-package size, cached/source state, and fidelity status, re-derived from the same files the CLI reads
   5. The doctor panel runs checks on demand from the check registry (statuses + fix hints, data-driven — no hard-coded checks; results cached with a timestamp), and the graph panel renders package nodes via a repaired vendored-cytoscape visualization, with an affordance when graph.json hasn't been generated yet
 
-**Plans**: 1/4 plans executed planned
+**Plans**: 2/4 plans executed planned
 
 Plans:
 **Wave 1**
@@ -105,7 +105,7 @@ Plans:
 
 **Wave 2** *(blocked on Wave 1 completion)*
 
-- [ ] 13-02-PLAN.md — Read models: shared Cache::Inventory + /api/state + /api/graph formalized + /api/doctor (registry-driven, cached with timestamp)
+- [x] 13-02-PLAN.md — Read models: shared Cache::Inventory + /api/state + /api/graph formalized + /api/doctor (registry-driven, cached with timestamp)
 - [ ] 13-03-PLAN.md — Offline frontend assets per UI-SPEC: index.html + styles.css + app.js + vendored cytoscape (token bootstrap, three panels)
 
 **Wave 3** *(blocked on Wave 2 completion)*
@@ -179,7 +179,7 @@ Pitfall-to-phase mapping (full set in `research/PITFALLS.md`): CP3 → P12; CP7/
 | Phase | Milestone | Plans Complete | Status | Completed |
 |-------|-----------|----------------|--------|-----------|
 | 12. Run-Log Capture Foundation | v0.5.0 | 5/5 | Complete    | 2026-09-01 |
-| 13. Server Skeleton + Read-Only Dashboard | v0.5.0 | 1/4 | In Progress|  |
+| 13. Server Skeleton + Read-Only Dashboard | v0.5.0 | 2/4 | In Progress|  |
 | 14. Live Log Streaming + Terminal/Watch Relay | v0.5.0 | 0/? | Not started | - |
 | 15. UI Build Controls | v0.5.0 | 0/? | Not started | - |
 | 16. Package Toggles + Panel Completion | v0.5.0 | 0/? | Not started | - |

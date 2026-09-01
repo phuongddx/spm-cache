@@ -17,9 +17,9 @@ Requirements for milestone v0.5.0. Each maps to roadmap phases (traceability bel
 
 ### Dashboard panels
 
-- [ ] **DASH-01**: Cache state table shows per-package size, cached/source state, and fidelity status
-- [ ] **DASH-02**: Doctor panel runs checks on demand, shows statuses + fix hints, cached with timestamp (data-driven from the check registry, no hard-coded checks)
-- [ ] **DASH-03**: Graph panel renders package nodes via a repaired visualization (vendored cytoscape, raw-entries-to-elements transform; edges deferred pending Swift spike)
+- [x] **DASH-01**: Cache state table shows per-package size, cached/source state, and fidelity status
+- [x] **DASH-02**: Doctor panel runs checks on demand, shows statuses + fix hints, cached with timestamp (data-driven from the check registry, no hard-coded checks)
+- [x] **DASH-03**: Graph panel renders package nodes via a repaired visualization (vendored cytoscape, raw-entries-to-elements transform; edges deferred pending Swift spike)
 
 ### Live log streaming
 
@@ -86,9 +86,9 @@ Which phases cover which requirements. Updated during roadmap creation.
 | WEB-02 | Phase 13 | Pending |
 | WEB-03 | Phase 13 | Pending |
 | WEB-04 | Phase 13 | Pending |
-| DASH-01 | Phase 13 | Pending |
-| DASH-02 | Phase 13 | Pending |
-| DASH-03 | Phase 13 | Pending |
+| DASH-01 | Phase 13 | Complete |
+| DASH-02 | Phase 13 | Complete |
+| DASH-03 | Phase 13 | Complete |
 | LOGS-01 | Phase 12 | Complete |
 | LOGS-02 | Phase 14 | Pending |
 | LOGS-03 | Phase 14 | Pending |
