@@ -32,6 +32,12 @@ Gem::Specification.new do |spec|
   spec.add_runtime_dependency "tty-cursor", "~> 0.7"
   spec.add_runtime_dependency "tty-screen", "~> 0.8"
   spec.add_runtime_dependency "CFPropertyList", "~> 3.0"
+  # The web dashboard server (Phase 13). Load-bearing runtime declaration:
+  # webrick is no longer a default gem (removed in Ruby 4.0; bundled only
+  # through 3.4), and `require` fails on every target ruby without it
+  # (research CP8, machine-probed). Pinned >= 1.8, < 2 per the research
+  # verdict — the milestone's single sanctioned new runtime dependency.
+  spec.add_runtime_dependency "webrick", ">= 1.8", "< 2"
 
   spec.add_development_dependency "bundler", ">= 2.0"
   spec.add_development_dependency "rspec", "~> 3.12"

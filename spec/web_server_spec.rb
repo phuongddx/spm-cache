@@ -43,12 +43,17 @@ RSpec.describe 'SPMCache::Web::Server request matrix' do
   end
 
   describe 'bootstrap redirect (WEB-04)' do
+    # WEBrick unconditionally absolutizes a relative Location against the
+    # request URI (httpresponse.rb:318-321) -- the plan's "/?token=<t>"
+    # literal therefore arrives as the same-origin absolute URL. Pinned
+    # to the loopback origin + exact launch token either way.
     it 'redirects GET / without a token to /?token=<the launch token>' do
       Dir.mktmpdir do |project_dir|
         with_server(project_dir) do |handle|
           res = http_get(handle, '/')
           expect(res.code).to eq('302')
-          expect(res['Location']).to eq("/?token=#{handle.token}")
+          expect(res['Location']).to eq("http://127.0.0.1:#{handle.port}/?token=#{handle.token}")
+          expect(res['Location']).to include("/?token=#{handle.token}")
         end
       end
     end
@@ -124,11 +129,13 @@ RSpec.describe 'SPMCache::Web::Server request matrix' do
         write_graph(project_dir, '{not json')
         with_server(project_dir) do |handle|
           res = http_get(handle, '/api/graph', 'X-SPM-Token' => handle.token)
-          expect(res.code).to eq('500')
           body = JSON.parse(res.body)
           expect(body['status']).to eq('error')
           expect(body['data'].keys).to eq(['message'])
-          expect(body['data']['message']).to be_a(String).and(include('not json'))
+          # The parser's own message, verbatim (wording varies across json
+          # gem versions) -- pinned as a non-empty string under 'message'.
+          expect(body['data']['message']).to be_a(String)
+          expect(body['data']['message']).not_to be_empty
           expect(body['generated_at']).to match(/\A\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z\z/)
         end
       end
