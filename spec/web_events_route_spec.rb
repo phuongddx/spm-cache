@@ -370,7 +370,7 @@ RSpec.describe 'SPMCache::Web /api/events SSE route' do
 
       sock = stream_open(handle, run: OLDER_RUN)
       begin
-        bytes = read_until(sock, 'older two')
+        bytes = read_until(sock, '"run_end"') # the replay's LAST line
         hello = frame_data(bytes, 'hello')
         expect(hello['run']).to eq(OLDER_RUN) # pinned identity, not current-or-newest
         expect(hello['status']).to eq('success') # the Task-1 vocabulary through the pin path
@@ -452,7 +452,7 @@ RSpec.describe 'SPMCache::Web /api/events SSE route' do
       ['../../spm-cache.yml', '/etc/hosts', 'not a run file', ''].each do |hostile|
         sock = stream_open(handle, run: hostile)
         begin
-          bytes = read_until(sock, LINE1_TEXT)
+          bytes = read_until(sock, LINE2_TEXT) # the replay's final line
           expect(frame_data(bytes, 'hello')['run']).to eq(RUN_NAME)
           expect(entry_payloads(bytes).length).to eq(3) # full fresh replay, header included
           expect(bytes).not_to include(canary) # the named target was never opened

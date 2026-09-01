@@ -201,7 +201,11 @@ module SPMCache
       # at the chunked terminator instead of parking RequestTimeout) and
       # the body proc as the per-client writer (research Pattern 1).
       # Auth failures (401/403) are deliberately permanent: an
-      # auth-dead tab must not ghost-retry.
+      # auth-dead tab must not ghost-retry. ?run= pins the stream to a
+      # validated run name (14-03, D-12): resolve_run_name applies the
+      # same regex + containment machinery as the resume id, so a
+      # hostile value never reaches File.open -- it silently falls back
+      # to current-or-newest.
       def events_stream(req, res, supplied)
         unless Middleware.valid_token?(token: supplied, expected_token: @token)
           return reject(res, 401, 'missing or invalid token')
@@ -209,13 +213,14 @@ module SPMCache
         return reject(res, 404, 'not found') unless req.request_method == 'GET'
 
         resume = Events.parse_resume_id(req['last-event-id'], runs_dir: @config.runs_dir)
+        pin = Events.resolve_run_name(req.query['run'], runs_dir: @config.runs_dir)
         res.status = 200
         res.content_type = 'text/event-stream'
         res.keep_alive = false
         res.chunked = true
         res.body = proc do |out|
           client = @events.register(out)
-          @events.stream(client, resume: resume)
+          @events.stream(client, resume: resume, pin: pin)
         end
       end
 

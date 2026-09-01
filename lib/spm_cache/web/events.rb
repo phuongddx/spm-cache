@@ -1,6 +1,9 @@
 # frozen_string_literal: true
 
 require 'json'
+require 'time'
+
+require 'spm_cache/web/read_models/runs'
 
 module SPMCache
   module Web
@@ -90,14 +93,20 @@ module SPMCache
           { name: name, offset: match[3].to_i, path: path, exists: File.file?(path) }
         end
 
-        # ?run= names (14-03 consumes this): a bare run-filename resolves
-        # to its absolute path under runs_dir with the same validation
-        # posture as parse_resume_id, or nil.
+        # ?run= names (14-03): parse_resume_id's exact posture and SHAPE
+        # -- the filename regex + expand_path containment BEFORE any
+        # File.open, hostile input → nil (silent current-or-newest
+        # fallback, never an error surface worth probing), while a
+        # well-formed name whose file vanished is a first-class honest
+        # pruned case (exists: false → the pinned notice + fresh
+        # replay, D-07).
         def resolve_run_name(name, runs_dir:)
           return nil unless name.is_a?(String) && RUN_NAME.match?(name)
 
           path = File.expand_path(name, runs_dir)
-          contained?(path, runs_dir) && File.file?(path) ? path : nil
+          return nil unless contained?(path, runs_dir)
+
+          { name: name, path: path, exists: File.file?(path) }
         end
 
         def contained?(path, runs_dir)
@@ -108,69 +117,11 @@ module SPMCache
         # D-13 fresh-connect choice: the newest file whose header pid is
         # alive and whose file lacks run_end (the live run); else the
         # newest file overall; nil for an empty runs dir. Derived from
-        # disk on every call (CP10) -- never memoized.
+        # disk on every call (CP10) -- never memoized. The derivation
+        # itself lives in ReadModels::Runs (14-03): the stream, hello,
+        # and /api/runs share ONE status/choice path -- zero drift.
         def choose_run(runs_dir:)
-          files = Dir.glob(File.join(runs_dir, '*.jsonl')).sort
-          return nil if files.empty?
-
-          files.reverse_each do |path|
-            state = run_state(path)
-            return path if state && state[:status] == 'running'
-          end
-          files.last
-        end
-
-        # Header + derived status for one run file, in a single pass:
-        # 'running' (pid alive, no run_end), 'completed' (run_end
-        # present), 'interrupted' (pid dead, no run_end -- CP14 honesty:
-        # a dead pid is never 'running'; the missing run_end only means
-        # the exit status is unknown). nil when the header is unreadable.
-        def run_state(path)
-          header = nil
-          has_run_end = false
-          File.open(path, 'rb') do |io|
-            io.each_line do |line|
-              parsed = begin
-                JSON.parse(line)
-              rescue JSON::ParserError
-                nil
-              end
-              next unless parsed.is_a?(Hash)
-
-              header = parsed if parsed['event'] == 'run_start' && header.nil?
-              if parsed['event'] == 'run_end'
-                has_run_end = true
-                break
-              end
-            end
-          end
-          return nil unless header
-
-          status =
-            if has_run_end
-              'completed'
-            elsif pid_alive?(header['pid'])
-              'running'
-            else
-              'interrupted'
-            end
-          { header: header, status: status }
-        rescue StandardError
-          nil
-        end
-
-        # run_log.rb:395-402 semantics (private there): Process.kill(0,
-        # pid) probes liveness -- ESRCH means dead; any other error (e.g.
-        # EPERM) means the pid exists, so treat as alive.
-        def pid_alive?(pid)
-          return false unless pid.is_a?(Integer)
-
-          Process.kill(0, pid)
-          true
-        rescue Errno::ESRCH
-          false
-        rescue StandardError
-          true
+          ReadModels::Runs.current_path(runs_dir: runs_dir)
         end
 
         # Replay/resume read: yields an Entry per complete JSONL line from
@@ -204,6 +155,29 @@ module SPMCache
           binary_line.force_encoding(Encoding::UTF_8)
         end
 
+        # The appended-bytes read shared by the tailer thread and the
+        # per-client pinned follows (14-03): seek past the buffered
+        # partial tail, read to EOF, split complete \n-terminated lines
+        # out of the buffer, advance the offset by line.bytesize per
+        # line (run_log.rb:216-240's buffer-until-newline, inverted) --
+        # ONE line-splitting implementation, two drivers. Binary reads
+        # only ('rb', Pitfall 5); returns nil when nothing was
+        # appended, else [entries, new_offset].
+        def drain_appended(io, file:, offset:, buffer:)
+          io.seek(offset + buffer.bytesize)
+          chunk = io.read
+          return unless chunk && !chunk.empty?
+
+          entries = []
+          buffer << chunk
+          while (nl = buffer.index("\n"))
+            line = buffer.slice!(0..nl)
+            offset += line.bytesize
+            entries << Entry.new(file: file, offset: offset, line: utf8!(line))
+          end
+          [entries, offset]
+        end
+
         # One SSE frame = ONE out.write call (one chunk per frame), built
         # first as a whole string so raw-socket assertions are
         # unambiguous against the chunked byte stream. JSONL lines arrive
@@ -226,6 +200,9 @@ module SPMCache
                      heartbeat_seconds: HEARTBEAT_SECONDS, queue_cap: QUEUE_CAP)
         @config = config
         @heartbeat_seconds = heartbeat_seconds
+        # The pinned follows poll at this granularity too (14-03), so
+        # specs bound them with the same keyword.
+        @poll_interval = poll_interval
         @broadcaster = Broadcaster.new(queue_cap: queue_cap)
         @tailer = Tailer.new(config: config, broadcaster: @broadcaster,
                              poll_interval: poll_interval)
@@ -244,13 +221,36 @@ module SPMCache
 
       # The per-client loop -- runs INSIDE the WEBrick body proc: the
       # connection thread IS the per-client writer (research Pattern 3).
-      # Hello from disk, replay/resume entries, then the queue pop loop
-      # with exactly-once suppression and the shutdown sentinel. Dead
-      # clients surface as EPIPE/ECONNRESET on write and are handled
-      # here; WEBrick already ends the response (httpresponse.rb:243-249).
-      def stream(client, resume: nil)
+      # Hello from the shared derivation (identity + status + lock +
+      # now), replay/resume entries, then the queue pop loop with
+      # exactly-once suppression, the pinned per-connection follow, and
+      # the shutdown sentinel. Dead clients surface as EPIPE/ECONNRESET
+      # on write and are handled here; WEBrick already ends the response
+      # (httpresponse.rb:243-249).
+      def stream(client, resume: nil, pin: nil)
         pruned = resume && !resume[:exists] # well-formed name, vanished file
-        run = (!pruned && live_resume(resume)) || fresh_run
+        follow = nil
+        run = nil
+
+        if pin
+          if pin[:exists]
+            derived = ReadModels::Runs.derive(pin[:path])
+            if derived
+              begin
+                follow = PinnedFollow.new(pin[:path])
+                run = { name: pin[:name], path: pin[:path], offset: 0, derived: derived }
+              rescue Errno::ENOENT
+                pruned = true # vanished between resolve and open (D-07)
+              end
+            else
+              pruned = true # unreadable or vanished between resolve and derive
+            end
+          else
+            pruned = true # ?run= named a well-formed run that is gone
+          end
+        end
+
+        run ||= (!pruned && live_resume(resume)) || fresh_run
         deliver_hello(client, run)
         deliver_notice(client, PRUNED_NOTICE) if pruned # D-07: honest fallback
 
@@ -267,6 +267,7 @@ module SPMCache
             # Pruned between parse and open mid-flight: same honest notice,
             # then the fresh fallback (D-07 / research Pattern 2 sketch).
             deliver_notice(client, PRUNED_NOTICE)
+            follow = nil # the pinned file is gone: the fallback is unpinned
             fresh = fresh_run
             if fresh
               last_file = fresh[:name]
@@ -279,10 +280,13 @@ module SPMCache
             end
           end
         end
-        pop_loop(client, last_file, last_offset)
+        # The pinned follow picks up exactly where its replay ended.
+        follow&.seek(last_offset)
+        pop_loop(client, last_file, last_offset, follow: follow)
       rescue Errno::EPIPE, Errno::ECONNRESET, IOError
         nil
       ensure
+        follow&.close
         @broadcaster.unregister(client)
       end
 
@@ -301,39 +305,49 @@ module SPMCache
 
       private
 
-      # A resume whose file vanished between parse and open is not an
-      # error surface: fall through to the fresh choice (the pruned-run
-      # notice lands with the retention interplay, D-07).
+      # A resume whose target still exists: identity + status derive
+      # through Runs -- the ONE derivation (hello and /api/runs agree
+      # by construction, 14-03). A vanished target is not an error
+      # surface: the pruned notice lands with the retention interplay
+      # (D-07).
       def live_resume(resume)
         return nil unless resume && resume[:exists]
 
-        state = self.class.run_state(resume[:path])
-        return nil unless state
+        derived = ReadModels::Runs.derive(resume[:path])
+        return nil unless derived
 
-        resume.merge(state: state)
+        { name: resume[:name], path: resume[:path], offset: resume[:offset], derived: derived }
       end
 
       def fresh_run
         path = self.class.choose_run(runs_dir: @config.runs_dir)
         return nil unless path
 
-        state = self.class.run_state(path)
-        return nil unless state
+        derived = ReadModels::Runs.derive(path)
+        return nil unless derived
 
-        { name: File.basename(path), path: path, offset: 0, state: state }
+        { name: File.basename(path), path: path, offset: 0, derived: derived }
       end
 
       # Hello carries the in-stream retry: field (RETRY_MS), the run
-      # name, the parsed run_start header, and the derived status
-      # (D-11/D-13). String keys throughout: JSON.generate drops symbol
-      # keys (state.rb:44-53 discipline).
+      # name, the parsed run_start header, the derived status, the lock
+      # state, and the server 'now' stamp (D-06/D-11/D-12; 14-03). The
+      # status and lock are Runs' derivation -- the SAME read model
+      # /api/runs serves, so the card's data and the dropdown's entries
+      # agree by construction. The lock field is server-internal: the
+      # client renders nothing for it (14-UI-SPEC external-run row).
+      # String keys throughout: JSON.generate drops symbol keys
+      # (state.rb:44-53 discipline).
       def deliver_hello(client, run)
+        lock = ReadModels::Runs.lock_state(config: @config)
         data =
           if run
-            { 'run' => run[:name], 'header' => run[:state][:header],
-              'status' => run[:state][:status] }
+            { 'run' => run[:derived]['run'], 'header' => run[:derived]['header'],
+              'status' => run[:derived]['status'], 'lock' => lock,
+              'now' => Time.now.utc.iso8601 }
           else
-            { 'run' => nil, 'header' => nil, 'status' => 'idle' }
+            { 'run' => nil, 'header' => nil, 'status' => 'idle', 'lock' => lock,
+              'now' => Time.now.utc.iso8601 }
           end
         client.write(self.class.frame(event: 'hello', data: JSON.generate(data),
                                       retry_ms: RETRY_MS))
@@ -346,22 +360,51 @@ module SPMCache
       # dropped. Filenames sort chronologically, so the (file, offset)
       # pair compare never suppresses a newer file's entries with an
       # older file's offset.
-      def pop_loop(client, last_file, last_offset)
+      #
+      # Pinned connections (follow, 14-03): ENTRY delivery is scoped to
+      # the named run -- the per-connection follow is the SOLE entry
+      # source, so the shared tailer's entries (possibly for a newer
+      # run) are dropped and the stream is never re-pointed, while the
+      # pop timeout shortens to the poll interval so the follow ticks
+      # at poll granularity and the heartbeat still fires only at
+      # heartbeat cadence. Switch/notice broadcasts are NOT filtered: a
+      # pinned client stays broadcaster-registered like every client;
+      # acting on a switch is the CLIENT's job (drop the pin, close,
+      # reconnect unpinned -- 14-05's D-04 handler).
+      def pop_loop(client, last_file, last_offset, follow: nil)
+        timeout = follow ? [@heartbeat_seconds, @poll_interval].min : @heartbeat_seconds
+        last_ping = Time.now
         loop do
-          item = client.queue.pop(timeout: @heartbeat_seconds)
+          item = client.queue.pop(timeout: timeout)
           case item
           when ShutdownSentinel
             break
           when nil
-            # Pop-timeout IS the heartbeat timer (research alternative
-            # table: no dedicated thread): a comment frame the SSE parser
-            # ignores, keeping the connection visibly alive -- and
-            # probing the writer, so a dead client is discovered here
-            # rather than by the next entry.
-            client.write(Client::HEARTBEAT_COMMENT)
-            # (loop: the timeout is the timer -- no break, keep popping)
+            if follow
+              follow.each_new_entry do |entry|
+                flush_dropped(client)
+                client.write(self.class.frame(event: 'entry', data: entry.line, id: entry.id))
+                last_file = entry.file
+                last_offset = entry.offset
+              end
+              if Time.now - last_ping >= @heartbeat_seconds
+                client.write(Client::HEARTBEAT_COMMENT)
+                last_ping = Time.now
+              end
+            else
+              # Pop-timeout IS the heartbeat timer (research alternative
+              # table: no dedicated thread): a comment frame the SSE parser
+              # ignores, keeping the connection visibly alive -- and
+              # probing the writer, so a dead client is discovered here
+              # rather than by the next entry.
+              client.write(Client::HEARTBEAT_COMMENT)
+              # (loop: the timeout is the timer -- no break, keep popping)
+            end
 
           when Entry
+            # Pinned: the follow is the sole entry source (see above).
+            next if follow
+
             # Array#<=> compares element-wise (filename, then offset);
             # Array has no #<=, so the spaceship result is compared.
             next if last_file && ([item.file, item.offset] <=> [last_file, last_offset]) <= 0
@@ -435,6 +478,48 @@ module SPMCache
             @dropped = 0
             dropped
           end
+        end
+      end
+
+      # A per-connection follow of ONE pinned run (?run=, 14-03): the
+      # client's disk replay covered the named run from byte 0; this
+      # reader then delivers ONLY that file's growth through the shared
+      # drain machinery (Events.drain_appended). The held fd keeps an
+      # unlinked file readable (POSIX, D-07), so a retention prune
+      # never breaks a live pinned view. Discovery of newer runs is the
+      # BROADCASTER's business (the switch broadcast reaches pinned
+      # clients like every client) -- this stream is never re-pointed.
+      class PinnedFollow
+        def initialize(path)
+          @name = File.basename(path)
+          @io = File.open(path, 'rb')
+          @offset = 0
+          @buffer = String.new(encoding: Events::Tailer::BINARY)
+        end
+
+        attr_reader :name
+
+        # After the replay: continue from exactly where it ended.
+        def seek(offset)
+          @offset = offset
+          @buffer.clear
+        end
+
+        def each_new_entry(&block)
+          return unless @io
+
+          result = Events.drain_appended(@io, file: @name, offset: @offset, buffer: @buffer)
+          return unless result
+
+          entries, @offset = result
+          entries.each(&block)
+        end
+
+        def close
+          @io&.close
+          @io = nil
+        rescue IOError
+          nil
         end
       end
 
@@ -704,25 +789,24 @@ module SPMCache
 
         # run_log.rb:216-240's buffer-until-newline, inverted: bytes in,
         # complete \n-terminated lines out, partial tail buffered. The
-        # offset advances by line.bytesize only on complete lines, and
-        # the published id records the offset AFTER the newline.
+        # line-splitting itself lives in Events.drain_appended (shared
+        # with the per-client pinned follows, 14-03). The offset
+        # advances by line.bytesize only on complete lines, and the
+        # published id records the offset AFTER the newline.
         def read_appended
           return unless @io
 
           # Seek past the buffered partial tail: the offset advances only
           # on complete lines, so the bytes already held in @buffer must
           # not be read (and re-buffered) a second time on the next tick.
-          @io.seek(@offset + @buffer.bytesize)
-          chunk = @io.read
-          return unless chunk && !chunk.empty?
+          result = Events.drain_appended(@io, file: File.basename(@path),
+                                              offset: @offset, buffer: @buffer)
+          return unless result
 
-          @buffer << chunk
-          while (nl = @buffer.index("\n"))
-            line = @buffer.slice!(0..nl)
-            @offset += line.bytesize
-            @broadcaster.publish_entry(file: File.basename(@path),
-                                       offset: @offset,
-                                       line: Events.utf8!(line))
+          entries, @offset = result
+          entries.each do |entry|
+            @broadcaster.publish_entry(file: entry.file, offset: entry.offset,
+                                       line: entry.line)
           end
         end
       end
