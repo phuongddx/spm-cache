@@ -7,7 +7,7 @@ require 'tmpdir'
 require 'fileutils'
 require 'securerandom'
 require 'tempfile'
-require 'uri'
+require 'yaml'
 
 require_relative 'support/web_server_boot'
 
@@ -63,6 +63,24 @@ RSpec.describe 'SPMCache::Web one-boot integration matrix', order: :defined do
     # served dashboard is the one the gem ships (13-03).
     SPMCache::Core::Config.configure(project_dir: @project_dir)
 
+    # 16-01 tracer: this boot's /api/state rows must be deterministic
+    # AND hermetic -- Cache::Inventory otherwise scans the developer's
+    # real ~/.spm-cache (CACHE_DIR is machine-global and independent
+    # of project_dir), so whether an Alamofire row exists would depend
+    # on this machine's cache. Redirected through the state read
+    # model's OWN documented seam (cache_root:, state.rb "hermetic
+    # specs" comment) via the router's read_models: injection point:
+    # the production State.call derivation still answers every row --
+    # only the Inventory scan root moves, into a fixture inside the
+    # tmp project. Still exactly ONE boot (CP7).
+    cache_root = File.join(@project_dir, 'fixture-cache')
+    %w[Alamofire SnapKit].each do |name|
+      FileUtils.mkdir_p(File.join(cache_root, 'debug', "#{name}.xcframework"))
+    end
+    state_model = lambda do |config:|
+      SPMCache::Web::ReadModels::State.call(config: config, cache_root: cache_root)
+    end
+
     # Phase 14 weld: the runs fixture + a REAL Events instance at
     # spec speed (the boot constructs the Router, so the short
     # poll/heartbeat is injected here) — every SSE row rides the
@@ -87,6 +105,7 @@ RSpec.describe 'SPMCache::Web one-boot integration matrix', order: :defined do
 
     router = SPMCache::Web::Router.new(token: @token, port: 0,
                                        assets: SPMCache::Web::Assets.new,
+                                       read_models: { state: state_model },
                                        events: weld_events, jobs: @jobs)
     @server = SPMCache::Web::Server.new(port: 0, token: @token, router: router)
     @thread = Thread.new { @server.start }
@@ -552,6 +571,114 @@ RSpec.describe 'SPMCache::Web one-boot integration matrix', order: :defined do
         expect(envelope['status']).to eq('error')
         expect(envelope['data']['reason']).to eq('slot_busy')
         expect(probe_entries.length).to eq(count_before)
+      ensure
+        ENV.delete('FAKE_BIN_SLEEP')
+        wait_for_pid_exit(first_pid)
+      end
+    end
+
+    # 16-01: the TRACER slice (D-03/D-04/D-06/D-08) -- the phase's
+    # unproven WRITE path proven end to end on one package: an
+    # authenticated POST /api/toggle goes through the shared Config
+    # mutator (sidecar flock + in-lock re-read + atomic rename
+    # replace) onto the booted project's spm-cache.yml, and the very
+    # next GET /api/state serves the row saved-not-cached while its
+    # applied graph status still says cached. Nested beside the
+    # POST /api/build tracer for the same ordering reason: after the
+    # WELD_RUN rows, before the file's shutdown acts.
+    describe 'POST /api/toggle (16-01 tracer)' do
+      def toggle_body(package, cached)
+        JSON.generate('package' => package, 'cached' => cached)
+      end
+
+      # The booted project's ON-DISK ignore list, parsed from the
+      # file the mutator writes -- never asserted against the source
+      # text of config.rb.
+      def disk_ignore
+        path = File.join(@project_dir, 'spm-cache.yml')
+        return [] unless File.exist?(path)
+
+        parsed = YAML.safe_load(File.read(path))
+        parsed.is_a?(Hash) ? parsed['ignore'] : nil
+      end
+
+      def state_row(name)
+        payload = JSON.parse(get('/api/state', 'X-SPM-Token' => @token).body)
+        expect(payload['status']).to eq('ok')
+        payload['data']['packages'].find { |row| row['name'] == name }
+      end
+
+      it 'answers 200 with the standard envelope carrying the package and its new cached state' do
+        res = post('/api/toggle', { 'X-SPM-Token' => @token }, toggle_body('Alamofire', false))
+        expect(res.code).to eq('200')
+        envelope = JSON.parse(res.body)
+        expect(envelope.keys).to contain_exactly('status', 'data', 'generated_at')
+        expect(envelope['status']).to eq('ok')
+        expect(envelope['data']['package']).to eq('Alamofire')
+        expect(envelope['data']['cached']).to eq(false)
+      end
+
+      it 'reached disk THROUGH the shared path: the booted project yml parses with exactly the entry and the full default key set (PROBED P2 shape)' do
+        path = File.join(@project_dir, 'spm-cache.yml')
+        expect(File.exist?(path)).to be true
+        parsed = YAML.safe_load(File.read(path))
+        expect(parsed['ignore']).to eq(['Alamofire'])
+        expect(parsed.keys).to contain_exactly(*SPMCache::Core::Config::DEFAULT_CONFIG.keys)
+      end
+
+      it 'shows on /api/state immediately: saved-not-cached while applied still says cached, and the row is pending' do
+        row = state_row('Alamofire')
+        expect(row).not_to be_nil
+        # The three new fields land BESIDE the existing six (names and
+        # meanings unchanged).
+        expect(row.keys).to contain_exactly(
+          'name', 'config', 'size_bytes', 'state', 'fidelity', 'has_macro',
+          'saved_cached', 'applied_cached', 'pending'
+        )
+        expect(row['saved_cached']).to eq(false)  # the checkbox's own truth: the SAVED config no longer caches it
+        expect(row['applied_cached']).to eq(true) # the LAST SYNC still did (graph fixture: hit)
+        expect(row['state']).to eq('hit')         # the applied signal itself is untouched
+        expect(row['pending']).to eq(true)
+
+        # A package that is neither ignored nor graph-ignored is not
+        # pending (graph fixture: SnapKit missed).
+        snap = state_row('SnapKit')
+        expect(snap['saved_cached']).to eq(true)
+        expect(snap['applied_cached']).to eq(true)
+        expect(snap['pending']).to eq(false)
+      end
+
+      it 'toggling back to cached removes exactly that entry: ignore empty again, saved-cached, no longer pending' do
+        res = post('/api/toggle', { 'X-SPM-Token' => @token }, toggle_body('Alamofire', true))
+        expect(res.code).to eq('200')
+        expect(JSON.parse(res.body)['data']['cached']).to eq(true)
+
+        expect(disk_ignore).to eq([])
+        row = state_row('Alamofire')
+        expect(row['saved_cached']).to eq(true)
+        expect(row['applied_cached']).to eq(true)
+        expect(row['pending']).to eq(false)
+      end
+
+      it 'never consults the spawn slot: with the Jobs slot deliberately held, a toggle still answers 200 and writes (D-08)' do
+        before_count = probe_entries.length
+        first_pid = nil
+        ENV['FAKE_BIN_SLEEP'] = '2'
+        first = post('/api/build', { 'X-SPM-Token' => @token }, JSON.generate('scope' => 'build'))
+        expect(first.code).to eq('200')
+        first_entry = wait_for_probe_entry(before_count)
+        expect(first_entry).not_to be_nil
+        first_pid = first_entry['pid']
+
+        # The slot is GENUINELY held right now (a second build
+        # harvests the 409) -- the toggle must not (D-08: no 409 from
+        # this route, ever; the slot governs Apply-now only).
+        busy = post('/api/build', { 'X-SPM-Token' => @token }, JSON.generate('scope' => 'build'))
+        expect(busy.code).to eq('409')
+
+        res = post('/api/toggle', { 'X-SPM-Token' => @token }, toggle_body('SnapKit', false))
+        expect(res.code).to eq('200')
+        expect(disk_ignore).to eq(['SnapKit'])
       ensure
         ENV.delete('FAKE_BIN_SLEEP')
         wait_for_pid_exit(first_pid)
