@@ -375,10 +375,13 @@ module SPMCache
     # (`products: [{name, type, targets}]`) sourced from `swift package
     # describe` against the materialized umbrella checkouts, so the proxy
     # generator never falls back to a package's lockfile identity as its
-    # product name. Idempotent: only entries missing `products` are enriched,
-    # and a package whose checkout can't be found is left unchanged (legacy
-    # identity-fallback applies downstream) with a warning, rather than
-    # aborting the whole run.
+    # product name. Also records the derived `binary_target` boolean beside
+    # `products[]` -- whether the package declares a binary target, from
+    # the same describe output, so a binary-backed package can be told
+    # apart from a source-backed one downstream. Idempotent: only entries
+    # missing `products` are enriched, and a package whose checkout can't
+    # be found is left unchanged (legacy identity-fallback applies
+    # downstream) with a warning, rather than aborting the whole run.
     #
     # `invalidate_stale_products!` runs first so a bug fix to this method (or
     # `products_from_manifest_fallback`) actually takes effect for packages
@@ -404,6 +407,14 @@ module SPMCache
 
           desc = SPM::Desc::Description.new(name: pkg_data["name"] || slug_for(pkg_data), pkg_dir: checkout_dir)
           desc.fetch
+          # Derived from the same describe output as products[] -- no extra
+          # shell-out. A failed describe yields no targets, so the flag
+          # falls out as false on the manifest-fallback path without a
+          # special case (the fallback knows nothing about target types,
+          # and guessing true would be worse than an honest false).
+          # `binary?` is private on the base Target (public only on the
+          # BinaryTarget subclass the factory dispatches to), hence send.
+          binary_target = desc.targets.any? { |t| t.send(:binary?) }
           products = desc.products.map { |p| { "name" => p.name, "type" => p.type, "targets" => p.target_names } }
           products = products_from_manifest_fallback(checkout_dir) if products.empty?
           if products.empty?
@@ -412,6 +423,7 @@ module SPMCache
           end
 
           pkg_data["products"] = products
+          pkg_data["binary_target"] = binary_target
         end
 
         proj_data["spm_cache_version"] = SPMCache::VERSION
@@ -420,20 +432,27 @@ module SPMCache
       @lockfile.save
     end
 
-    # Clears every package's `products[]` once per spm-cache version bump,
-    # so the enrichment loop above re-derives all of them fresh instead of
-    # trusting data a previous (possibly buggy) version wrote. A lockfile
-    # with no stamp at all (written before this field existed) is treated as
-    # stale too -- it's exactly the case that needs re-deriving the most.
-    # `spm_cache_version` is a per-project sibling of `packages`/
-    # `dependencies`/`platforms`, not a new top-level lockfile key, so the
-    # Swift-side proxy tool's `Lockfile.load(from:)` (which treats every
-    # top-level key as its own project) is unaffected -- it already ignores
-    # dict keys it doesn't read.
+    # Clears every package's `products[]` (and the derived `binary_target`
+    # flag beside it, so the two can never drift apart -- a stale flag
+    # surviving beside freshly derived products would let the web tier
+    # decide toggle-safety from data an older version derived) once per
+    # spm-cache version bump, so the enrichment loop above re-derives them
+    # fresh instead of trusting data a previous (possibly buggy) version
+    # wrote. A lockfile with no stamp at all (written before this field
+    # existed) is treated as stale too -- it's exactly the case that needs
+    # re-deriving the most. `spm_cache_version` is a per-project sibling of
+    # `packages`/`dependencies`/`platforms`, and `binary_target` is a
+    # per-package sibling of `products[]`, so neither is a new top-level
+    # lockfile key -- the Swift-side proxy tool's `Lockfile.load(from:)`
+    # (which treats every top-level key as its own project) is unaffected,
+    # it already ignores dict keys it doesn't read.
     def invalidate_stale_products!(proj_data)
       return if proj_data["spm_cache_version"] == SPMCache::VERSION
 
-      (proj_data["packages"] || []).each { |pkg_data| pkg_data.delete("products") }
+      (proj_data["packages"] || []).each do |pkg_data|
+        pkg_data.delete("products")
+        pkg_data.delete("binary_target")
+      end
     end
 
     # `swift package describe` can come back empty (or fail outright) for a
