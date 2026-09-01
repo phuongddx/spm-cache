@@ -5,6 +5,7 @@ require 'json'
 require 'tmpdir'
 require 'fileutils'
 require 'securerandom'
+require 'set'
 
 require_relative 'support/web_server_boot'
 
@@ -45,6 +46,10 @@ RSpec.describe SPMCache::Web::ReadModels::State do
     fw
   end
 
+  def write_lockfile(packages, project: 'TestApp.xcodeproj')
+    File.write(config.lockfile_path, JSON.generate(project => { 'packages' => packages }))
+  end
+
   def state
     described_class.call(config: config, cache_root: cache_root)
   end
@@ -67,12 +72,18 @@ RSpec.describe SPMCache::Web::ReadModels::State do
             # (16-01) the saved/applied/pending fields land BESIDE the
             # six: empty on-disk ignore list -> saved_cached true;
             # hit/missed -> applied_cached true; nothing pending.
+            # (16-03) toggleable/reason land beside those three: no
+            # gating fact on either fixture package -> toggleable,
+            # no reason.
+            'toggleable' => true, 'reason' => nil,
             'saved_cached' => true, 'applied_cached' => true, 'pending' => false },
           { 'name' => 'Ziph', 'config' => 'debug', 'size_bytes' => File.lstat(File.join(cache_root, 'debug', 'Ziph.xcframework')).size,
             'state' => 'missed', 'fidelity' => 'not-graph-pinned', 'has_macro' => true,
+            'toggleable' => true, 'reason' => nil,
             'saved_cached' => true, 'applied_cached' => true, 'pending' => false },
           { 'name' => 'Alamofire', 'config' => 'release', 'size_bytes' => File.lstat(File.join(cache_root, 'release', 'Alamofire.xcframework')).size,
             'state' => 'hit', 'fidelity' => 'not-graph-pinned', 'has_macro' => false,
+            'toggleable' => true, 'reason' => nil,
             'saved_cached' => true, 'applied_cached' => true, 'pending' => false }
         ]
       )
@@ -101,6 +112,138 @@ RSpec.describe SPMCache::Web::ReadModels::State do
                  JSON.generate(fidelity_status: 'graph-pinned'))
 
       expect(state['packages'].first['fidelity']).to eq('graph-pinned')
+    end
+  end
+
+  # (16-03, D-09/TOGL-03) The one server-side derivation: every row
+  # answers whether it may be toggled and, when it may not, exactly
+  # one of the five words -- resolved by a fixed precedence over facts
+  # already on disk (the saved ignore list, the graph status, the
+  # provenance fidelity, and the lockfile's binary-backed name set).
+  describe 'the reason matrix' do
+    it 'is toggleable with no reason for a plainly cached package with no gating fact' do
+      write_framework('debug', 'Plain')
+
+      row = state['packages'].first
+      expect(row['toggleable']).to eq(true)
+      expect(row['reason']).to be_nil
+    end
+
+    it 'is not toggleable with the pattern-managed reason when a glob pattern matches but no exact entry exists' do
+      write_framework('debug', 'AlamoCore')
+      File.write(config.config_path, "ignore:\n  - 'Alamo*'\n")
+
+      row = state['packages'].first
+      expect(row['toggleable']).to eq(false)
+      expect(row['reason']).to eq('pattern-managed')
+    end
+
+    it 'is not toggleable with the plugin reason for a plugin-status package' do
+      write_graph([{ 'module' => 'PluginPkg', 'status' => 'plugin' }])
+      write_framework('debug', 'PluginPkg')
+
+      row = state['packages'].first
+      expect(row['toggleable']).to eq(false)
+      expect(row['reason']).to eq('plugin')
+    end
+
+    it 'is not toggleable with the excluded reason for an excluded-status package' do
+      write_graph([{ 'module' => 'ExcludedPkg', 'status' => 'excluded' }])
+      write_framework('debug', 'ExcludedPkg')
+
+      row = state['packages'].first
+      expect(row['toggleable']).to eq(false)
+      expect(row['reason']).to eq('excluded')
+    end
+
+    it 'is not toggleable with the binary-target reason when the lockfile marks the package binary-backed' do
+      write_framework('debug', 'BinKit')
+      write_lockfile([{ 'name' => 'BinKit', 'binary_target' => true }])
+
+      row = state['packages'].first
+      expect(row['toggleable']).to eq(false)
+      expect(row['reason']).to eq('binary-target')
+    end
+
+    it 'gates on fidelity only for the resolution-incompatible warn status, staying toggleable for not-graph-pinned' do
+      write_framework('debug', 'Warned')
+      File.write(File.join(cache_root, 'debug', 'Warned.xcframework.provenance.json'),
+                 JSON.generate(fidelity_status: 'resolution-incompatible'))
+      write_framework('debug', 'Neutral')
+
+      warned = state['packages'].find { |p| p['name'] == 'Warned' }
+      neutral = state['packages'].find { |p| p['name'] == 'Neutral' }
+      expect(warned['toggleable']).to eq(false)
+      expect(warned['reason']).to eq('fidelity')
+      expect(neutral['toggleable']).to eq(true)
+      expect(neutral['reason']).to be_nil
+    end
+
+    it 'resolves precedence deterministically end-to-end: excluded > plugin > binary-target > pattern-managed > fidelity' do
+      write_graph([
+                    { 'module' => 'ChainExcluded', 'status' => 'excluded' },
+                    { 'module' => 'ChainPlugin', 'status' => 'plugin' },
+                    { 'module' => 'ChainBinary', 'status' => 'hit' },
+                    { 'module' => 'ChainPattern', 'status' => 'hit' }
+                  ])
+      %w[ChainExcluded ChainPlugin ChainBinary ChainPattern].each do |name|
+        write_framework('debug', name)
+        File.write(File.join(cache_root, 'debug', "#{name}.xcframework.provenance.json"),
+                   JSON.generate(fidelity_status: 'resolution-incompatible'))
+      end
+      write_lockfile([
+                       { 'name' => 'ChainExcluded', 'binary_target' => true },
+                       { 'name' => 'ChainPlugin', 'binary_target' => true },
+                       { 'name' => 'ChainBinary', 'binary_target' => true }
+                     ])
+      File.write(config.config_path, "ignore:\n  - 'Chain*'\n")
+
+      reasons = state['packages'].each_with_object({}) { |row, acc| acc[row['name']] = row['reason'] }
+      expect(reasons).to eq(
+        'ChainExcluded' => 'excluded',
+        'ChainPlugin' => 'plugin',
+        'ChainBinary' => 'binary-target',
+        'ChainPattern' => 'pattern-managed'
+      )
+    end
+
+    it 'stays toggleable with no reason when the package has an exact ignore entry (the normal off state)' do
+      write_framework('debug', 'ToggledOff')
+      File.write(config.config_path, "ignore:\n  - ToggledOff\n")
+
+      row = state['packages'].first
+      expect(row['toggleable']).to eq(true)
+      expect(row['reason']).to be_nil
+      expect(row['saved_cached']).to eq(false)
+    end
+
+    it 'ignores the macro flag as a reason input' do
+      write_graph([{ 'module' => 'MacroPkg', 'status' => 'hit', 'hasMacro' => true }])
+      write_framework('debug', 'MacroPkg')
+
+      row = state['packages'].first
+      expect(row['has_macro']).to eq(true)
+      expect(row['toggleable']).to eq(true)
+      expect(row['reason']).to be_nil
+    end
+
+    it 'never emits a reason outside the five-word vocabulary' do
+      write_graph([
+                    { 'module' => 'ExcludedOne', 'status' => 'excluded' },
+                    { 'module' => 'PluginOne', 'status' => 'plugin' },
+                    { 'module' => 'BinaryOne', 'status' => 'hit' },
+                    { 'module' => 'PatternOne', 'status' => 'hit' },
+                    { 'module' => 'FidelityOne', 'status' => 'hit' },
+                    { 'module' => 'PlainOne', 'status' => 'hit' }
+                  ])
+      %w[ExcludedOne PluginOne BinaryOne PatternOne FidelityOne PlainOne].each { |n| write_framework('debug', n) }
+      write_lockfile([{ 'name' => 'BinaryOne', 'binary_target' => true }])
+      File.write(config.config_path, "ignore:\n  - 'Pattern*'\n")
+      File.write(File.join(cache_root, 'debug', 'FidelityOne.xcframework.provenance.json'),
+                 JSON.generate(fidelity_status: 'resolution-incompatible'))
+
+      reasons = state['packages'].map { |row| row['reason'] }.compact
+      expect(reasons.to_set).to eq(%w[excluded plugin binary-target pattern-managed fidelity].to_set)
     end
   end
 
