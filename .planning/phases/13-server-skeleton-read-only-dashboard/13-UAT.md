@@ -1,70 +1,72 @@
 ---
-status: partial
+status: complete
 phase: 13-Server Skeleton + Read-Only Dashboard
 source: [13-VERIFICATION.md, 13-VALIDATION.md]
 started: 2026-09-01T07:20:00Z
-updated: 2026-09-01T07:37:11Z
+updated: 2026-09-01T08:34:00Z
 ---
 
 ## Current Test
 
-[testing complete for automatable items — 2 items await user judgment, see Gaps/notes]
+[testing complete]
 
 ## Tests
 
 ### 1. Full dashboard walkthrough (3 panels) — real browser, real project
 expected: With a real cached project (`stress-ai/ios-stress-app/StressMonitor`, live cache state): state table renders sizes/badges/◆ macros, Run Doctor produces ✓/!/✗ rows + ↳ hints + summary + "Cached — generated at" stamp, graph renders node colors/diamond macros/legend. Per 13-UI-SPEC.
-result: issue
-severity: blocker
-reported: "Orchestrator-driven real headless-Chromium session against a live `spm-cache web` boot (real project, real cache, port 60902). index.html references its own sibling assets as bare relative paths (`href=\"styles.css\"`, `src=\"cytoscape.min.js\"`, `src=\"app.js\"` — index.html:7,56,57), which resolve against the served document root `/`. router.rb only serves static files under `/assets/*` (router.rb:76) — everything else 404s. Verified live: `GET /app.js` → 404, `GET /styles.css` → 404, `GET /cytoscape.min.js` → 404, `GET /assets/app.js` → 200. Console showed three 404 resource-load errors on page load. Because app.js never executes, the DOM never advances past the static `Loading…` placeholders baked into index.html — no state table, no doctor rows, no graph, for every user, every load, unconditionally. Root cause: 13-03 authored index.html with un-prefixed asset refs while router.rb's asset route (same commit's sibling file) requires the `/assets/` prefix — never caught because specs pin `/assets/app.js` served bytes directly (never asserting index.html's own href/src resolve there) and the repo has no JS runtime in CI to observe the runtime 404s. This also transitively breaks the token-bootstrap and auto-poll behavior (Tests 2, 3 below) since neither can run without app.js loading."
+result: pass
+evidence: "Two-phase session. (1) FAILING pre-fix: real headless-Chromium against live boot found G-13-1 — index.html's bare-relative asset refs 404'd (router serves only /assets/*), app.js never ran, panels stuck on static 'Loading…'. (2) PASSING post-fix (commits 5cc40cf RED, 68ff6f8 GREEN, 8fdd2df spec repair): fresh boot, fresh navigation — 43 state rows with real data (e.g. 'FirebaseInstallations | debug | 660.3 KB | hit | resolution-incompatible'), Run Doctor click → button swapped to disabled 'Running…' → full check rows with ✓ markers (xcode_version Xcode 26.3, swift_version 6.2.4, toolchain_path, cache_dir_health ~42732 files, companion_binary 0.4.0, …) + 'Cached — generated at 15:28:00' stamp, graph panel with cytoscape canvas mounted (1 child) + legend (hit/missed/ignored/excluded/plugin/macro). Zero page errors. Full-page screenshot captured this session."
 
 ### 2. Token bootstrap (URL cleanup, sessionStorage, never-in-DOM)
 expected: Address bar cleans to `/` via `history.replaceState` before first render; token stored in `sessionStorage`, never rendered in the DOM; every fetch sends `X-SPM-Token`.
-result: skipped
-reason: "Blocked by Test 1 (G-13-1) — app.js never loads, so its bootstrap code (app.js:10-16) never executes. URL stayed `?token=...` unclean in my live session; sessionStorage stayed empty. Not a separate defect — same root cause, will be re-verified once G-13-1 is fixed."
+result: pass
+evidence: "Post-fix live navigation with correct token: `location.href` cleaned to `http://127.0.0.1:<port>/` (no `?token=`); sessionStorage holds `spm-cache-web-token` (64 chars); full-page DOM search finds the token nowhere. Negative path verified too: a mistyped token (this session's own transcription slip, then a deliberately corrupted sessionStorage value) yields the exact full-page restart copy 'This page's access token is no longer valid. Restart spm-cache web and open the URL it prints.' — panels replaced, exactly the truth-18 contract. Pre-fix this test was blocked by G-13-1 (app.js never loaded)."
 
 ### 3. Auto-poll + error resilience
 expected: Header stamp shows "Updated … · auto-refresh {N}s" and advances every 5s; a failed poll keeps last rows and the loop keeps running.
-result: skipped
-reason: "Blocked by Test 1 (G-13-1) — no polling loop ever starts because app.js never loads. Will re-verify once G-13-1 is fixed."
+result: pass
+evidence: "Post-fix live: stamp advanced 'Updated 15:27:57' → 'Updated 15:28:02' (5s cadence). Killed the serving process with SIGINT mid-poll: error copy appeared ('Couldn't load Cache State: network error (Failed to fetch). Check that spm-cache web is still running, then Refresh.'), ALL 43 last rows retained, and the loop continued (stamp kept advancing after server death). Pre-fix this test was blocked by G-13-1."
 
 ### 4. True-offline load
 expected: Disconnect the machine from the network, hard-reload — everything renders (all assets local, zero blocked-external-request console errors).
 result: skipped
-reason: "Loopback traffic (127.0.0.1) is unaffected by network disconnect, so this test cannot distinguish online/offline today — and is moot regardless while G-13-1 makes every load fail identically online or offline. Zero external/CDN references were independently grep-confirmed (0 matches across index.html/app.js/styles.css), so the offline *architecture* is sound; only the routing wiring is broken. Re-verify after G-13-1 fix, ideally with the user's real network-disconnect test since that's a physical-layer check I cannot perform from this session."
+reason: "Loopback traffic (127.0.0.1) is unaffected by a network disconnect, so this physical-layer check is not executable from an agent session; and the offline *architecture* is independently proven — zero external/CDN references across index.html/app.js/styles.css (grep-verified twice), all assets same-origin. Post-fix live load shows the only non-2xx request in the whole session is the browser's automatic /favicon.ico probe (benign, no functional impact). Recommend the user does the physical disconnect spot-check at their leisure; not a gap."
 
 ### 5. Real-TTY Ctrl-C exit
 expected: Ctrl-C on a foreground `spm-cache web` exits 0 promptly; `.spm-cache/web/server.json` is removed.
 result: pass
-evidence: "Orchestrator-driven live process test (not a real TTY, but the same signal path): booted `spm-cache web --no-open --port=0` against the reference project (pid 81547), confirmed marker existed, sent real `SIGINT` via `kill -INT`. Process exited within 1.5s, marker file `.spm-cache/web/server.json` was gone afterward, `ps -p <pid>` confirmed no process. Matches the automated `web_signals_spec.rb` real-subprocess proof already in 13-VERIFICATION.md truth 2."
+evidence: "Verified twice this session on two independent live boots (pids 21013, 22623): real SIGINT → process gone within 1.5s, marker file removed both times. Matches the automated web_signals_spec.rb real-subprocess proof. (Real-GUI Ctrl-C keypress equivalence is covered by the identical signal path.)"
 
 ### 6. Judgment-tier prohibitions (stored-XSS defense, no-second-mutex)
 expected: (a) zero innerHTML/insertAdjacentHTML/document.write in app.js — all dynamic text via textContent/createElement. (b) web layer's only writes are its own marker + boot lock; no second project mutex.
 result: pass
-evidence: "Re-confirmed via direct grep this session: zero innerHTML/insertAdjacentHTML/document.write/outerHTML occurrences in app.js; el()/textContent is the only DOM-write path (read app.js in full). Write-surface audit: only Marker (server.json) and .boot.lock live under the web's own `.spm-cache/web/` dir; ReadModels are pure readers. Matches 13-VERIFICATION.md's SUBSTANTIALLY HONORED judgment verdict — accepted as pass, not re-litigated."
+evidence: "Re-confirmed via direct grep this session: zero innerHTML/insertAdjacentHTML/document.write/outerHTML in app.js; el()/textContent is the only DOM-write path. Write-surface audit: only Marker (server.json) and .boot.lock under the web's own `.spm-cache/web/` dir; ReadModels are pure readers. Matches 13-VERIFICATION.md's SUBSTANTIALLY HONORED judgment verdict — accepted as pass, not re-litigated. Live session exercised hostile-free real data through the full render path with zero page errors."
 
 ## Summary
 
 total: 6
-passed: 2
-issues: 1
+passed: 5
+issues: 0
 pending: 0
-skipped: 3
+skipped: 1
 blocked: 0
 
 ## Gaps
 
 - gap_id: G-13-1
   truth: "Dashboard renders per 13-UI-SPEC in a real browser: state table, doctor panel, graph panel, token bootstrap URL cleanup, and auto-poll all function"
-  status: failed
-  reason: "index.html's asset references (styles.css, cytoscape.min.js, app.js) are bare relative paths resolving to `/{asset}` from document root `/`, but router.rb only serves static files under `/assets/*`. Every first load 404s all three sibling assets — the entire client-side dashboard (rendering, token bootstrap, auto-polling) never activates for any user."
+  status: resolved
+  reason: "index.html's asset references (styles.css, cytoscape.min.js, app.js) were bare relative paths resolving to `/{asset}` from document root `/`, but router.rb only serves static files under `/assets/*`. Every first load 404'd all three sibling assets — the entire client-side dashboard never activated for any user."
   severity: blocker
   test: 1
   artifacts: ["lib/spm_cache/web/assets/index.html"]
   missing: []
-  fix_hint: "Prefix index.html's href/src values with `assets/` (relative, matching how the page is served at `/`) or `/assets/` (absolute) so they resolve through router.rb's existing `/assets/*` route. Add a regression spec that boots the real server and asserts every asset reference parsed out of the served index.html itself resolves 200 through the router — the existing specs assert `/assets/app.js` bytes directly and never parse index.html's own refs, which is exactly the blind spot that let this ship."
+  resolved_by: 13-05-PLAN.md
+  resolved_at: 2026-09-01
+  resolution: "Executed via /gsd-execute-phase 13 --gaps-only (commits 5cc40cf RED → 8fdd2df spec repair → 68ff6f8 GREEN → eb10a9b close-out): refs prefixed `assets/`, integration spec now resolves every scanned ref with browser semantics (URI.join against the document origin — no test-side /assets/ re-prefix), live curl smoke + 185-example web spec set + full 787-example suite green. Independently re-verified in a real headless browser this session: full render, token bootstrap, auto-poll, error resilience — see Tests 1-3 evidence."
 
 ## Notes for Human Follow-Up (not gaps — judgment/observation items)
 
-- **Default-browser auto-open on a fresh start (no `--no-open`):** not testable from this headless session without popping a real GUI browser window on the user's desktop unprompted. Code trace + `web_lifecycle_spec.rb` ordering spec already prove `StartCallback` fires only after the listener binds; genuine real-browser-pops-open observation still needs the user, ideally re-run after G-13-1 is fixed (currently pointless — the page would 404 on load anyway).
-- **WR-02 live-instance reuse UX (carried decision from 13-VERIFICATION.md human item 5):** product judgment call, not a pass/fail test — a second `spm-cache web` launch blocks silently on the boot lock for the first server's entire lifetime, then boots a NEW instance after the first exits, rather than printing "already running" and reusing it live. This is unrelated to G-13-1 and does not block its fix.
+- **Default-browser auto-open on a fresh start (no `--no-open`):** not observable from a headless session without popping a real GUI window unprompted. Code + spec evidence (`StartCallback` fires only after bind, ordering-pinned) is strong; a 10-second real observation by the user closes it fully.
+- **WR-02 live-instance reuse UX (carried decision, 13-VERIFICATION human item 5):** product judgment, not pass/fail — a second `spm-cache web` launch blocks silently on the boot flock for the first server's lifetime, then boots a NEW instance after it exits; the spec-pinned "already running at <url>" print only manifests in a synthetic lock-free scenario. Accept serialization, or require a lock-free fast-path marker check. Unrelated to G-13-1.
+- **Benign observation:** browsers auto-request `/favicon.ico` → 404 in console. No functional impact; index.html intentionally references no favicon. Cosmetic follow-up candidate only.
