@@ -6,6 +6,7 @@ require 'time'
 require 'tmpdir'
 require 'fileutils'
 require 'securerandom'
+require 'tempfile'
 require 'uri'
 
 require_relative 'support/web_server_boot'
@@ -44,6 +45,10 @@ RSpec.describe 'SPMCache::Web one-boot integration matrix', order: :defined do
   WELD_LINE2 = JSON.generate('ts' => '2026-09-01T09:30:02Z', 'stream' => 'out',
                              'text' => "weld replay two\n") + "\n"
 
+  # 15-01: the injectable fake-bin fixture (Web::Jobs' bin_path: seam)
+  # -- pure stdlib, never the gem (spec/fixtures/fake_spm_cache_bin.rb).
+  FAKE_BIN = File.expand_path('fixtures/fake_spm_cache_bin.rb', __dir__)
+
   before(:all) do
     @boot_started = Process.clock_gettime(Process::CLOCK_MONOTONIC)
     @previous_project_dir = SPMCache::Core::Config.instance.project_dir
@@ -68,12 +73,34 @@ RSpec.describe 'SPMCache::Web one-boot integration matrix', order: :defined do
     File.write(File.join(runs_dir, WELD_RUN), [WELD_HEADER, WELD_LINE1, WELD_LINE2].join)
     weld_events = SPMCache::Web::Events.new(config: SPMCache::Core::Config.instance,
                                             poll_interval: 0.05, heartbeat_seconds: 0.25)
+
+    # 15-01: the fake-bin-backed Jobs collaborator, injected through
+    # the SAME seam as events (router.rb jobs: kwarg) -- still exactly
+    # ONE boot (CP7). ENV['FAKE_BIN_PROBE'] rides the REAL process ENV
+    # since Jobs merges ENV.to_h into the spawned child's env.
+    @previous_fake_bin_probe = ENV.fetch('FAKE_BIN_PROBE', nil)
+    probe_tmp = Tempfile.new(['fake-bin-probe', '.jsonl'])
+    probe_tmp.close
+    @probe_file = probe_tmp.path
+    ENV['FAKE_BIN_PROBE'] = @probe_file
+    @jobs = SPMCache::Web::Jobs.new(config: SPMCache::Core::Config.instance, bin_path: FAKE_BIN)
+
     router = SPMCache::Web::Router.new(token: @token, port: 0,
                                        assets: SPMCache::Web::Assets.new,
-                                       events: weld_events)
+                                       events: weld_events, jobs: @jobs)
     @server = SPMCache::Web::Server.new(port: 0, token: @token, router: router)
     @thread = Thread.new { @server.start }
     WebServerBoot.wait_accepting(@server.port)
+
+    # Prime the events tailer (LOGS-03): it starts lazily on the
+    # FIRST /api/events register and its own first discover() tick
+    # publishes a Switch(previous: nil) for whatever is newest at
+    # that moment. Without this warm-up, the FIRST real test to
+    # connect would race that startup switch against its own spawn.
+    warm_handle = WebServerBoot::Handle.new(port: @server.port, token: @token, server: @server)
+    warm_sock = WebServerBoot.raw_stream_open(warm_handle, "/api/events?token=#{@token}")
+    WebServerBoot.raw_read_until(warm_sock, 'event: hello', timeout: 5)
+    WebServerBoot.raw_close(warm_sock)
   end
 
   after(:all) do
@@ -81,6 +108,12 @@ RSpec.describe 'SPMCache::Web one-boot integration matrix', order: :defined do
     @thread&.join(10)
     SPMCache::Core::Config.configure(project_dir: @previous_project_dir)
     FileUtils.remove_entry(@project_dir)
+    if @previous_fake_bin_probe
+      ENV['FAKE_BIN_PROBE'] = @previous_fake_bin_probe
+    else
+      ENV.delete('FAKE_BIN_PROBE')
+    end
+    File.delete(@probe_file) if @probe_file && File.exist?(@probe_file)
   end
 
   def handle
@@ -91,8 +124,48 @@ RSpec.describe 'SPMCache::Web one-boot integration matrix', order: :defined do
     WebServerBoot.http_get(handle, path, headers)
   end
 
-  def post(path, headers = {})
-    WebServerBoot.http_post(handle, path, headers)
+  def post(path, headers = {}, body = nil)
+    WebServerBoot.http_post(handle, path, headers, body)
+  end
+
+  # 15-01: the fake bin's recorded side effects, newest-last.
+  def probe_entries
+    return [] unless File.exist?(@probe_file)
+
+    File.readlines(@probe_file).map { |line| JSON.parse(line) }
+  end
+
+  # Bounded reap: never an unbounded wait, never leaked past an
+  # example (the same posture the shutdown-sentinel row below uses).
+  def wait_for_pid_exit(pid, timeout: 5)
+    return unless pid
+
+    deadline = Time.now + timeout
+    loop do
+      Process.kill(0, pid)
+      break if Time.now > deadline
+
+      sleep 0.05
+    rescue Errno::ESRCH
+      break
+    end
+  end
+
+  # Bounded poll for the probe entry at `index` to appear -- spawn_run
+  # returns to the HTTP caller the instant Process.detach is called,
+  # well before the child has actually booted far enough to write its
+  # probe line, so reading probe_entries immediately after a POST is
+  # inherently racy. Every row that needs "the entry this POST just
+  # produced" goes through this instead of a bare probe_entries.last.
+  def wait_for_probe_entry(index, timeout: 2)
+    deadline = Time.now + timeout
+    loop do
+      entry = probe_entries[index]
+      return entry if entry
+      return nil if Time.now > deadline
+
+      sleep 0.02
+    end
   end
 
   describe 'route x auth matrix (25 cells, WEB-04)' do
@@ -390,15 +463,150 @@ RSpec.describe 'SPMCache::Web one-boot integration matrix', order: :defined do
       expect(elapsed).to be < 10.0 # CP7: whole file under ~25s, SSE share a fraction of it
     end
 
-    it 'shuts down within bound WITH an open stream (the sentinel proof, WEB-03)' do
-      sock = raw_stream
-      read_until(sock, 'event: hello') # the stream is genuinely open and parked in its pop
+    # 15-01: the TRACER slice (BLD-01, D-02/D-04/D-05/D-09), nested
+    # HERE deliberately: the shared tailer (LOGS-03) follows exactly
+    # one file at a time and only ever moves FORWARD chronologically,
+    # so spawning real builds earlier in the file would push it past
+    # WELD_RUN before the weld rows above finish asserting live growth
+    # on it. Running after those rows (and before the file's real
+    # final shutdown, still below) costs nothing: this slice needs a
+    # live server, not WELD_RUN's continued growth.
+    describe 'POST /api/build (BLD-01 tracer)' do
+      def build_body(scope = 'build')
+        JSON.generate('scope' => scope)
+      end
+
+      it 'answers 200 with the standard envelope, the claimed scope, and a freshly derived lock snapshot' do
+        before_count = probe_entries.length
+        res = post('/api/build', { 'X-SPM-Token' => @token }, build_body)
+        expect(res.code).to eq('200')
+        envelope = JSON.parse(res.body)
+        expect(envelope['status']).to eq('ok')
+        expect(envelope['data']['scope']).to eq('build')
+        expect(%w[free held]).to include(envelope['data']['lock']['state'])
+      ensure
+        wait_for_pid_exit(wait_for_probe_entry(before_count)&.fetch('pid', nil))
+      end
+
+      it 'spawns the probed shape: array argv, project cwd, ui trigger env, group-leader pgid, null stdio' do
+        before_count = probe_entries.length
+        res = post('/api/build', { 'X-SPM-Token' => @token }, build_body)
+        expect(res.code).to eq('200')
+
+        entry = wait_for_probe_entry(before_count)
+        expect(entry).not_to be_nil
+        expect(entry['argv']).to eq(['build'])
+        expect(File.realpath(entry['pwd'])).to eq(File.realpath(@project_dir))
+        expect(entry['trigger_env']).to eq('ui')
+        expect(entry['pgid']).to eq(entry['pid']) # own process-group leader (P1)
+        expect(entry['stdout_null']).to eq(true)
+        expect(entry['stderr_null']).to eq(true)
+      ensure
+        wait_for_pid_exit(entry && entry['pid'])
+      end
+
+      it 'delivers the spawned run to a live /api/events subscriber, whose header records trigger ui' do
+        sock = WebServerBoot.raw_stream_open(handle, "/api/events?token=#{@token}")
+        pid = nil
+        begin
+          WebServerBoot.raw_read_until(sock, 'event: hello', timeout: 2)
+          before_count = probe_entries.length
+          res = post('/api/build', { 'X-SPM-Token' => @token }, build_body)
+          expect(res.code).to eq('200')
+
+          entry = wait_for_probe_entry(before_count)
+          expect(entry).not_to be_nil
+          pid = entry['pid']
+
+          # The tailer is a single shared follower (LOGS-03): the FIRST
+          # 'event: switch' this client observes may still be catching
+          # up to an EARLIER sibling row's spawn, not this one -- wait
+          # for OUR OWN pid-tagged run name to actually appear in the
+          # stream (inside the matching switch's data), not just any
+          # switch.
+          bytes = WebServerBoot.raw_read_until(sock, "-#{pid}-build.jsonl", timeout: 5)
+          run_name = bytes[/\d{8}T\d{6}\d{3}Z-#{pid}-build(?:-\d+)?\.jsonl/]
+          run_path = File.join(SPMCache::Core::Config.instance.runs_dir, run_name)
+          header = JSON.parse(File.readlines(run_path).first)
+          expect(header['trigger']).to eq('ui')
+        ensure
+          WebServerBoot.raw_close(sock)
+          wait_for_pid_exit(pid)
+        end
+      end
+
+      it 'answers 409 with a machine-readable slot_busy reason while a build is in flight, and spawns nothing new' do
+        before_count = probe_entries.length
+        first_pid = nil
+        ENV['FAKE_BIN_SLEEP'] = '1'
+        first = post('/api/build', { 'X-SPM-Token' => @token }, build_body)
+        expect(first.code).to eq('200')
+        first_entry = wait_for_probe_entry(before_count)
+        expect(first_entry).not_to be_nil
+        first_pid = first_entry['pid']
+        count_before = probe_entries.length
+
+        second = post('/api/build', { 'X-SPM-Token' => @token }, build_body)
+        expect(second.code).to eq('409')
+        envelope = JSON.parse(second.body)
+        expect(envelope['status']).to eq('error')
+        expect(envelope['data']['reason']).to eq('slot_busy')
+        expect(probe_entries.length).to eq(count_before)
+      ensure
+        ENV.delete('FAKE_BIN_SLEEP')
+        wait_for_pid_exit(first_pid)
+      end
+    end
+
+    # Wrapped in its own describe (not a direct it): RSpec always runs
+    # a group's direct examples before its nested groups, regardless
+    # of source interleaving -- nesting this is what keeps it running
+    # AFTER the POST /api/build describe above, as the file's true
+    # final act on @server.
+    describe 'shutdown with an open stream (the sentinel proof, WEB-03)' do
+      it 'shuts down within bound WITH an open stream' do
+        sock = raw_stream
+        read_until(sock, 'event: hello') # the stream is genuinely open and parked in its pop
+        started = Process.clock_gettime(Process::CLOCK_MONOTONIC)
+        WebServerBoot.shutdown(@server) # Server#shutdown: broadcaster sentinel BEFORE @http.shutdown
+        joined = @thread.join(10) # WEBrick's accept loop joins the stream's connection thread
+        expect(joined).to be_truthy # webrick server.rb:210 did NOT hang on the open body proc
+        expect(Process.clock_gettime(Process::CLOCK_MONOTONIC) - started).to be < 10.0
+        WebServerBoot.raw_close(sock)
+      end
+    end
+  end
+
+  # 15-01: the shutdown-with-in-flight-build sentinel (WEB-03 + D-02
+  # in one row, P5 as a spec). The file's LAST describe: it spawns
+  # via the SAME @jobs collaborator constructed in the ONE boot above
+  # (CP7 -- no second listener, no second Jobs instance) so the claim
+  # holds regardless of whatever state the SSE-shutdown example above
+  # already left @server in.
+  describe 'shutdown with an in-flight UI build (D-02/WEB-03, P5 as a spec)' do
+    it 'returns bounded, and the detached child is still alive immediately afterwards' do
+      pid = nil
+      ENV['FAKE_BIN_SLEEP'] = '2'
+      pid = @jobs.spawn_run(scope: 'build')
+      expect(pid).not_to be_nil
+
       started = Process.clock_gettime(Process::CLOCK_MONOTONIC)
-      WebServerBoot.shutdown(@server) # Server#shutdown: broadcaster sentinel BEFORE @http.shutdown
-      joined = @thread.join(10) # WEBrick's accept loop joins the stream's connection thread
-      expect(joined).to be_truthy # webrick server.rb:210 did NOT hang on the open body proc
-      expect(Process.clock_gettime(Process::CLOCK_MONOTONIC) - started).to be < 10.0
-      WebServerBoot.raw_close(sock)
+      WebServerBoot.shutdown(@server) # neither waits on, reaps, nor kills the child
+      elapsed = Process.clock_gettime(Process::CLOCK_MONOTONIC) - started
+      expect(elapsed).to be < 5.0
+
+      expect { Process.kill(0, pid) }.not_to raise_error
+    ensure
+      ENV.delete('FAKE_BIN_SLEEP')
+      # The example reaps the child itself (D-02: no server code ever
+      # does) -- TERM the process GROUP, then the bounded liveness
+      # poll every other row uses, so no example leaks a process.
+      begin
+        Process.kill('-TERM', pid) if pid
+      rescue Errno::ESRCH, Errno::EPERM
+        nil
+      end
+      wait_for_pid_exit(pid)
     end
   end
 end

@@ -14,12 +14,13 @@ require 'securerandom'
 module WebServerBoot
   Handle = Struct.new(:port, :token, :server, keyword_init: true)
 
-  def self.with_server(project_dir:, assets: nil, read_models: {}, events: nil)
+  def self.with_server(project_dir:, assets: nil, read_models: {}, events: nil, jobs: nil)
     previous = SPMCache::Core::Config.instance.project_dir
     SPMCache::Core::Config.configure(project_dir: project_dir)
     token = SecureRandom.hex(32)
     router_kwargs = { token: token, port: 0, assets: assets, read_models: read_models }
     router_kwargs[:events] = events if events
+    router_kwargs[:jobs] = jobs if jobs
     router = SPMCache::Web::Router.new(**router_kwargs)
     server = SPMCache::Web::Server.new(port: 0, token: token, router: router)
     thread = Thread.new { server.start }
@@ -106,8 +107,18 @@ module WebServerBoot
     request(handle, Net::HTTP::Get.new(path), headers)
   end
 
-  def self.http_post(handle, path, headers = {})
-    request(handle, Net::HTTP::Post.new(path), headers)
+  # body optionally attaches a JSON string request body (Phase 15
+  # POST rows) with the matching Content-Type -- positional (not a
+  # keyword) so trailing bare-hash headers args (every pre-existing
+  # caller) are never mistaken for keywords under Ruby 3's argument
+  # separation.
+  def self.http_post(handle, path, headers = {}, body = nil)
+    req = Net::HTTP::Post.new(path)
+    if body
+      req.body = body
+      req['Content-Type'] = 'application/json'
+    end
+    request(handle, req, headers)
   end
 
   def self.request(handle, req, headers)
