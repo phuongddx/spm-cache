@@ -31,10 +31,10 @@ Requirements for milestone v0.5.0. Each maps to roadmap phases (traceability bel
 
 ### Build control
 
-- [ ] **BLD-01**: Build/Rebuild button with scope selection spawns the real CLI subprocess (array argv, pgroup) and streams its output; a second concurrent UI build is rejected (single slot)
-- [ ] **BLD-02**: Busy/waiting state derived from the build lock is visible in the UI ("waiting for build lock…")
-- [ ] **BLD-03**: Build failures surface with exit status and highlighted errors
-- [ ] **BLD-04**: Rollback button restores source mode; rollback acquires the build lock (closes the current lock-free rollback race)
+- [x] **BLD-01**: Build/Rebuild button with scope selection spawns the real CLI subprocess (array argv, pgroup) and streams its output; a second concurrent UI build is rejected (single slot)
+- [x] **BLD-02**: Busy/waiting state derived from the build lock is visible in the UI ("waiting for build lock…")
+- [x] **BLD-03**: Build failures surface with exit status and highlighted errors
+- [x] **BLD-04**: Rollback button restores source mode; rollback acquires the build lock (closes the current lock-free rollback race)
 
 ### Package toggles
 
@@ -94,10 +94,10 @@ Which phases cover which requirements. Updated during roadmap creation.
 | LOGS-03 | Phase 14 | Complete |
 | LOGS-04 | Phase 14 | Complete |
 | LOGS-05 | Phase 14 | Complete |
-| BLD-01 | Phase 15 | Pending |
-| BLD-02 | Phase 15 | Pending |
-| BLD-03 | Phase 15 | Pending |
-| BLD-04 | Phase 15 | Pending |
+| BLD-01 | Phase 15 | Complete |
+| BLD-02 | Phase 15 | Complete |
+| BLD-03 | Phase 15 | Complete |
+| BLD-04 | Phase 15 | Complete |
 | TOGL-01 | Phase 16 | Pending |
 | TOGL-02 | Phase 16 | Pending |
 | TOGL-03 | Phase 16 | Pending |

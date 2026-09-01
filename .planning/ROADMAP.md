@@ -46,7 +46,7 @@ Full phase detail: `milestones/v0.4.0-ROADMAP.md` · Audit: `v0.4.0-MILESTONE-AU
 - [x] **Phase 12: Run-Log Capture Foundation** - Every CLI run writes a queryable JSONL run log outside the sandbox, terminal behavior unchanged — the keystone all streaming consumes (completed 2026-09-01)
 - [x] **Phase 13: Server Skeleton + Read-Only Dashboard** - `spm-cache web`: hardened localhost server serving the cache-state, doctor, and graph panels, fully offline (completed 2026-09-01)
 - [x] **Phase 14: Live Log Streaming + Terminal/Watch Relay** - One SSE stream of the shared run log — UI-triggered, terminal, and `watch` builds all appear live in the browser (completed 2026-09-01)
-- [ ] **Phase 15: UI Build Controls** - Build/Rebuild/Rollback buttons that spawn the real CLI with lock-derived busy state and failure surfacing
+- [x] **Phase 15: UI Build Controls** - Build/Rebuild/Rollback buttons that spawn the real CLI with lock-derived busy state and failure surfacing (completed 2026-09-02)
 - [ ] **Phase 16: Package Toggles + Panel Completion** - Per-package cache on/off toggles through the shared config mutators, with saved-vs-applied semantics and WHY-not reasons
 
 ## Phase Details — v0.5.0 Web Interface
@@ -201,7 +201,7 @@ Pitfall-to-phase mapping (full set in `research/PITFALLS.md`): CP3 → P12; CP7/
 | 12. Run-Log Capture Foundation | v0.5.0 | 5/5 | Complete    | 2026-09-01 |
 | 13. Server Skeleton + Read-Only Dashboard | v0.5.0 | 5/5 | Complete    | 2026-09-01 |
 | 14. Live Log Streaming + Terminal/Watch Relay | v0.5.0 | 5/5 | Complete    | 2026-09-01 |
-| 15. UI Build Controls | v0.5.0 | 0/? | Not started | - |
+| 15. UI Build Controls | v0.5.0 | 6/6 | Complete    | 2026-09-02 |
 | 16. Package Toggles + Panel Completion | v0.5.0 | 0/? | Not started | - |
 
 ## Coverage
