@@ -175,7 +175,17 @@ Plans:
   2. The toggle UI distinguishes saved vs applied state and offers an explicit Apply-now (re-sync) action that runs the real sync
   3. Packages that cannot be toggled show WHY (pattern-managed / plugin / binary-target / excluded / fidelity)
 
-**Plans**: TBD
+**Plans**: 3/6 plans executed
+
+Plans:
+
+- [x] 16-01-PLAN.md — TRACER: the shared config mutator (sidecar flock, in-lock reload, atomic save) behind POST /api/toggle, with `spm-cache off` refactored onto it and pinned byte-identical
+- [x] 16-02-PLAN.md — the binary-target fact: one derived flag recorded by lockfile enrichment, plus the binary-backed name-set reader
+- [x] 16-03-PLAN.md — the one server-side derivation: toggleable, the five-word reason vocabulary, and saved vs applied per row
+- [ ] 16-04-PLAN.md — the mutation surface: the full toggle matrix, batched /api/revert, and Apply-now as the route-fixed `use` scope
+- [ ] 16-05-PLAN.md — the panel completed: the Cached checkbox column, reason and pending chips, and the unsaved-changes bar
+- [ ] 16-06-PLAN.md — phase weld: the recorded agent-browser probe over the eight manual rows
+
 **UI hint**: yes
 
 ## Phase Ordering Rationale
@@ -202,7 +212,7 @@ Pitfall-to-phase mapping (full set in `research/PITFALLS.md`): CP3 → P12; CP7/
 | 13. Server Skeleton + Read-Only Dashboard | v0.5.0 | 5/5 | Complete    | 2026-09-01 |
 | 14. Live Log Streaming + Terminal/Watch Relay | v0.5.0 | 5/5 | Complete    | 2026-09-01 |
 | 15. UI Build Controls | v0.5.0 | 6/6 | Complete    | 2026-09-02 |
-| 16. Package Toggles + Panel Completion | v0.5.0 | 0/? | Not started | - |
+| 16. Package Toggles + Panel Completion | v0.5.0 | 3/6 | In Progress|  |
 
 ## Coverage
 
