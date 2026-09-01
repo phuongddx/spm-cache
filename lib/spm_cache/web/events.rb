@@ -289,10 +289,18 @@ module SPMCache
             if fresh
               last_file = fresh[:name]
               last_offset = fresh[:offset]
-              self.class.each_entry(fresh[:path], fresh[:offset]) do |entry|
-                client.write(self.class.frame(event: 'entry', data: entry.line, id: entry.id))
-                last_file = entry.file
-                last_offset = entry.offset
+              begin
+                self.class.each_entry(fresh[:path], fresh[:offset]) do |entry|
+                  client.write(self.class.frame(event: 'entry', data: entry.line, id: entry.id))
+                  last_file = entry.file
+                  last_offset = entry.offset
+                end
+              rescue Errno::ENOENT
+                # Doubly-pruned (W-01): the fallback file also vanished
+                # between fresh_run's derivation and this open -- the
+                # client already has the first notice; pop_loop's
+                # tailer-driven follow recovers on the next discovery.
+                nil
               end
             end
           end
