@@ -250,11 +250,33 @@ body {
 }
 
 /* Page-level scroll only: the table never inner-scrolls, never paginates. */
-.col-name { width: 40%; }
+.col-name { width: 36%; }
 .col-config { width: 12%; }
-.col-size { width: 12%; }
-.col-state { width: 14%; }
-.col-fidelity { width: 22%; }
+.col-size { width: 10%; }
+.col-state { width: 12%; }
+.col-fidelity { width: 18%; }
+.col-cached { width: 12%; }
+
+/* Toggle cell (D-01/D-02, Phase 16): checkbox + reason/pending chips,
+ * xs-gapped, in one nowrap cell. Checkbox rules: the accent variable
+ * for the checked state, the sheet's disabled opacity (.btn:disabled
+ * precedent), and the focus ring pattern extended from .btn. */
+.col-cached > *:not(:last-child) {
+  margin-right: var(--space-xs);
+}
+
+.state-table input[type="checkbox"] {
+  accent-color: var(--c-accent);
+}
+
+.state-table input[type="checkbox"]:disabled {
+  opacity: 0.6;
+}
+
+.state-table input[type="checkbox"]:focus-visible {
+  outline: 2px solid var(--c-accent);
+  outline-offset: 2px;
+}
 
 /* Sizes, fidelity values, timestamps: mono at Label size. */
 .mono {
@@ -329,7 +351,12 @@ body {
   font-family: var(--font-mono);
 }
 
-.panel-error {
+/* T-16-26: a SEPARATE class from .panel-error's fetch-failure line so
+ * a poll failure and a write failure can never silently replace one
+ * another — sharing the fail treatment through this extended
+ * selector rather than a duplicated declaration block. */
+.panel-error,
+.toggle-failure {
   margin: 0 0 var(--space-sm);
   color: var(--c-fail);
   font-size: 14px;

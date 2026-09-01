@@ -331,7 +331,10 @@ RSpec.describe 'spm-cache web dashboard frontend (Plan 13-03)' do
   describe 'app.js locked budget' do
     it 'stays within the 300–440 LOC vanilla-JS budget (Phase 15 raised the 13-era 400 cap by the controls section: POST helper + row state machine + confirm bar + progress listener)' do
       expect(app_js.lines.length).to be >= 300
-      expect(app_js.lines.length).to be <= 440
+      # Phase 16 (16-05 Task 1) raised the 15-era 440 cap by the toggle
+      # column + poll-integrity mutation section (the sync bar follows
+      # in Task 2, so this cap moves again in that commit).
+      expect(app_js.lines.length).to be <= 500
     end
   end
 
@@ -440,7 +443,10 @@ RSpec.describe 'spm-cache web dashboard frontend (Plan 13-03)' do
 
     it 'accent text color appears only on .cmd command references — never on table text' do
       expect(styles_css).to include('.cmd')
-      expect(styles_css.scan(/color: var\(--c-accent\)/).size).to eq(1)
+      # Phase 16: `accent-color` (the checkbox's form-control accent, a
+      # DIFFERENT property from text `color`) must not false-positive
+      # this count — the pattern requires a non-hyphen boundary.
+      expect(styles_css.scan(/(?<!-)color: var\(--c-accent\)/).size).to eq(1)
     end
 
     it 'check-line ellipsis actually ellipsizes: flex children allow shrinking (review IN-04)' do
@@ -633,7 +639,7 @@ RSpec.describe 'spm-cache web dashboard frontend (Plan 13-03)' do
         # carries the sanctioned liveness surfaces (never verdicts) —
         # 14-05 widens it once more for the active anchor chip (D-09's
         # accent-badge style), preserving the eq(1) count invariant.
-        expect(styles_css.scan(/color: var\(--c-accent\)/).size).to eq(1)
+        expect(styles_css.scan(/(?<!-)color: var\(--c-accent\)/).size).to eq(1)
         expect(styles_css).to match(/\.cmd,\s*\.log-live,\s*\.log-chip-active\s*\{/)
       end
     end
@@ -783,7 +789,7 @@ RSpec.describe 'spm-cache web dashboard frontend (Plan 13-03)' do
       # A3: the active chip joins the ONE accent-text declaration's group —
       # still exactly one accent-color declaration on the sheet
       expect(styles_css).to match(/\.cmd,\s*\.log-live,\s*\.log-chip-active\s*\{/)
-      expect(styles_css.scan(/color: var\(--c-accent\)/).size).to eq(1)
+      expect(styles_css.scan(/(?<!-)color: var\(--c-accent\)/).size).to eq(1)
     end
 
     it 'piercing: the banner renders regardless of filter state — its slot sits outside the filtered viewport and its render path never reads filter state (D-10)' do
