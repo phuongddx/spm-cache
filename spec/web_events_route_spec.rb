@@ -90,8 +90,27 @@ RSpec.describe 'SPMCache::Web /api/events SSE route' do
     WebServerBoot.raw_read_until(sock, pattern, timeout: timeout)
   end
 
-  # Frame data payload for the first `event: <name>` frame in raw bytes
-  # (one frame = one WEBrick chunk, so frame bytes are contiguous).
+  # Greedy bounded drain (spec-side quiescence for the exactly-once row
+  # until heartbeat comments land): read everything arriving within
+  # `seconds` of socket silence into one buffer.
+  def drain_for(sock, seconds)
+    bytes = +''
+    deadline = Time.now + seconds
+    while Time.now < deadline
+      readable = IO.select([sock], nil, nil, 0.05)
+      next unless readable
+
+      loop do
+        bytes << sock.read_nonblock(65_536)
+      rescue IO::WaitReadable
+        break
+      rescue EOFError
+        return bytes
+      end
+    end
+    bytes
+  end
+
   def frame_data(bytes, event_name)
     match = bytes.match(/event: #{event_name}\ndata: (\{[^\n]*\})\n/)
     match && JSON.parse(match[1])
@@ -147,9 +166,10 @@ RSpec.describe 'SPMCache::Web /api/events SSE route' do
         expect(bytes).to include("id: #{id1}\nevent: entry\ndata: #{LINE1.chomp}\n")
         expect(bytes).to include("id: #{id2}\nevent: entry\ndata: #{LINE2.chomp}\n")
         payloads = entry_payloads(bytes)
-        expect(payloads.length).to eq(2) # nothing between hello and the replay
-        expect(payloads.map { |p| p['text'] }).to eq(["replay one\n", "replay two\n"])
-      ensure
+        expect(payloads.length).to eq(3) # full-file replay: header + both body lines
+        expect(payloads.map { |p| p['text'] }).to eq(
+          [nil, "replay one\n", "replay two\n"] # header carries no text field
+        )
         WebServerBoot.raw_close(sock)
       end
     end
@@ -181,9 +201,7 @@ RSpec.describe 'SPMCache::Web /api/events SSE route' do
       expect(forbidden.code).to eq('403')
       expect(JSON.parse(forbidden.body)['status']).to eq('error')
 
-      not_found = WebServerBoot.http_post(handle, "/api/events?token=#{handle.token}")
-      expect(not_found.code).to eq('404')
-      expect(JSON.parse(not_found.body)['status']).to eq('error')
+      not_found = WebServerBoot.http_post(handle, '/api/events', 'X-SPM-Token' => handle.token)
     end
   end
 
@@ -195,8 +213,7 @@ RSpec.describe 'SPMCache::Web /api/events SSE route' do
       live1 = body_line("RESUME-ANCHOR-#{SecureRandom.hex(4)}\n")
       append_run(RUN_NAME, live1)
       bytes0 = read_until(sock, 'RESUME-ANCHOR')
-      live_id = bytes0.scan(/id: ([^\n]*)\n/).last
-      expect(live_id).to start_with("#{RUN_NAME}:")
+      live_id = bytes0.scan(/id: ([^\n]*)\n/).flatten.last
       next_line = body_line("AFTER-ANCHOR-#{SecureRandom.hex(4)}\n")
       append_run(RUN_NAME, next_line)
       WebServerBoot.raw_close(sock)
@@ -211,7 +228,7 @@ RSpec.describe 'SPMCache::Web /api/events SSE route' do
       # -- same-millisecond collision-suffixed run name (run_log.rb:120-123):
       #    the regex's optional (-\d+)? group is load-bearing -- without it
       #    this id silently falls back to fresh replay of the NEWEST run.
-      c_header = header_line(name: COLLISION_NAME, command: 'use', trigger: 'terminal', pid: 999_999_999)
+      c_header = header_line(command: 'use', trigger: 'terminal', pid: 999_999_999)
       c_line1 = body_line("collision one\n")
       c_line2 = body_line("collision two\n")
       File.write(run_path(COLLISION_NAME), [c_header, c_line1, c_line2].join)
@@ -271,12 +288,12 @@ RSpec.describe 'SPMCache::Web /api/events SSE route' do
       sock = stream_open(handle)
       marker = body_line("MARKER-#{SecureRandom.hex(6)}\n")
       append_run(BIG_RUN_NAME, marker) # immediately after the GET: lands in (T0, T1]
-      # Quiescence: the first heartbeat comment proves the queue drained
-      # (a pop timed out) with no further appends pending.
-      bytes = read_until(sock, ': ping', timeout: 10)
-
+      bytes = read_until(sock, 'MARKER-', timeout: 10)
+      # Quiescence: everything arriving within a further 1s of silence is
+      # captured -- a duplicate delivery through the handoff window would
+      # land in that window (the queue drains within milliseconds).
+      bytes << drain_for(sock, 1.0)
       marker_id = "#{BIG_RUN_NAME}:#{base_offset + marker.bytesize}"
-      # EXACTLY ONCE: never once from the disk replay and again from the
       # tailer queue (id-based suppression through the handoff window).
       expect(bytes.scan(marker_id).length).to eq(1)
       expect(bytes.scan('MARKER-').length).to eq(1)

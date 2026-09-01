@@ -22,6 +22,7 @@ module SPMCache
         # URL, marker file).
         @port = resolve_port(port)
         router.port = @port
+        @router = router
         @bind_address = BIND_ADDRESS
         @http = WEBrick::HTTPServer.new(
           BindAddress: @bind_address,
@@ -53,7 +54,13 @@ module SPMCache
       # Thread-safe and callable from a Signal.trap context: writes the
       # shutdown pipe and closes the listeners (verified against webrick
       # 1.9.2 server.rb -- stop + alarm_shutdown_pipe, no mutex).
+      # WEB-03: notify the SSE broadcaster FIRST. WEBrick's accept-loop
+      # ensure JOINS every connection thread (webrick server.rb:210) --
+      # an /api/events body proc looping forever would hang this call
+      # and break the TERM/INT exit-0 contract. The sentinel ends every
+      # client loop; worst-case latency is one heartbeat period.
       def shutdown
+        @router&.shutdown_events
         @http.shutdown
       end
 

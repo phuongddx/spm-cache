@@ -7,6 +7,7 @@ require 'spm_cache/web/middleware'
 require 'spm_cache/web/read_models/state'
 require 'spm_cache/web/read_models/graph'
 require 'spm_cache/web/read_models/doctor'
+require 'spm_cache/web/events'
 
 module SPMCache
   module Web
@@ -36,7 +37,8 @@ module SPMCache
       # syncs this after ephemeral-port (port: 0) resolution.
       attr_accessor :port
 
-      def initialize(token:, port:, assets: nil, read_models: {}, config: Core::Config.instance)
+      def initialize(token:, port:, assets: nil, read_models: {}, events: nil,
+                     config: Core::Config.instance)
         @token = token
         @port = port
         @assets = assets
@@ -50,6 +52,12 @@ module SPMCache
           graph: Web::ReadModels::Graph,
           doctor: Web::ReadModels::Doctor.new(config: config)
         }.merge(read_models)
+        # Events: the SSE collaborator (14-01), an INSTANCE like doctor
+        # (it holds the tailer thread + client registry). Constructing it
+        # starts no thread -- the tailer starts lazily on the first
+        # /api/events register -- so every non-streaming boot stays
+        # thread-free. Injectable for specs (short poll/heartbeat).
+        @events = events || Web::Events.new(config: config)
       end
 
       def service(req, res)
@@ -65,6 +73,14 @@ module SPMCache
         return reject(res, 403, 'forbidden origin') unless Middleware.allowed_origin?(origin: origin, port: @port)
 
         dispatch(req, res, supplied)
+      end
+
+      # Server#shutdown seam (WEB-03): notify the SSE broadcaster BEFORE
+      # @http.shutdown -- nil-safe for doubles and events-less routers.
+      # Public: the Server holds the router instance and calls this from
+      # ITS #shutdown; must stay above the private section.
+      def shutdown_events
+        @events&.shutdown!
       end
 
       private
@@ -84,6 +100,8 @@ module SPMCache
           api_read(req, res, supplied, :graph)
         when '/api/doctor'
           api_doctor(req, res, supplied)
+        when '/api/events'
+          events_stream(req, res, supplied)
         else
           reject(res, 404, 'not found')
         end
@@ -170,8 +188,34 @@ module SPMCache
                      'generated_at' => result[:generated_at])
       end
 
-      # -- helpers ---------------------------------------------------------
+      # GET /api/events -- the SSE stream (LOGS-03). The ONE route that
+      # never calls respond_json: after the shared token/verb gates it
+      # answers 200 text/event-stream ALWAYS -- any non-200 permanently
+      # fails EventSource reconnect (WHATWG 9.2.3; the milestone's
+      # "503 + Retry:" clause is falsified per 14-RESEARCH) -- with
+      # keep_alive=false (one-shot stream; the connection thread exits
+      # at the chunked terminator instead of parking RequestTimeout) and
+      # the body proc as the per-client writer (research Pattern 1).
+      # Auth failures (401/403) are deliberately permanent: an
+      # auth-dead tab must not ghost-retry.
+      def events_stream(req, res, supplied)
+        unless Middleware.valid_token?(token: supplied, expected_token: @token)
+          return reject(res, 401, 'missing or invalid token')
+        end
+        return reject(res, 404, 'not found') unless req.request_method == 'GET'
 
+        resume = Events.parse_resume_id(req['last-event-id'], runs_dir: @config.runs_dir)
+        res.status = 200
+        res.content_type = 'text/event-stream'
+        res.keep_alive = false
+        res.chunked = true
+        res.body = proc do |out|
+          client = @events.register(out)
+          @events.stream(client, resume: resume)
+        end
+      end
+
+      # -- helpers ---------------------------------------------------------
       # Every response, rejection or payload alike: clickjacking (T-13-07)
       # and token-in-URL hygiene (T-13-03) -- nothing may be cached.
       def apply_security_headers(res)
