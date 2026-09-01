@@ -27,6 +27,9 @@ tools/spm-cache-proxy/Package.resolved
 spm-cache.lock
 spm-cache.yml
 
+# spm-cache web marker + run logs
+.spm-cache/
+
 # macOS
 .DS_Store
 

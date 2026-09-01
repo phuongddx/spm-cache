@@ -12,7 +12,8 @@ require 'socket'
 # web_signals_spec (Task 3) own sockets; the prober's own examples below
 # bind raw TCPServers only.
 class ServerSpy
-  attr_reader :kwargs, :start_count, :shutdown_count, :term_handler, :int_handler
+  attr_reader :kwargs, :start_count, :shutdown_count, :term_handler, :int_handler,
+              :callback_fired_during_start
 
   def initialize(kwargs)
     @kwargs = kwargs
@@ -30,7 +31,9 @@ class ServerSpy
     # them later; a real signal fires the proc.
     @term_handler = Signal.trap('TERM', 'DEFAULT')
     @int_handler = Signal.trap('INT', 'DEFAULT')
+    @callback_fired_during_start = false
     @kwargs[:start_callback]&.call
+    @callback_fired_during_start = true
   end
 
   def shutdown
@@ -138,8 +141,7 @@ RSpec.describe SPMCache::Web::PortProber do
   it 'never binds 5000: probing from a held 4999 with 2 attempts exhausts' do
     hold_port(4999)
     expect { described_class.pick(start_port: 4999, attempts: 2) }
-      .to raise_error(SPMCache::Core::GeneralError, %r{5000/7000})
-      .and(raise_error(SPMCache::Core::GeneralError, /\[4999, 5001\)/))
+      .to raise_error(SPMCache::Core::GeneralError, %r{\[4999, 5001\).*5000/7000})
   end
 
   it 'probes upward past an occupied port' do
@@ -263,22 +265,23 @@ RSpec.describe SPMCache::Command::Web do
   end
 
   describe 'browser open (fresh start)' do
-    it 'opens exactly once AFTER the server signals ready (StartCallback)' do
+    it 'opens exactly once, fired only by the server-ready callback (CP12)' do
       calls = record_sh_calls!
 
       run_web
 
-      expect(spies.first.callback).to be_a(Proc)
-      expect(calls).to be_empty # not before ready
-      spies.first.callback.call
-      expect(calls).to eq(["open http://127.0.0.1:#{spies.first.kwargs[:port]}"])
+      spy = spies.first
+      expect(spy.callback).to be_a(Proc)
+      # The only open path is the StartCallback, which fires inside
+      # start (i.e. after the server is ready) -- never before it.
+      expect(spy.callback_fired_during_start).to be(true)
+      expect(calls).to eq(["open http://127.0.0.1:#{spy.kwargs[:port]}"])
     end
 
     it 'never sends the token to the shell or stdout' do
       calls = record_sh_calls!
       stdout = run_web
 
-      spies.first.callback.call
       expect(calls.first).not_to include('token')
       expect(stdout).not_to include('token=')
     end

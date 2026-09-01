@@ -117,6 +117,16 @@ module SPMCache
         File.join(project_dir, '.spm-cache', 'runs')
       end
 
+      # Web-server runtime state (the WEB-02 marker file) lives here,
+      # OUTSIDE sandbox_dir for the same reason as runs_dir above:
+      # recreate_dirs rm_rf's sandbox_dir only (installer/use.rb), and it
+      # must never delete a live server's marker mid-run. Sibling of
+      # runs_dir (13-CONTEXT "Launch & Port Behavior"); recreate_dirs
+      # never touches it.
+      def web_dir
+        File.join(project_dir, '.spm-cache', 'web')
+      end
+
       def local_packages_dir
         File.join(sandbox_dir, 'local-packages')
       end
