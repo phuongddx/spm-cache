@@ -108,7 +108,10 @@ module SPMCache
         when '/api/runs'
           api_read(req, res, supplied, :runs)
         when '/api/build'
-          api_mutate(req, res, supplied)
+          # CR-01: /api/build's scope is verb-level (build/rebuild
+          # only) -- rollback is reachable only via the dedicated
+          # /api/rollback route below, never via this one's body.
+          api_mutate(req, res, supplied, allowed_scopes: %w[build rebuild])
         when '/api/rollback'
           # D-07: the scope is IMPLIED by the route, never read from
           # the body -- rollback takes no scope, so an empty or absent
@@ -255,7 +258,7 @@ module SPMCache
       # claimed scope plus a freshly derived lock snapshot (D-06) so
       # the UI's waiting flavor can light up without waiting for the
       # next poll.
-      def api_mutate(req, res, supplied, fixed_scope: nil)
+      def api_mutate(req, res, supplied, fixed_scope: nil, allowed_scopes: Jobs::SCOPES.keys)
         unless Middleware.valid_token?(token: supplied, expected_token: @token)
           return reject(res, 401, 'missing or invalid token')
         end
@@ -272,7 +275,11 @@ module SPMCache
           return respond_json(res, 400, error_envelope('malformed request body', reason: 'bad_body'))
         end
         scope = fixed_scope || (body.is_a?(Hash) ? body['scope'] : nil)
-        unless Jobs::SCOPES.key?(scope)
+        # CR-01: allowed_scopes narrows the per-route whitelist
+        # (/api/build -> build/rebuild only); Jobs::SCOPES.key? alone
+        # would also accept 'rollback' here, letting /api/build
+        # silently do /api/rollback's job.
+        unless allowed_scopes.include?(scope) && Jobs::SCOPES.key?(scope)
           return respond_json(res, 400, error_envelope('scope is not one of the known scopes', reason: 'bad_scope'))
         end
 

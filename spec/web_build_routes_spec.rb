@@ -422,7 +422,7 @@ RSpec.describe 'SPMCache::Web mutation routes (/api/build, /api/rollback)' do
       end
     end
 
-    it 'answers 400 with reason bad_scope for a missing, unknown, non-string, or case-variant scope (exact whitelist)' do
+    it 'answers 400 with reason bad_scope for a missing, unknown, non-string, case-variant, or cross-route scope (exact whitelist)' do
       with_server do
         [
           ['missing scope', '{}'],
@@ -431,7 +431,8 @@ RSpec.describe 'SPMCache::Web mutation routes (/api/build, /api/rollback)' do
           ['non-string scope (number)', JSON.generate('scope' => 7)],
           ['non-string scope (array)', JSON.generate('scope' => ['build'])],
           ['case variant (Build)', JSON.generate('scope' => 'Build')],
-          ['case variant (BUILD)', JSON.generate('scope' => 'BUILD')]
+          ['case variant (BUILD)', JSON.generate('scope' => 'BUILD')],
+          ['cross-route scope (rollback via /api/build)', JSON.generate('scope' => 'rollback')]
         ].each do |label, raw|
           count = probe_entries.length
           res = post('/api/build', auth, raw)
