@@ -114,6 +114,21 @@ RSpec.describe SPMCache::Web::Marker do
       expect(File.exist?(marker_path)).to be(false)
       expect { described_class.clear(path: marker_path) }.not_to raise_error
     end
+
+    it 'refuses to clear a marker owned by another pid (review WR-02)' do
+      described_class.write(path: marker_path, pid: Process.pid, port: 4242, token: 'x')
+      described_class.clear(path: marker_path, pid: Process.pid + 1)
+      expect(File.exist?(marker_path)).to be(true)
+    end
+
+    it 'clears when the given pid matches or is omitted' do
+      described_class.write(path: marker_path, pid: 4242, port: 2, token: 'x')
+      described_class.clear(path: marker_path, pid: 4242)
+      expect(File.exist?(marker_path)).to be(false)
+      described_class.write(path: marker_path, pid: 4242, port: 2, token: 'x')
+      described_class.clear(path: marker_path)
+      expect(File.exist?(marker_path)).to be(false)
+    end
   end
 end
 
@@ -369,6 +384,92 @@ RSpec.describe SPMCache::Command::Web do
       expect(Signal.trap('TERM', 'DEFAULT')).to eq('IGNORE')
       expect(Signal.trap('INT', 'DEFAULT')).to eq('IGNORE')
       expect(File.exist?(marker_path)).to be(false)
+    end
+  end
+
+  describe 'boot-lock serialization (review WR-02)' do
+    let(:lock_path) { File.join(tmpdir, '.spm-cache', 'web', '.boot.lock') }
+
+    it 'holds an exclusive boot lock while the marker check and the server run' do
+      observations = {}
+      probes = []
+      allow(SPMCache::Web::Server).to receive(:new) do |**kwargs|
+        spy = ServerSpy.new(kwargs)
+        spies << spy
+        # While the command is inside boot_and_serve, a blocking
+        # exclusive claim on the boot lock from another thread must
+        # still be parked (macOS quirk: LOCK_NB from the same process
+        # never conflicts, so the probe claims blocking and we check
+        # it stays blocked while the boot runs). NOT joined here: the
+        # probe can only acquire after the command releases.
+        probe = Thread.new do
+          File.open(lock_path, File::RDWR) do |fd|
+            fd.flock(File::LOCK_EX)
+            observations[:acquired] = true
+          end
+        end
+        probes << probe
+        probe.join(0.3) # nil while the command holds the lock
+        observations[:blocked_during_boot] = probe.alive?
+        spy
+      end
+
+      run_web('--no-open') # returns after the boot lock is released
+
+      probes.each(&:join) # the parked probe acquires post-release
+      expect(observations[:blocked_during_boot]).to be(true)
+      expect(observations[:acquired]).to be(true) # released at command exit
+    end
+
+    it 'serializes a concurrent launch: the second blocks, then reuses the winner marker' do
+      SPMCache::Web::Marker.write(path: marker_path, pid: Process.pid, port: 4242, token: 't')
+      FileUtils.mkdir_p(File.dirname(lock_path))
+      holder = File.open(lock_path, File::CREAT | File::RDWR, 0o600)
+      holder.flock(File::LOCK_EX)
+
+      out = StringIO.new
+      worker = Thread.new do
+        original = $stdout
+        $stdout = out
+        begin
+          described_class.new(CLAide::ARGV.new(['--no-open'])).run
+        ensure
+          $stdout = original
+          holder.close # unblock the worker if the example failed early
+        end
+      end
+
+      sleep 0.5
+      expect(spies).to be_empty
+      expect(out.string).to be_empty # still blocked on the boot lock
+
+      holder.close # release: the blocked launch proceeds to the marker read
+      worker.join(5)
+
+      expect(out.string).to include('http://127.0.0.1:4242')
+      expect(out.string).to include('already running')
+      expect(spies).to be_empty # reused, never constructed a server
+      expect(File.exist?(marker_path)).to be(true) # winner marker intact
+    end
+
+    it 'never clears a marker a newer server overwrote during our run' do
+      marker_path_local = marker_path
+      spy = ServerSpy.new({})
+      spy.define_singleton_method(:start) do
+        super()
+        # A newer launch overwrites our marker while we serve (the
+        # WR-02 orphan scenario the boot lock prevents for real
+        # processes -- the pid-guard is the second line of defense).
+        SPMCache::Web::Marker.write(path: marker_path_local,
+                                    pid: 2_000_000_000, port: 9999, token: 'newer')
+      end
+      allow(SPMCache::Web::Server).to receive(:new).and_return(spy)
+      spies << spy
+
+      run_web('--no-open')
+
+      # Our pid-guarded ensure must leave the newer record in place.
+      expect(SPMCache::Web::Marker.read(path: marker_path)['port']).to eq(9999)
     end
   end
 end

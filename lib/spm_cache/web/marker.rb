@@ -58,7 +58,14 @@ module SPMCache
           path
         end
 
-        def clear(path: default_path)
+        # Clears only the caller's own record when pid: is given
+        # (review WR-02): a launch whose marker was overwritten by a
+        # newer server must never delete the NEWER server's liveness
+        # record on its way out. pid: nil -- Command::Web's heal path
+        # -- clears unconditionally.
+        def clear(pid: nil, path: default_path)
+          return if pid && (entry = read(path: path)) && entry['pid'] != pid
+
           File.unlink(path) if File.exist?(path)
           nil
         end

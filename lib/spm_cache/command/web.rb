@@ -1,6 +1,7 @@
 # frozen_string_literal: true
 
 require 'securerandom'
+require 'fileutils'
 
 require 'spm_cache/command'
 require 'spm_cache/web/assets'
@@ -44,11 +45,24 @@ module SPMCache
           nil
         end
 
-        # WEB-02 idempotent relaunch: a live marker (pid answers
-        # Process.kill(0, ...)) means a server is already up -- print its
-        # URL and return without starting a second one. The token from
-        # that marker is NEVER printed; the running server's bootstrap
-        # redirect delivers it server-side.
+        # WEB-02 mutual exclusion (review WR-02): the marker read ->
+        # live? -> probe -> write sequence must be atomic across
+        # processes. The flock boot lock (installer/build.rb precedent)
+        # is held from before the marker check until the server stops:
+        # a concurrent `spm-cache web` blocks here, then reuses the
+        # winner's marker instead of racing a second server -- and a
+        # last-write-wins clear -- into existence. Process death
+        # releases the lock for free.
+        FileUtils.mkdir_p(config.web_dir)
+        File.open(File.join(config.web_dir, '.boot.lock'),
+                  File::CREAT | File::RDWR, 0o600) do |lock|
+          lock.flock(File::LOCK_EX)
+          boot_and_serve
+        end
+      end
+
+      # The serialized launch body (caller holds the boot lock).
+      def boot_and_serve
         marker = ::SPMCache::Web::Marker.read
         if marker && ::SPMCache::Web::Marker.live?(marker)
           url = "http://127.0.0.1:#{marker['port']}"
@@ -73,7 +87,9 @@ module SPMCache
         ensure
           Signal.trap('TERM', 'IGNORE')
           Signal.trap('INT', 'IGNORE')
-          ::SPMCache::Web::Marker.clear
+          # pid-guarded (review WR-02): clear only OUR record -- never
+          # one a newer server overwrote while we served.
+          ::SPMCache::Web::Marker.clear(pid: Process.pid)
         end
       end
 
