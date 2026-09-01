@@ -5,6 +5,7 @@ require 'json'
 require 'tmpdir'
 require 'fileutils'
 require 'securerandom'
+require 'uri'
 require 'stringio'
 
 require_relative 'support/web_server_boot'
@@ -24,6 +25,14 @@ RSpec.describe 'SPMCache::Web /api/events SSE route' do
   RUN_NAME = "20260901T093000123Z-#{Process.pid}-build.jsonl"
   COLLISION_NAME = "20260901T093000123Z-#{Process.pid}-build-1.jsonl" # run_log.rb:120-123
   BIG_RUN_NAME = "20260901T093500999Z-#{Process.pid}-build.jsonl"
+  # Pinned-replay fixtures (14-03): OLDER sorts before RUN_NAME (the
+  # ?run= pin target), EVEN_NEWER sorts after everything written before
+  # it (the discovery/switch trigger), PRUNED is well-formed but never
+  # existed (the graceful-degrade row).
+  OLDER_RUN = '20260901T092000456Z-5302-use.jsonl'
+  EVEN_NEWER_RUN = '20260901T094500999Z-6100-build.jsonl'
+  PRUNED_RUN = '20260101T000000000Z-424242-build.jsonl'
+  DEAD_PID = 999_999_999 # ESRCH by construction (events_tailer_spec idiom)
 
   let(:project_dir) { Dir.mktmpdir('spm-cache-events-route') }
   let(:runs_dir) { File.join(project_dir, '.spm-cache', 'runs') }
@@ -54,6 +63,15 @@ RSpec.describe 'SPMCache::Web /api/events SSE route' do
     self.class.body_line(text)
   end
 
+  def self.run_end_line(status = 0)
+    JSON.generate('event' => 'run_end', 'ts' => '2026-09-01T09:30:02Z',
+                  'status' => status, 'ended_at' => '2026-09-01T09:30:02Z') + "\n"
+  end
+
+  def run_end_line(status = 0)
+    self.class.run_end_line(status)
+  end
+
   def run_path(name)
     File.join(runs_dir, name)
   end
@@ -80,10 +98,15 @@ RSpec.describe 'SPMCache::Web /api/events SSE route' do
     WebServerBoot.with_server(project_dir: project_dir, events: events, &block)
   end
 
-  def stream_open(handle, last_event_id: nil)
+  def stream_open(handle, last_event_id: nil, run: nil)
     headers = {}
     headers['Last-Event-ID'] = last_event_id if last_event_id
-    WebServerBoot.raw_stream_open(handle, "/api/events?token=#{handle.token}", headers)
+    # ?run= rides the same URL as the token; the value is ATTACKER
+    # INPUT and is percent-encoded here only so the fixture values
+    # (slashes, spaces) survive the request line verbatim.
+    path = "/api/events?token=#{handle.token}"
+    path += "&run=#{URI.encode_www_form_component(run)}" unless run.nil?
+    WebServerBoot.raw_stream_open(handle, path, headers)
   end
 
   def read_until(sock, pattern, timeout: 5)
@@ -298,6 +321,163 @@ RSpec.describe 'SPMCache::Web /api/events SSE route' do
       expect(bytes.scan(marker_id).length).to eq(1)
       expect(bytes.scan('MARKER-').length).to eq(1)
       WebServerBoot.raw_close(sock)
+    end
+  end
+
+  # -- 14-03: hello consumes the shared derivation; ?run= pins older-run
+  #    replay (D-12 reachability in place, no reload). Pinned semantics:
+  #    ENTRY delivery is scoped to the named run; switch/notice
+  #    broadcasts still arrive (the client drops the pin and reconnects
+  #    unpinned -- 14-05's D-04 job); the server NEVER re-points a
+  #    pinned stream.
+  it 'hello carries the full shared derivation: header + status + lock + now, agreeing with /api/runs' do
+    with_events_server do |handle|
+      sock = stream_open(handle)
+      begin
+        bytes = read_until(sock, LINE2_TEXT)
+        hello = frame_data(bytes, 'hello')
+        expect(hello['run']).to eq(RUN_NAME)
+        expect(hello['status']).to eq('running')
+        # D-06/D-11: the parsed run_start header VERBATIM (all Phase 12
+        # identity keys), trigger through with no allowlist.
+        expect(hello['header']).to eq(JSON.parse(HEADER.chomp))
+        # The lock field + the server now (14-03): the lock is
+        # server-internal -- the client renders nothing for it
+        # (14-UI-SPEC external-run row) -- but it is the SAME derivation
+        # /api/runs serves.
+        expect(hello['lock']).to eq('state' => 'free', 'holder' => nil, 'holder_status' => nil)
+
+        # Zero drift (key_link): the listing, fetched alongside the open
+        # stream, derives the same run + status + lock shape through the
+        # SAME read model -- one derivation, two surfaces.
+        listing = JSON.parse(WebServerBoot.http_get(handle, '/api/runs', 'X-SPM-Token' => handle.token).body)
+        expect(listing['status']).to eq('ok')
+        entry = listing['data']['runs'].first
+        expect(entry['run']).to eq(hello['run'])
+        expect(entry['status']).to eq(hello['status'])
+        expect(listing['data']['lock']).to eq(hello['lock'])
+      ensure
+        WebServerBoot.raw_close(sock)
+      end
+    end
+  end
+
+  it '?run= pins an older completed run: byte-0 replay of the NAMED run, follow of its growth, no entry switch, switch broadcast still delivered' do
+    with_events_server do |handle|
+      File.write(run_path(OLDER_RUN),
+                 [header_line(command: 'use', trigger: 'terminal', pid: DEAD_PID),
+                  body_line("older one\n"), body_line("older two\n"), run_end_line(0)].join)
+
+      sock = stream_open(handle, run: OLDER_RUN)
+      begin
+        bytes = read_until(sock, 'older two')
+        hello = frame_data(bytes, 'hello')
+        expect(hello['run']).to eq(OLDER_RUN) # pinned identity, not current-or-newest
+        expect(hello['status']).to eq('success') # the Task-1 vocabulary through the pin path
+        # Replay is the NAMED run from byte 0 (header + 2 body + run_end)
+        # and every entry id carries the NAMED run's filename.
+        expect(entry_payloads(bytes).length).to eq(4)
+        ids = bytes.scan(/^id: ([^\n]*)\n/).flatten
+        expect(ids).not_to be_empty
+        expect(ids).to all(start_with("#{OLDER_RUN}:"))
+
+        # Follow of the pinned file: an append reaches the pinned stream.
+        pinned_line = body_line("PINNED-APPEND-#{SecureRandom.hex(4)}\n")
+        append_run(OLDER_RUN, pinned_line)
+        bytes2 = read_until(sock, 'PINNED-APPEND', timeout: 2)
+        expect(bytes2).to include("id: #{OLDER_RUN}:")
+
+        # An even-newer run appears: the switch broadcast ARRIVES on this
+        # pinned connection (broadcasts are not filtered)...
+        File.write(run_path(EVEN_NEWER_RUN),
+                   [header_line(command: 'build', trigger: 'terminal', pid: DEAD_PID),
+                    body_line("newest body\n")].join)
+        bytes3 = read_until(sock, 'event: switch', timeout: 2)
+        switch = frame_data(bytes3, 'switch')
+        expect(switch['run']).to eq(EVEN_NEWER_RUN)
+        expect(switch['previous']).to eq(RUN_NAME) # the tailer was following the live newest
+
+        # ...but the ENTRY stream never re-points: another append to the
+        # pinned run still arrives under the NAMED filename, and the
+        # newer run's entries NEVER appear as pinned entries.
+        still_pinned = body_line("STILL-PINNED-#{SecureRandom.hex(4)}\n")
+        append_run(OLDER_RUN, still_pinned)
+        bytes4 = read_until(sock, 'STILL-PINNED', timeout: 2)
+        expect(bytes4).to include("id: #{OLDER_RUN}:")
+        expect((bytes3 + bytes4).scan("id: #{EVEN_NEWER_RUN}:")).to be_empty
+      ensure
+        WebServerBoot.raw_close(sock)
+      end
+    end
+  end
+
+  it '?run= on a live run pins with follow engaged (the dropdown live-selection contract)' do
+    with_events_server do |handle|
+      sock = stream_open(handle, run: RUN_NAME)
+      begin
+        bytes = read_until(sock, LINE2_TEXT)
+        expect(frame_data(bytes, 'hello')).to include('run' => RUN_NAME, 'status' => 'running')
+
+        live = body_line("LIVE-PINNED-#{SecureRandom.hex(4)}\n")
+        append_run(RUN_NAME, live)
+        expect(read_until(sock, 'LIVE-PINNED', timeout: 2)).to include("id: #{RUN_NAME}:")
+
+        # The pin holds even as a NEWER run appears: entries stay on the
+        # pinned run while the switch broadcast still arrives.
+        File.write(run_path(EVEN_NEWER_RUN),
+                   [header_line(command: 'build', trigger: 'terminal', pid: DEAD_PID),
+                    body_line("newest body\n")].join)
+        switch_bytes = read_until(sock, 'event: switch', timeout: 2)
+        expect(frame_data(switch_bytes, 'switch')['run']).to eq(EVEN_NEWER_RUN)
+
+        follow_line = body_line("PIN-HOLDS-#{SecureRandom.hex(4)}\n")
+        append_run(RUN_NAME, follow_line)
+        follow_bytes = read_until(sock, 'PIN-HOLDS', timeout: 2)
+        expect(follow_bytes).to include("id: #{RUN_NAME}:")
+        expect((switch_bytes + follow_bytes).scan("id: #{EVEN_NEWER_RUN}:")).to be_empty
+      ensure
+        WebServerBoot.raw_close(sock)
+      end
+    end
+  end
+
+  it '?run= hostile values fall back to current-or-newest exactly like omitting the param; the traversal canary is never opened' do
+    with_events_server do |handle|
+      canary = "CANARY-#{SecureRandom.hex(8)}"
+      File.write(File.join(project_dir, 'spm-cache.yml'), canary) # target of ../../spm-cache.yml
+
+      # Every hostile shape resolves to nil and the stream is
+      # behavior-identical to no param: same hello run, same byte-0
+      # replay -- and never an error surface worth probing (T-13-04).
+      ['../../spm-cache.yml', '/etc/hosts', 'not a run file', ''].each do |hostile|
+        sock = stream_open(handle, run: hostile)
+        begin
+          bytes = read_until(sock, LINE1_TEXT)
+          expect(frame_data(bytes, 'hello')['run']).to eq(RUN_NAME)
+          expect(entry_payloads(bytes).length).to eq(3) # full fresh replay, header included
+          expect(bytes).not_to include(canary) # the named target was never opened
+        ensure
+          WebServerBoot.raw_close(sock)
+        end
+      end
+    end
+  end
+
+  it '?run= valid shape but pruned/nonexistent → the pinned notice + fresh replay of the newest run' do
+    with_events_server do |handle|
+      sock = stream_open(handle, run: PRUNED_RUN)
+      begin
+        bytes = read_until(sock, LINE2_TEXT)
+        hello = frame_data(bytes, 'hello')
+        expect(hello['run']).to eq(RUN_NAME) # graceful degrade to current-or-newest
+        expect(hello['status']).to eq('running')
+        notice = frame_data(bytes, 'notice')
+        expect(notice['message']).to eq('run log pruned while viewing; switching to newest')
+        expect(bytes.index('run log pruned')).to be > bytes.index('event: hello') # notice AFTER hello
+        expect(entry_payloads(bytes).length).to eq(3) # then the fresh replay, header included
+      ensure
+        WebServerBoot.raw_close(sock)
+      end
     end
   end
 end
