@@ -331,10 +331,10 @@ RSpec.describe 'spm-cache web dashboard frontend (Plan 13-03)' do
   describe 'app.js locked budget' do
     it 'stays within the 300–440 LOC vanilla-JS budget (Phase 15 raised the 13-era 400 cap by the controls section: POST helper + row state machine + confirm bar + progress listener)' do
       expect(app_js.lines.length).to be >= 300
-      # Phase 16 (16-05 Task 1) raised the 15-era 440 cap by the toggle
-      # column + poll-integrity mutation section (the sync bar follows
-      # in Task 2, so this cap moves again in that commit).
-      expect(app_js.lines.length).to be <= 500
+      # Phase 16 (16-05) raised the 15-era 440 cap twice: Task 1's
+      # toggle column + poll-integrity mutation section, then Task 2's
+      # unsaved-changes bar + apply/revert click handlers.
+      expect(app_js.lines.length).to be <= 650
     end
   end
 
@@ -1000,7 +1000,7 @@ RSpec.describe 'spm-cache web dashboard frontend (Plan 13-03)' do
     it 'pending state: a click disables all three controls before the request resolves (the double-submit guard)' do
       click = app_js[/const clickBuild = \(scope\) => \{[\s\S]*?\n  \};/]
       expect(click.index('freeze(true);')).to be < click.index('requestPost(')
-      freeze = app_js[/const freeze = \(on\) =>[^\n]+/]
+      freeze = app_js[/const freeze = \(on\) => \{[\s\S]*?\n  \};/]
       expect(freeze).to include('Object.values(ctl).forEach')
       expect(freeze).to include('b.disabled = on')
     end
@@ -1009,14 +1009,16 @@ RSpec.describe 'spm-cache web dashboard frontend (Plan 13-03)' do
       settle = app_js[/const settle = \(name, ans\) => \{[\s\S]*?\n  \};/]
       expect(settle).to include('freeze(true);')
       expect(settle).to include('say(CTRL.inflight[name])')
-      expect(app_js).to include("inflight: { build: 'Building…', rebuild: 'Rebuilding all…', rollback: 'Restoring source mode…' }")
+      expect(app_js).to include("build: 'Building…', rebuild: 'Rebuilding all…', rollback: 'Restoring source mode…',")
     end
 
     it 'busy state: a 409 branches BEFORE the failure arm, renders the pinned busy sentence and re-enables; the server reason value appears nowhere in the assets' do
       settle = app_js[/const settle = \(name, ans\) => \{[\s\S]*?\n  \};/]
       expect(settle.index('ans.status === 409')).to be < settle.index('!ans.ok')
       expect(settle).to include('say(CTRL.busy, true)')
-      expect(app_js).to include("busy: 'A build or rollback is already running — wait for it to finish.'")
+      # Phase 16 (16-UI-SPEC A4): superseded the two-verb string the
+      # moment Apply now joined the shared slot.
+      expect(app_js).to include("busy: 'A build, rollback, or apply is already running — wait for it to finish.'")
       [app_js, log_js, index_html].each do |asset|
         expect(asset).not_to include('slot_busy')
         expect(asset).not_to include('spawn slot busy')
@@ -1173,9 +1175,15 @@ RSpec.describe 'spm-cache web dashboard frontend (Plan 13-03)' do
 
     it 'A3: nothing in the controls code disables a button because lock data says held — disabled derives only from this tab own pending POST or in-flight run' do
       controls = app_js[%r{// -- 11\. build controls[\s\S]*?boot\(\);}]
+      # Phase 16 (16-05 Task 2, A5): Apply now joins the freeze set —
+      # `applyBtn`/`revertBtn` are the bar's own buttons, looked up
+      # fresh (never cached) because the bar's nodes are recreated by
+      # every render; Revert all is disabled only by its OWN click
+      # (A3: it is not part of the freeze set).
       expect(controls.scan(/\w+\.disabled = /).uniq.sort)
-        .to eq(['b.disabled = ', 'barCancel.disabled = ', 'barConfirm.disabled = '])
-      freeze_block = controls[/const freeze = \(on\) =>[^\n]+/]
+        .to eq(['applyBtn.disabled = ', 'b.disabled = ', 'barCancel.disabled = ', 'barConfirm.disabled = ',
+                'revertBtn.disabled = '])
+      freeze_block = controls[/const freeze = \(on\) => \{[\s\S]*?\n  \};/]
       expect(freeze_block).to include('b.disabled = on') # the row buttons only ever disable via freeze()
       expect(controls.lines.any? { |l| l.include?('lock') && l.include?('disabled') }).to be(false)
     end
@@ -1438,7 +1446,7 @@ RSpec.describe 'spm-cache web dashboard frontend (Plan 13-03)' do
       expect(click).to include('saySync(CTRL.revertFailure(data.message || `HTTP ${ans.status}`), true);')
       expect(click).to include("saySync('');")
       expect(click).not_to match(/bar\.(hidden|remove)/)
-      expect(click).not_to include('pending')
+      expect(click).not_to match(/\.pending\b|['"]pending['"]/) # no pending-marker manipulation — only a poll may clear one
     end
 
     it 'the exit: the run-progress ended milestone clears the bar message; the bar itself disappears only via a subsequent render seeing no pending rows' do
