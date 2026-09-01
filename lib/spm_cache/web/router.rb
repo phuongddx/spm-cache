@@ -6,6 +6,7 @@ require 'time'
 require 'spm_cache/web/middleware'
 require 'spm_cache/web/read_models/state'
 require 'spm_cache/web/read_models/graph'
+require 'spm_cache/web/read_models/runs'
 require 'spm_cache/web/read_models/doctor'
 require 'spm_cache/web/events'
 
@@ -43,13 +44,14 @@ module SPMCache
         @port = port
         @assets = assets
         @config = config
-        # Read models: State/Graph are stateless callables answering
+        # Read models: State/Graph/Runs are stateless callables answering
         # .call(config:) and re-reading disk on every request; doctor
         # is an INSTANCE -- it holds the {data, generated_at} cache
         # (13-02). Per-key overridable for specs.
         @read_models = {
           state: Web::ReadModels::State,
           graph: Web::ReadModels::Graph,
+          runs: Web::ReadModels::Runs,
           doctor: Web::ReadModels::Doctor.new(config: config)
         }.merge(read_models)
         # Events: the SSE collaborator (14-01), an INSTANCE like doctor
@@ -98,6 +100,8 @@ module SPMCache
           api_read(req, res, supplied, :state)
         when '/api/graph'
           api_read(req, res, supplied, :graph)
+        when '/api/runs'
+          api_read(req, res, supplied, :runs)
         when '/api/doctor'
           api_doctor(req, res, supplied)
         when '/api/events'

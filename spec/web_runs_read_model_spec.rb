@@ -196,17 +196,17 @@ RSpec.describe 'SPMCache::Web::ReadModels::Runs (CP10 derivation + D-12 listing)
                                   body_line("ok\n"), run_end_line(0)])
     write_run(run_name(sec: 20), [header_line(command: 'use', trigger: 'terminal', pid: DEAD_PID),
                                   body_line("boom\n"), run_end_line(17)])
-    write_run(run_name(sec: 30, pid: Process.pid),
-              [header_line(command: 'watch', trigger: 'watch', pid: Process.pid),
-               body_line("running\n")])
+    running_name = run_name(sec: 30, pid: Process.pid)
+    write_run(running_name, [header_line(command: 'watch', trigger: 'watch', pid: Process.pid),
+                             body_line("running\n")])
 
     by_run = payload['runs'].to_h { |entry| [entry['run'], entry] }
     expect(by_run[run_name(sec: 10)]['status']).to eq('success')
     expect(by_run[run_name(sec: 10)]['ended_at']).to eq('2026-09-01T09:31:00Z')
     expect(by_run[run_name(sec: 20)]['status']).to eq('failed') # non-zero exit
     expect(by_run[run_name(sec: 20)]['ended_at']).to eq('2026-09-01T09:31:00Z')
-    expect(by_run[run_name(sec: 30)]['status']).to eq('running') # alive pid, no run_end
-    expect(by_run[run_name(sec: 30)]['ended_at']).to be_nil
+    expect(by_run[running_name]['status']).to eq('running') # alive pid, no run_end
+    expect(by_run[running_name]['ended_at']).to be_nil
   end
 
   # -- 6/7/8. the D-12 listing + shapes ---------------------------------
