@@ -327,11 +327,21 @@ module SPMCache
           case item
           when ShutdownSentinel
             break
+          when nil
+            # Pop-timeout IS the heartbeat timer (research alternative
+            # table: no dedicated thread): a comment frame the SSE parser
+            # ignores, keeping the connection visibly alive -- and
+            # probing the writer, so a dead client is discovered here
+            # rather than by the next entry.
+            client.write(Client::HEARTBEAT_COMMENT)
+            # (loop: the timeout is the timer -- no break, keep popping)
+
           when Entry
             # Array#<=> compares element-wise (filename, then offset);
             # Array has no #<=, so the spaceship result is compared.
             next if last_file && ([item.file, item.offset] <=> [last_file, last_offset]) <= 0
 
+            flush_dropped(client)
             client.write(self.class.frame(event: 'entry', data: item.line, id: item.id))
             last_file = item.file
             last_offset = item.offset
@@ -353,11 +363,28 @@ module SPMCache
         end
       end
 
+      # CP11: the per-client drop count flushes as ONE pinned notice --
+      # '{N} lines dropped' -- at the dropped entries' would-be position,
+      # immediately before the next delivered frame.
+      def flush_dropped(client)
+        dropped = client.take_dropped!
+        return if dropped.zero?
+
+        client.write(self.class.frame(
+                       event: 'notice',
+                       data: JSON.generate('message' => "#{dropped} lines dropped")
+                     ))
+      end
+
       # One connected SSE client: the bounded queue the tailer feeds and
       # the response writer the body proc owns. One frame = ONE write
       # call = one WEBrick chunk (ChunkedWrapper#write flushes per call,
       # httpresponse.rb:561-572).
       class Client
+        # Heartbeat comment frame (CP11 ~15s cadence via pop timeout):
+        # the SSE processing model ignores comment lines.
+        HEARTBEAT_COMMENT = ": ping\n\n"
+
         def initialize(out:, queue_cap:)
           @out = out
           @queue = SizedQueue.new(queue_cap)
@@ -401,12 +428,21 @@ module SPMCache
           @queue_cap = queue_cap
           @clients = []
           @mutex = Mutex.new
+          @shutdown = false
         end
 
         attr_reader :queue_cap
 
+        # A register racing the sentinel fan-out (a connect landing while
+        # the server shuts down) must not become a sentinel-less
+        # straggler: WEBrick's accept-loop join would hang on its body
+        # proc (WEB-03). Under the registry lock, a shutdown-state
+        # register immediately receives its sentinel.
         def register(client)
-          @mutex.synchronize { @clients.push(client) }
+          @mutex.synchronize do
+            @clients.push(client)
+            enqueue_sentinel(client) if @shutdown
+          end
           client
         end
 
@@ -460,6 +496,9 @@ module SPMCache
 
         def fan_out_sentinels
           @mutex.synchronize do
+            return if @shutdown # idempotent: exactly one sentinel per client
+
+            @shutdown = true
             @clients.each { |client| enqueue_sentinel(client) }
           end
           nil

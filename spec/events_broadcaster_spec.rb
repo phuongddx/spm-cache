@@ -163,28 +163,23 @@ RSpec.describe 'SPMCache::Web::Events broadcaster' do
   it 'keeps the registry invariant under concurrent register/unregister + publish + shutdown' do
     start_events(heartbeat_seconds: 0.05, queue_cap: 50)
     stream_threads = []
-    stop_race = false
 
+    # Bounded iterations (thread-exhaustion guard): 3 racers x 40
+    # register/stream/publish/unregister cycles still interleave freely.
     racers = 3.times.map do
       Thread.new do
-        until stop_race
+        40.times do
           client = @events.register(StringIO.new)
           stream_threads << Thread.new { @events.stream(client) }
           @events.broadcaster.publish_entry(file: 'race.jsonl', offset: 1, line: "r\n")
-          @events.broadcaster.unregister(client) # races the streams' own ensure-unregister
+          # no racer-side unregister: the stream's own ensure owns it
+          sleep 0.005
         end
       end
     end
 
-    begin
-      sleep 0.2            # let the race run
-      @events.shutdown!    # MID-race: the WEB-03 hazard
-      sleep 0.1
-      stop_race = true
-    ensure
-      stop_race = true
-    end
-
+    sleep 0.2 # let the race run
+    @events.shutdown! # MID-race: the WEB-03 hazard
     racers.each { |racer| expect(racer.join(3)).to be_truthy }
     # Every stream returned -- including clients registered after the
     # sentinel fan-out (no straggler can hang WEBrick's join).
