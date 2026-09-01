@@ -629,11 +629,11 @@ RSpec.describe 'SPMCache::Web one-boot integration matrix', order: :defined do
       it 'shows on /api/state immediately: saved-not-cached while applied still says cached, and the row is pending' do
         row = state_row('Alamofire')
         expect(row).not_to be_nil
-        # The three new fields land BESIDE the existing six (names and
-        # meanings unchanged).
+        # (16-03) toggleable/reason land beside the existing nine
+        # (neither fixture package carries a gating fact).
         expect(row.keys).to contain_exactly(
           'name', 'config', 'size_bytes', 'state', 'fidelity', 'has_macro',
-          'saved_cached', 'applied_cached', 'pending'
+          'toggleable', 'reason', 'saved_cached', 'applied_cached', 'pending'
         )
         expect(row['saved_cached']).to eq(false)  # the checkbox's own truth: the SAVED config no longer caches it
         expect(row['applied_cached']).to eq(true) # the LAST SYNC still did (graph fixture: hit)

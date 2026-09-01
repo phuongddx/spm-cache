@@ -61,13 +61,16 @@ module SPMCache
                                      fidelity: entry.fidelity, saved_ignored: saved_ignored,
                                      binary_names: binary_names)
               toggleable = reason.nil?
-              # (16-01, D-06) saved_cached = the exact-entry test (the
-              # checkbox's own truth, served pre-inverted so the client
-              # does no math); applied_cached = what the LAST SYNC kept
-              # cached (graph status: ignored means not cached, and a
-              # row with no graph entry has no applied signal at all);
-              # pending = an applied signal exists and the two
-              # disagree. The toggleable-only narrowing is 16-03 Task 2.
+              # (16-01/16-03, D-06) saved_cached = the exact-entry test
+              # (the checkbox's own truth, served pre-inverted so the
+              # client does no math); applied_cached = what the LAST
+              # SYNC kept cached (graph status: ignored means not
+              # cached, and a row with no graph entry has no applied
+              # signal at all); pending = TOGGLEABLE and an applied
+              # signal exists and the two disagree -- a pattern-managed
+              # or otherwise locked row never contributes divergence,
+              # because the unsaved-changes bar it would raise could
+              # never be cleared by any action the UI offers.
               saved_cached = !saved_ignored.include?(entry.name)
               applied_cached = graph_entry ? graph_status != 'ignored' : nil
               {
@@ -83,7 +86,7 @@ module SPMCache
                 'reason' => reason,
                 'saved_cached' => saved_cached,
                 'applied_cached' => applied_cached,
-                'pending' => !applied_cached.nil? && saved_cached != applied_cached
+                'pending' => toggleable && !applied_cached.nil? && saved_cached != applied_cached
               }
             end,
             'summary' => stringified_summary(cachemap.stats),
