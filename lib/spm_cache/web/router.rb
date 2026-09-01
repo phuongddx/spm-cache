@@ -126,7 +126,16 @@ module SPMCache
 
         begin
           respond_json(res, 200, ok_envelope(@read_models[model].call(config: @config)))
-        rescue JSON::ParserError => e
+        rescue JSON::JSONError, TypeError => e
+          # JSONError covers ParserError AND its sibling GeneratorError:
+          # invalid-UTF-8 strings planted in project files parse fine
+          # (json keeps the raw bytes) and only explode at
+          # JSON.generate inside respond_json. TypeError covers
+          # shape-malformed JSON -- e.g. graph.json holding an object,
+          # where iteration yields [key, value] pairs and
+          # entry['module'] dies with String-into-Integer. Both surface
+          # as the 500 envelope; anything else still escapes to
+          # WEBrick's handler.
           respond_json(res, 500, error_envelope(e.message))
         end
       end
@@ -144,7 +153,17 @@ module SPMCache
         end
         return reject(res, 404, 'not found') unless req.request_method == 'GET'
 
-        result = @read_models[:doctor].call(run: !req.query['run'].nil?)
+        result =
+          begin
+            @read_models[:doctor].call(run: !req.query['run'].nil?)
+          rescue StandardError => e
+            # The doctor round-trips its payload through JSON.generate
+            # inside #call, so hostile strings in check messages raise
+            # GeneratorError HERE, before an envelope exists -- same
+            # 500-envelope contract as api_read. StandardError (never
+            # Interrupt) keeps the serving path total.
+            return respond_json(res, 500, error_envelope(e.message))
+          end
         respond_json(res, 200,
                      'status' => 'ok',
                      'data' => result[:data],

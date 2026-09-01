@@ -154,6 +154,68 @@ RSpec.describe 'SPMCache::Web::Server request matrix' do
     end
   end
 
+  describe 'error-envelope contract (review WR-01: malformed project files)' do
+    def write_graph_raw(project_dir, raw)
+      path = File.join(project_dir, 'spm-cache', 'packages', 'proxy', 'graph.json')
+      FileUtils.mkdir_p(File.dirname(path))
+      File.binwrite(path, raw)
+    end
+
+    def expect_error_envelope(handle, path)
+      res = http_get(handle, path, 'X-SPM-Token' => handle.token)
+      # The contract is the JSON error envelope (the UI's "Couldn't
+      # load …" copy path), never WEBrick's generic HTML 500.
+      expect(res.code).to eq('500')
+      expect(res['Content-Type']).to eq('application/json')
+      body = JSON.parse(res.body)
+      expect(body.keys).to contain_exactly('status', 'data', 'generated_at')
+      expect(body['status']).to eq('error')
+      expect(body['data'].keys).to eq(['message'])
+      expect(body['data']['message']).to be_a(String)
+      expect(body['data']['message']).not_to be_empty
+      expect(body['generated_at']).to match(/\A\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z\z/)
+    end
+
+    it 'serves the error envelope when graph.json holds an object instead of an array (TypeError)' do
+      Dir.mktmpdir do |project_dir|
+        write_graph_raw(project_dir, '{"A":{"status":"hit"}}')
+        with_server(project_dir) do |handle|
+          expect_error_envelope(handle, '/api/graph')
+          expect_error_envelope(handle, '/api/state')
+        end
+      end
+    end
+
+    it 'serves the error envelope when graph.json strings carry non-UTF-8 bytes (GeneratorError at generate)' do
+      hostile_string = [0xFF, 0xFE].pack('C*').force_encoding(Encoding::UTF_8)
+      Dir.mktmpdir do |project_dir|
+        write_graph_raw(project_dir, %([{"module":"#{hostile_string}","status":"hit"}]))
+        with_server(project_dir) do |handle|
+          expect_error_envelope(handle, '/api/graph')
+        end
+      end
+    end
+
+    it 'serves the error envelope when doctor check strings are non-UTF-8 (GeneratorError inside the read model)' do
+      hostile_diagnostics = Class.new do
+        def run_all(config: nil)
+          []
+        end
+
+        def payload(_results)
+          { 'checks' => [], 'summary' => { 'ok' => 0, 'warnings' => 0, 'failures' => 0 },
+            'message' => [0xFF, 0xFE].pack('C*').force_encoding(Encoding::UTF_8) }
+        end
+      end.new
+      Dir.mktmpdir do |project_dir|
+        doctor = SPMCache::Web::ReadModels::Doctor.new(diagnostics: hostile_diagnostics)
+        with_server(project_dir, read_models: { doctor: doctor }) do |handle|
+          expect_error_envelope(handle, '/api/doctor?run=1')
+        end
+      end
+    end
+  end
+
   describe 'reject matrix (WEB-04)' do
     it '403s /api/graph on a mismatched Origin' do
       Dir.mktmpdir do |project_dir|
