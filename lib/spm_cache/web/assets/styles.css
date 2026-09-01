@@ -124,11 +124,14 @@ body {
   color: var(--c-muted);
 }
 
-/* -- buttons (accent solid fill, white text, accent focus ring) -------- */
+/* -- buttons (accent solid fill, AA dark foreground, accent focus
+ * ring) — W1 amendment (15-UI-SPEC, 14-UI-REVIEW Pillar 2): the label
+ * renders in the dark #0D1117 foreground ≈6.1:1 on the accent fill;
+ * white measured ≈3.1:1, an AA fail. */
 
 .btn {
   background: var(--c-accent);
-  color: #FFFFFF;
+  color: var(--c-bg);
   border: none;
   border-radius: 4px;
   padding: var(--space-xs) var(--space-sm);
@@ -467,7 +470,7 @@ body {
   margin-bottom: var(--space-xl);
   display: flex;
   flex-direction: column;
-  gap: var(--space-xs);
+  gap: var(--space-sm); /* M1 (14-UI-REVIEW → 15 polish): the contract pins sm — xs was the divergence */
 }
 
 .log-card-main {
@@ -651,10 +654,12 @@ body {
 }
 
 /* Accent solid-fill control at pill size (the .btn pattern): the
- * follow-tail pill and the banner's Jump to first error button. */
+ * follow-tail pill and the banner's Jump to first error button —
+ * W1 amendment: the dark foreground (≈6.1:1) applies retroactively to
+ * every accent-fill pill shipped by 14 (follow, filter, jump, run-id). */
 .log-pill-btn {
   background: var(--c-accent);
-  color: #FFFFFF;
+  color: var(--c-bg);
   border: none;
   border-radius: 4px;
   padding: var(--space-xs) var(--space-sm);
@@ -714,6 +719,7 @@ body {
   align-items: baseline;
   flex-wrap: wrap;
   gap: var(--space-xs);
+  margin-bottom: var(--space-sm); /* W5 (14-UI-REVIEW → 15 polish): the pinned sm stack gap before the stream row */
 }
 
 .log-switch-text {
@@ -729,4 +735,28 @@ body {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+/* -- narrow viewport (W4, 14-UI-REVIEW → 15 polish) ------------------
+ * The sheet's ONE breakpoint. Below 800px the fixed 200px rail would
+ * leave ~85px of log line (≈6 mono characters) — it stacks under the
+ * stream at full width instead, and the overlay pill row and panel
+ * actions wrap rather than overflow. */
+@media (max-width: 800px) {
+  .log-stream-row {
+    flex-direction: column;
+  }
+
+  .log-rail {
+    width: 100%;
+    height: auto;
+  }
+
+  .log-overlay {
+    flex-wrap: wrap;
+  }
+
+  .panel-actions {
+    flex-wrap: wrap;
+  }
 }

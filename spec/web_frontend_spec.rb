@@ -405,9 +405,9 @@ RSpec.describe 'spm-cache web dashboard frontend (Plan 13-03)' do
       expect(styles_css).to include('height: 480px')
     end
 
-    it 'buttons: solid accent fill, white text, accent keyboard focus ring' do
+    it 'buttons: solid accent fill, AA dark foreground (W1 amendment, 15-UI-SPEC 2026-09-02), accent keyboard focus ring' do
       expect(styles_css).to include('background: var(--c-accent)')
-      expect(styles_css).to include('color: #FFFFFF')
+      expect(styles_css).to include('color: var(--c-bg)') # #0D1117 on accent ≈6.1:1 — white measured ≈3.1:1, an AA fail
       expect(styles_css).to include('outline: 2px solid var(--c-accent)')
     end
 
