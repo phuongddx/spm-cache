@@ -361,4 +361,185 @@ RSpec.describe 'SPMCache::Web mutation routes (/api/toggle, /api/revert, /api/ap
       end
     end
   end
+
+  describe 'POST /api/revert (A3, 16-04 -- batched, one lock acquisition, not slot-gated)' do
+    # RevA/RevB diverge toggleable (ignored on disk, still cached by
+    # the last sync); RevC is converged (never diverges); RevD is
+    # pattern-managed (looks divergent -- graph says ignored while no
+    # EXACT entry exists -- but is narrowed OUT of pending, so revert
+    # must never touch it).
+    def seed_pending_rows
+      write_framework('debug', 'RevA')
+      write_framework('debug', 'RevB')
+      write_framework('debug', 'RevC')
+      write_framework('debug', 'RevD')
+      write_graph([
+                    { 'module' => 'RevA', 'status' => 'hit' },
+                    { 'module' => 'RevB', 'status' => 'missed' },
+                    { 'module' => 'RevC', 'status' => 'hit' },
+                    { 'module' => 'RevD', 'status' => 'ignored' }
+                  ])
+      write_config_yaml("ignore:\n  - RevA\n  - RevB\n  - 'RevD*'\n")
+    end
+
+    it 'restores every diverging TOGGLEABLE row to applied in one call, leaves non-diverging and non-toggleable rows untouched' do
+      seed_pending_rows
+      with_server do
+        res = post('/api/revert', auth)
+        expect(res.code).to eq('200')
+        envelope = JSON.parse(res.body)
+        expect(envelope['status']).to eq('ok')
+        expect(envelope['data']['reverted']).to match_array(%w[RevA RevB])
+        expect(disk_ignore).to eq(['RevD*']) # RevC never entered; RevD's pattern untouched
+      end
+    end
+
+    it 'is ONE transaction, not N: the batch reaches the mutator as a single call' do
+      seed_pending_rows
+      with_server do
+        expect(SPMCache::Core::Config.instance).to receive(:set_ignored_all).once.and_call_original
+        expect(SPMCache::Core::Config.instance).not_to receive(:set_ignored)
+        res = post('/api/revert', auth)
+        expect(res.code).to eq('200')
+      end
+    end
+
+    it 'is a successful no-op answering an empty reverted set when nothing is pending' do
+      write_framework('debug', 'Converged')
+      write_graph([{ 'module' => 'Converged', 'status' => 'hit' }])
+      with_server do
+        res = post('/api/revert', auth)
+        expect(res.code).to eq('200')
+        expect(JSON.parse(res.body)['data']['reverted']).to eq([])
+      end
+    end
+
+    it 'matches the toggle endpoint\'s auth/verb/body posture; an EMPTY body is the documented shape' do
+      seed_pending_rows
+      with_server do
+        no_token = post('/api/revert', {})
+        expect(no_token.code).to eq('401')
+
+        verb = request_with(Net::HTTP::Get, '/api/revert', auth)
+        expect(verb.code).to eq('404')
+
+        bad_body = post('/api/revert', auth, '{nope')
+        expect(bad_body.code).to eq('400')
+        expect(JSON.parse(bad_body.body)['data']['reason']).to eq('bad_body')
+
+        empty = post('/api/revert', auth) # no body at all
+        expect(empty.code).to eq('200')
+      end
+    end
+
+    it 'answers 200 and still writes while the slot is held by a live run (not slot-gated)' do
+      seed_pending_rows
+      with_server do
+        build_pid = nil
+        begin
+          ENV['FAKE_BIN_SLEEP'] = '2'
+          build_res = post('/api/build', auth, JSON.generate('scope' => 'build'))
+          expect(build_res.code).to eq('200')
+          build_entry = wait_for_probe_entry(0)
+          build_pid = build_entry['pid']
+
+          res = post('/api/revert', auth)
+          expect(res.code).to eq('200')
+          expect(disk_ignore).to eq(['RevD*'])
+        ensure
+          ENV.delete('FAKE_BIN_SLEEP')
+          wait_for_pid_exit(build_pid)
+        end
+      end
+    end
+
+    it 'answers 500 config_write_failed when the mutator raises' do
+      seed_pending_rows
+      restricted = false
+      with_server do
+        FileUtils.chmod(0o500, @project_dir)
+        restricted = true
+        res = post('/api/revert', auth)
+        expect(res.code).to eq('500')
+        expect(JSON.parse(res.body)['data']['reason']).to eq('config_write_failed')
+      end
+    ensure
+      FileUtils.chmod(0o700, @project_dir) if restricted
+    end
+  end
+
+  describe 'POST /api/apply (D-07 -- the existing mutation helper, scope fixed by the route)' do
+    it 'answers 200 with the scope and a freshly derived lock snapshot, and spawns the bare sync verb' do
+      with_server do
+        before = probe_entries.length
+        res = post('/api/apply', auth)
+        expect(res.code).to eq('200')
+        envelope = JSON.parse(res.body)
+        expect(envelope['status']).to eq('ok')
+        expect(envelope['data']['scope']).to eq('use')
+        expect(envelope['data']['lock']).to eq('state' => 'free', 'holder' => nil, 'holder_status' => nil)
+
+        entry = wait_for_probe_entry(before)
+        expect(entry).not_to be_nil
+        expect(entry['argv']).to eq(['use'])
+        expect(entry['trigger_env']).to eq('ui')
+        expect(File.realpath(entry['pwd'])).to eq(File.realpath(@project_dir))
+      ensure
+        wait_for_pid_exit(entry && entry['pid'])
+      end
+    end
+
+    it 'reads no scope from the body: a body naming a different scope is ignored, the spawn still records "use"' do
+      with_server do
+        before = probe_entries.length
+        res = post('/api/apply', auth, JSON.generate('scope' => 'rollback'))
+        expect(res.code).to eq('200')
+        entry = wait_for_probe_entry(before)
+        expect(entry['argv']).to eq(['use'])
+      ensure
+        wait_for_pid_exit(entry && entry['pid'])
+      end
+    end
+
+    it 'answers 409 slot_busy while the slot is held, and spawns nothing new' do
+      with_server do
+        pid = nil
+        begin
+          ENV['FAKE_BIN_SLEEP'] = '1'
+          before = probe_entries.length
+          first = post('/api/apply', auth)
+          expect(first.code).to eq('200')
+          entry = wait_for_probe_entry(before)
+          pid = entry['pid']
+          count_before = probe_entries.length
+
+          second = post('/api/apply', auth)
+          expect(second.code).to eq('409')
+          expect(JSON.parse(second.body)['data']['reason']).to eq('slot_busy')
+          expect(probe_entries.length).to eq(count_before)
+        ensure
+          ENV.delete('FAKE_BIN_SLEEP')
+          wait_for_pid_exit(pid)
+        end
+      end
+    end
+
+    it 'answers 500 spawn_failed when the spawn itself raises' do
+      unspawnable = SPMCache::Web::Jobs.new(config: SPMCache::Core::Config.instance,
+                                            bin_path: "/nonexistent/spm-cache\u0000")
+      with_server(jobs: unspawnable) do
+        res = post('/api/apply', auth)
+        expect(res.code).to eq('500')
+        expect(JSON.parse(res.body)['data']['reason']).to eq('spawn_failed')
+      end
+    end
+
+    it 'answers 401 tokenless and the house 404 for a non-POST verb' do
+      with_server do
+        expect(post('/api/apply', {}).code).to eq('401')
+        expect(request_with(Net::HTTP::Get, '/api/apply', auth).code).to eq('404')
+        expect_no_spawn(0)
+      end
+    end
+  end
 end

@@ -204,6 +204,44 @@ RSpec.describe SPMCache::Web::Jobs do
     wait_for_pid_exit(first_pid)
   end
 
+  it 'the frozen scope table carries the sync verb (D-07, 16-04): a claim for "use" records exactly [ruby interpreter, bin_path, "use"]' do
+    pid = nil
+    captured = nil
+    allow(Process).to receive(:spawn).and_wrap_original do |original, env, *rest, **kwargs|
+      captured = rest
+      original.call(env, *rest, **kwargs)
+    end
+    pid = jobs.spawn_run(scope: 'use')
+    expect(pid).not_to be_nil
+    expect(captured).to eq([RbConfig.ruby, FAKE_BIN_PATH, 'use'])
+  ensure
+    wait_for_pid_exit(pid)
+  end
+
+  it 'shares the ONE slot with the sync scope (16-04, D-08/A1): a live "use" claim refuses a "build" claim' do
+    first_pid = nil
+    ENV['FAKE_BIN_SLEEP'] = '2'
+    j = jobs
+    first_pid = j.spawn_run(scope: 'use')
+    expect(first_pid).not_to be_nil
+    expect(j.spawn_run(scope: 'build')).to be_nil
+  ensure
+    ENV.delete('FAKE_BIN_SLEEP')
+    wait_for_pid_exit(first_pid)
+  end
+
+  it 'shares the ONE slot the other direction: a live "build" claim refuses a "use" claim' do
+    first_pid = nil
+    ENV['FAKE_BIN_SLEEP'] = '2'
+    j = jobs
+    first_pid = j.spawn_run(scope: 'build')
+    expect(first_pid).not_to be_nil
+    expect(j.spawn_run(scope: 'use')).to be_nil
+  ensure
+    ENV.delete('FAKE_BIN_SLEEP')
+    wait_for_pid_exit(first_pid)
+  end
+
   it 'frees the slot on the next claim once the run log carries run_end -- derived, never remembered, never waitpid' do
     first_pid = nil
     second_pid = nil
