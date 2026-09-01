@@ -58,6 +58,7 @@ cache control, and cache/health visibility for the current project.
 - ✓ The fidelity contract is pinned by hermetic specs (drift regression, six-bucket partition coverage, 8-class v0.2.x edge matrix — 416 examples green on the Ruby 3.1–3.3 CI matrix, no network, no real xcodebuild) — Phase 10 (v0.4.0)
 - ✓ Release automation end-to-end: `update-tap.yml` publishes the Homebrew formula unattended via a scoped write deploy key (`TAP_DEPLOY_KEY`), every failure mode loud, integrity-gated byte-stable tarball pinning, idempotent re-runs, and a brew verify job whose version assertion demonstrably has teeth — live-proven including a real tap push (2026-08-31) — Phase 11 (v0.4.0)
 - ✓ `spm-cache --version` prints the gem version and exits 0 (pre-CLAide intercept) — Phase 11 (v0.4.0)
+- ✓ Run-log capture foundation — every CLI run (except `web`/`watch` verbs and `--no-run-log`) leaves a complete queryable JSONL run log: credential-redacted argv header, full-fidelity stream body, structured `run_start`/`phase`/`package_*`/`sh`/`run_end` event vocabulary, and hybrid count+size retention (50 runs / 500 MB) — Phase 12 (v0.5.0)
 
 ### Active
 
@@ -102,6 +103,7 @@ Known state after v0.3.0: test CI runs the full suite on every PR/push (was: non
 |----------|-----------|---------|
 | v0.3.0 direction = Mixed (features + hardening) | User chose balanced cycle — moat + adoption + reliability | ✓ Shipped — 5/5 phases verified 2026-08-24 |
 | `watch` uses stdlib mtime+size polling, not `listen` gem | zero native binding, portable, avoids new dependency; binding design superseded 2026-08-24 (05-CONTEXT) | ✓ Shipped Phase 5 — stdlib polling (amended 2026-08-24) |
+| Run logs live in `.spm-cache/runs/` as file-tail JSONL; header redacts credentials, body stays verbatim | Relay transport for Phase 14 streaming chosen over UDS at research; full-fidelity body is the offline-reconstruction contract (D-05), retention is the disk-fill bound (T-12-04) | ✓ Shipped Phase 12 — 5/5 plans, verification passed, UAT 2/2, threats_open 0 |
 | `watch` watches only Package.resolved + project.pbxproj | Whole .xcodeproj bundle is too noisy (Xcode rewrites many files) | ✓ Shipped Phase 5 |
 | `init` re-runs are idempotent diff-merge | Mirrors `use` diff philosophy; prevents data loss | ✓ Shipped Phase 3 — byte-stable double-run proven |
 | init seeds spm-cache.lock in canonical consumer shape | Pins byte-copy crashed `use` (TypeError, diff_detector.rb:103); canonical shape reuses installer mapping | ✓ Phase 3 — DiffDetector consumes seeded lock: "No changes detected" |
@@ -139,4 +141,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-08-31 after v0.5.0 milestone start (Web Interface)*
+*Last updated: 2026-09-01 after Phase 12 (Run-Log Capture Foundation)*

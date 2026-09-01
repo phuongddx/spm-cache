@@ -2,53 +2,53 @@
 gsd_state_version: 1.0
 milestone: v0.5.0
 milestone_name: Web Interface
-current_phase: 12
-current_phase_name: Run-Log Capture Foundation
-status: verifying
-stopped_at: Completed 12-05-PLAN.md (LOGS-01 complete — all five plans landed)
-last_updated: "2026-08-31T17:57:52.805Z"
-last_activity: 2026-08-31
-last_activity_desc: Phase 12 execution started
-state_head: cfea674da11b4f064f4b28625f300e930123ae95
+current_phase: 13 — Server Skeleton + Read-Only Dashboard
+current_phase_name: Server Skeleton + Read-Only Dashboard
+status: planning
+stopped_at: Phase 12 complete, ready to plan Phase 13
+last_updated: "2026-09-01T03:11:03.299Z"
+last_activity: 2026-09-01
+last_activity_desc: Phase 12 complete, transitioned to Phase 13
+state_head: 977965ad9b5239128f650059aac51481d1802c85
 progress:
   total_phases: 5
-  completed_phases: 0
+  completed_phases: 1
   total_plans: 5
   completed_plans: 5
-  percent: 0
+  percent: 20
 ---
 
 # Project State: spm-cache
 
 **Initialized:** 2026-08-10
-**Current Phase:** 12
+**Current Phase:** 13 — Server Skeleton + Read-Only Dashboard
 **Project Mode:** Horizontal Layers
 **Direction:** v0.5.0 Web Interface — localhost dashboard, live log streaming, per-package toggles
 
 ## Project Reference
 
-See: .planning/PROJECT.md (updated 2026-08-31)
+See: .planning/PROJECT.md (updated 2026-09-01)
 
 **Core value:** Reduce Xcode clean build times by serving prebuilt SPM dependency binaries transparently, with automatic fallback to source on cache miss — so a cache hit never breaks a build.
-**Current focus:** Phase 12 — Run-Log Capture Foundation
+**Current focus:** Phase 13 — Server Skeleton + Read-Only Dashboard
 
 v0.4.0 shipped and released 2026-08-31 (first fully-green tap publish in project history). Full milestone history: `.planning/MILESTONES.md`.
 
 ## Current Position
 
-Phase: 12 (Run-Log Capture Foundation) — EXECUTING
-Plan: 5 of 5
-Status: Phase complete — ready for verification
-Last activity: 2026-08-31 — Phase 12 execution started
+Phase: 13 (Server Skeleton + Read-Only Dashboard) — PLANNING
+Plan: Not started
+Status: Ready to discuss
+Last activity: 2026-09-01 — Phase 12 complete, transitioned to Phase 13
 
-Progress: [░░░░░░░░░░] 0%
+Progress: [██░░░░░░░░░] 20%
 
 ## v0.5.0 Phase Status
 
 | Phase | Name | Status | Branch |
 |-------|------|--------|--------|
-| 12 | Run-Log Capture Foundation | Not started | — |
-| 13 | Server Skeleton + Read-Only Dashboard | Not started | — |
+| 12 | Run-Log Capture Foundation | Complete (2026-09-01) | gsd/v0.5.0-web-interface |
+| 13 | Server Skeleton + Read-Only Dashboard | Current — ready to discuss | gsd/v0.5.0-web-interface |
 | 14 | Live Log Streaming + Terminal/Watch Relay | Not started | — |
 | 15 | UI Build Controls | Not started | — |
 | 16 | Package Toggles + Panel Completion | Not started | — |
@@ -122,6 +122,6 @@ Items acknowledged and deferred at milestone close, most recent first:
 
 ## Session Continuity
 
-Last session: 2026-08-31T17:57:52.787Z
-Stopped at: Completed 12-05-PLAN.md (LOGS-01 complete — all five plans landed)
+Last session: 2026-09-01T03:12:28Z
+Stopped at: Phase 12 complete, ready to plan Phase 13
 Resume file: None
