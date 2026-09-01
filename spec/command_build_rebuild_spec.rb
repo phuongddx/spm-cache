@@ -96,3 +96,75 @@ RSpec.describe SPMCache::Installer::Build, 'forced-rebuild selection (D-01)' do
     expect(output.scan(/IncompleteLib/).size).to eq(1)
   end
 end
+
+# A8: the flag is declared on Command::Build's option table and reaches the
+# installer through an explicit constructor pass-through -- no second verb,
+# no env-driven behavior (Pitfall 7 keeps the trigger marker
+# attribution-only). CLI-level: the installer construction is spied so no
+# real build runs.
+RSpec.describe SPMCache::Command::Build, '--rebuild CLI surface (A8)' do
+  def capture_stdout
+    original = $stdout
+    $stdout = StringIO.new
+    yield
+    $stdout.string
+  ensure
+    $stdout = original
+  end
+
+  def with_swapped_streams
+    old_out = $stdout
+    old_err = $stderr
+    $stdout = StringIO.new
+    $stderr = StringIO.new
+    yield
+  ensure
+    $stdout = old_out
+    $stderr = old_err
+  end
+
+  it 'constructs Installer::Build with the forced scope only when the flag is parsed' do
+    allow(Dir).to receive(:glob).with('*.xcodeproj').and_return(['Fake.xcodeproj'])
+    forced = instance_double(SPMCache::Installer::Build, perform_install: nil)
+    plain = instance_double(SPMCache::Installer::Build, perform_install: nil)
+    allow(SPMCache::Installer::Build).to receive(:new)
+      .with(project: 'Fake.xcodeproj', config: 'debug', targets: [], rebuild: true).and_return(forced)
+    allow(SPMCache::Installer::Build).to receive(:new)
+      .with(project: 'Fake.xcodeproj', config: 'debug', targets: [], rebuild: false).and_return(plain)
+
+    capture_stdout { SPMCache::Command.parse(['build', '--rebuild']).run }
+    capture_stdout { SPMCache::Command.parse(['build']).run }
+
+    expect(SPMCache::Installer::Build).to have_received(:new).with(hash_including(rebuild: true))
+    expect(SPMCache::Installer::Build).to have_received(:new).with(hash_including(rebuild: false))
+  end
+
+  it 'declares --rebuild in the option table alongside --recursive' do
+    option_names = SPMCache::Command::Build.options.map(&:first)
+    expect(option_names).to include('--rebuild')
+    expect(option_names).to include('--recursive')
+  end
+
+  it 'combines with a target argument and the existing recursive flag regardless of argv order' do
+    cmd1 = SPMCache::Command.parse(['build', '--rebuild', 'SomeTarget', '--recursive'])
+    cmd2 = SPMCache::Command.parse(['build', 'SomeTarget', '--recursive', '--rebuild'])
+
+    [cmd1, cmd2].each do |cmd|
+      expect(cmd.instance_variable_get(:@targets)).to eq(['SomeTarget'])
+      expect(cmd.instance_variable_get(:@rebuild)).to be(true)
+      expect(cmd.instance_variable_get(:@recursive)).to be(true)
+    end
+  end
+
+  it 'records --rebuild in the run-log header argv (A8 self-documenting argv row)' do
+    allow(SPMCache::Command).to receive(:run)
+    Dir.mktmpdir do |log_dir|
+      argv = ["--log-dir=#{log_dir}", 'build', '--rebuild']
+      with_swapped_streams { SPMCache::Main.run(argv) }
+
+      file = Dir.glob(File.join(log_dir, '*.jsonl')).first
+      header = JSON.parse(File.readlines(file).first)
+      expect(header['argv']).to eq(argv)
+    end
+  end
+end
