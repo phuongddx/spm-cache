@@ -242,15 +242,19 @@ module SPMCache
       # absent body is its documented shape). Both share api_read's
       # gate ORDER -- token first (401), then a request-method check
       # that answers the house 404 for anything but POST -- then
-      # read and JSON-parse the body. scope must be one of
-      # Jobs::SCOPES' frozen keys (V5: rejected 400 BEFORE any spawn
-      # attempt, never interpolated into argv). Jobs answers nil for
-      # a held slot (409, machine-readable reason 'slot_busy') or
-      # raises on a genuine spawn failure (500, 'spawn_failed');
-      # either reason is for programs, never rendered by the frontend
-      # (UI-SPEC A9). A 2xx envelope carries the claimed scope plus a
-      # freshly derived lock snapshot (D-06) so the UI's waiting
-      # flavor can light up without waiting for the next poll.
+      # Jobs::SCOPES' frozen keys, matched EXACTLY -- no case folding,
+      # no coercion of non-strings (V5: rejected 400 'bad_scope'
+      # BEFORE any spawn attempt, never interpolated into argv). The
+      # fixed reason vocabulary (planner decision, Open Question 3):
+      # 'bad_body' (400, unparseable JSON), 'bad_scope' (400),
+      # 'slot_busy' (409 -- Jobs answered nil for a held slot),
+      # 'spawn_failed' (500 -- Jobs raised; the slot was never
+      # claimed). Reasons are for programs, never rendered by the
+      # frontend (UI-SPEC A9), and error messages are deliberately
+      # NOT the dashboard's display copy. A 2xx envelope carries the
+      # claimed scope plus a freshly derived lock snapshot (D-06) so
+      # the UI's waiting flavor can light up without waiting for the
+      # next poll.
       def api_mutate(req, res, supplied, fixed_scope: nil)
         unless Middleware.valid_token?(token: supplied, expected_token: @token)
           return reject(res, 401, 'missing or invalid token')
@@ -261,15 +265,15 @@ module SPMCache
         body = begin
           # An empty (or whitespace-only) body is the empty object:
           # rollback's documented POST shape (and a scopeless build
-          # POST still fails the whitelist below with 'unknown
-          # scope', never 'malformed').
+          # POST still fails the whitelist below with 'bad_scope',
+          # never 'bad_body').
           raw.strip.empty? ? {} : JSON.parse(raw)
         rescue JSON::ParserError
-          return respond_json(res, 400, error_envelope('malformed request body', reason: 'malformed_body'))
+          return respond_json(res, 400, error_envelope('malformed request body', reason: 'bad_body'))
         end
         scope = fixed_scope || (body.is_a?(Hash) ? body['scope'] : nil)
         unless Jobs::SCOPES.key?(scope)
-          return respond_json(res, 400, error_envelope('unknown scope', reason: 'unknown_scope'))
+          return respond_json(res, 400, error_envelope('scope is not one of the known scopes', reason: 'bad_scope'))
         end
 
         pid =
@@ -280,7 +284,7 @@ module SPMCache
           end
         if pid.nil?
           return respond_json(res, 409,
-                              error_envelope('a build or rollback is already running', reason: 'slot_busy'))
+                              error_envelope('spawn slot busy', reason: 'slot_busy'))
         end
 
         respond_json(res, 200, ok_envelope('scope' => scope,
