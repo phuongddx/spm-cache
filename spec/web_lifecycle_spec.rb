@@ -185,6 +185,14 @@ RSpec.describe SPMCache::Web::PortProber do
       second.close
     end
   end
+
+  it 'probes past out-of-range candidates and raises the friendly GeneralError (review WR-04)' do
+    # No candidate above 65535 can ever bind; each unbindable errno
+    # must be probed past, exhausting into the GeneralError instead of
+    # a raw errno dump.
+    expect { described_class.pick(start_port: 65_536, attempts: 2) }
+      .to raise_error(SPMCache::Core::GeneralError, /\[65536, 65538\)/)
+  end
 end
 
 RSpec.describe SPMCache::Command::Web do
@@ -367,6 +375,26 @@ RSpec.describe SPMCache::Command::Web do
       picked_start_port
       run_web('--port=8123', '--no-open')
       expect(@picked).to eq(8123)
+    end
+
+    it 'rejects out-of-range ports with a clear GeneralError (review WR-04)' do
+      # parse_port runs in #initialize, so the raise surfaces before
+      # any probing -- never as a raw errno dump mid-boot.
+      expect { run_web('--port=-5', '--no-open') }
+        .to raise_error(SPMCache::Core::GeneralError, /between 1 and 65535/)
+      expect { run_web('--port=0', '--no-open') }
+        .to raise_error(SPMCache::Core::GeneralError, /between 1 and 65535/)
+      expect { run_web('--port=70000', '--no-open') }
+        .to raise_error(SPMCache::Core::GeneralError, /between 1 and 65535/)
+    end
+
+    it 'accepts the full valid port range' do
+      picked_start_port
+      run_web('--port=1', '--no-open')
+      expect(@picked).to eq(1)
+      picked_start_port
+      run_web('--port=65535', '--no-open')
+      expect(@picked).to eq(65_535)
     end
 
     it 'falls back to 7915 on garbage (yml-is-user-authored posture)' do

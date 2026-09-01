@@ -137,9 +137,17 @@ module SPMCache
       # Integer()-coerced with rescue-to-default: the --port value is
       # user-authored CLI input (same posture as the retention readers,
       # config.rb) -- `--port=abc` falls back to the default, never a
-      # crash mid-verb.
+      # crash mid-verb. A numerically valid but unbindable value is a
+      # deliberate user choice, so it fails loudly as a GeneralError
+      # (the PortProber-exhaustion posture) instead of a raw errno
+      # dump from deep inside the boot (review WR-04).
       def parse_port(raw)
-        Integer(raw || DEFAULT_PORT)
+        port = Integer(raw || DEFAULT_PORT)
+        unless (1..65_535).cover?(port)
+          raise Core::GeneralError,
+                "--port must be between 1 and 65535 (got #{port})"
+        end
+        port
       rescue ArgumentError, TypeError
         DEFAULT_PORT
       end

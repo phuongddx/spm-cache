@@ -39,7 +39,12 @@ module SPMCache
 
         def bind(host, port)
           TCPServer.new(host, port)
-        rescue Errno::EADDRINUSE
+        rescue SystemCallError, SocketError
+          # SystemCallError covers EADDRINUSE and every other errno;
+          # SocketError covers out-of-range candidates (ports above
+          # 65535 raise it on macOS, EADDRNOTAVAIL on Linux). Either
+          # way the candidate is probed past and exhaustion raises the
+          # friendly GeneralError instead of a raw errno dump (WR-04).
           nil
         end
       end
