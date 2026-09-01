@@ -56,7 +56,6 @@ module SPMCache
       def shutdown
         @http.shutdown
       end
-      alias stop shutdown
 
       private
 

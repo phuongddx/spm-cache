@@ -28,8 +28,6 @@ module SPMCache
         '.png' => 'image/png'
       }.freeze
 
-      attr_reader :root
-
       def initialize(root: DEFAULT_ROOT)
         @root = File.expand_path(root)
       end
