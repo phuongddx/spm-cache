@@ -118,7 +118,7 @@ Every dynamic string the log surface can render, pinned. `{…}` slots substitut
 | Anchor rail group labels | `Phases` then `Packages` (Label size, muted, always rendered) |
 | Anchor chips | phase chips: `detect` `integrate` `build` `fidelity` (verbatim phase names); package chips: the package name verbatim from `package_start` |
 | Cold load — live run (D-13) | card status `● running`; replay from byte 0; follow engages when the replay completes |
-| Cold load — last completed (D-13) | card status glyph+word per end state; card time row renders `Started {MMM d, HH:MM} · completed {relative} ago` |
+| Cold load — last completed (D-13) | card status glyph+word per end state; card time row renders `Started {MMM d, HH:MM} · completed {relative}` ({relative} per the vocabulary row below — it already carries the ago phrasing; found doubled in the D-14 probe and amended 2026-09-01) |
 | Relative-time vocabulary | `just now` (< 60s) · `{N} min ago` · `{N} hr ago` · `{MMM d, HH:MM}` (≥ 24h; the "ago" phrasing drops — same day-boundary rationale as 13's graph stamp). Deltas compute from SERVER timestamps only |
 | Cold load — genuinely empty (D-13) | heading `No runs yet` · body `Run spm-cache build to produce the first run log.` (command in the accent `.cmd` span — display only, not a link) |
 | Recent-runs dropdown label | `Recent runs` |
@@ -144,7 +144,7 @@ The Run Log panel body, top to bottom:
 
 1. **Identity card** (D-06) — full width, `sm` padding, 1px border, 8px radius. Three rows:
    - row 1: status glyph+word · trigger badge · command (mono, weight 600) · `Config {config}`
-   - row 2 (mono, muted, Label size): `Started {MMM d, HH:MM}` — plus ` · completed {relative} ago` when the run is finished
+   - row 2 (mono, muted, Label size): `Started {MMM d, HH:MM}` — plus ` · completed {relative}` when the run is finished ({relative} carries its own ago phrasing per the copy table)
    - row 3 (mono, muted, Label size): `spm-cache {argv joined by spaces}` (` · credentials redacted` appended when the header says so), and the run id, each ellipsized on one line with a `title` tooltip
 2. `xl` (32px) section break.
 3. **Stream group**, stacked with `sm` gaps: failure banner (when present: full-width bar, fail 10%-alpha fill, `✗` glyph, banner text + `Jump to first error` button) · switch-notice bar (when present: muted text, `{run-id}` in the accent control style) · the stream row.

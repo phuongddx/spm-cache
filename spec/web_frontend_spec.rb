@@ -514,7 +514,7 @@ RSpec.describe 'spm-cache web dashboard frontend (Plan 13-03)' do
 
       it 'finished run: end-state card + the Started/completed time row' do
         expect(log_js).to include('Started ${fmtStamp(')
-        expect(log_js).to include(' · completed ${relative(endIso)} ago')
+        expect(log_js).to include('` · completed ${relative(endIso)}`')
         expect(log_js).to include("word: 'success'")
         expect(log_js).to include("word: 'failed'")
       end
