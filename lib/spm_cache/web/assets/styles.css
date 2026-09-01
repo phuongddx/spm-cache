@@ -529,7 +529,27 @@ body {
   gap: var(--space-sm);
 }
 
-/* Accent solid-fill control at pill size (the .btn pattern) and the
- * keyboard focus rings for every log-surface control land with the
- * Task-2 interaction mechanics (follow pill, jump button, chips,
- * select slot). */
+/* Accent solid-fill control at pill size (the .btn pattern): the
+ * follow-tail pill and the banner's Jump to first error button. */
+.log-pill-btn {
+  background: var(--c-accent);
+  color: #FFFFFF;
+  border: none;
+  border-radius: 4px;
+  padding: var(--space-xs) var(--space-sm);
+  font-family: var(--font-mono);
+  font-size: 12px;   /* Label role */
+  font-weight: 400;
+  line-height: 1.4;
+  cursor: pointer;
+}
+
+/* Keyboard focus rings on every log-surface control (14-UI-SPEC
+ * Accessibility): the pills, the 14-05 anchor chips, and the
+ * recent-runs select slot. */
+.log-pill-btn:focus-visible,
+.log-chip:focus-visible,
+.log-runs-select:focus-visible {
+  outline: 2px solid var(--c-accent);
+  outline-offset: 2px;
+}
