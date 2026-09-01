@@ -479,7 +479,11 @@ RSpec.describe 'spm-cache web dashboard frontend (Plan 13-03)' do
     describe 'stream wiring (14-01 contract)' do
       it 'reads the shared sessionStorage token key and connects EventSource on the query param' do
         expect(log_js).to include("'spm-cache-web-token'")
-        expect(log_js).to include("new EventSource('/api/events?token=' + token)")
+        # 14-05 cutover: connect gained 14-03's optional ?run= param
+        # (loadRun reconnects), so the token-as-query-param posture is
+        # pinned on the composition itself — still ONE EventSource
+        # construction per page (the prohibition row counts it).
+        expect(log_js).to include("'/api/events?token=' + token")
       end
 
       it 'registers named listeners for hello/entry/switch/notice — the module ships whole' do
@@ -890,7 +894,7 @@ RSpec.describe 'spm-cache web dashboard frontend (Plan 13-03)' do
 
     it "in-stream notices render '! {message}' in warn byte-identically — the two known server strings are server-authored (events.rb pins them), never client copies" do
       expect(log_js).to include('notice: (message) => `! ${message}`')
-      expect(log_js).to include("'log-notice'")
+      expect(log_js).to include("class: 'log-line log-notice'")
       expect(log_js).not_to include('lines dropped')
       expect(log_js).not_to include('run log pruned')
       # a pruned pinned run's notice precedes the unpinned reconnect —

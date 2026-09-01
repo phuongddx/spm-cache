@@ -21,9 +21,11 @@
         <h2>Run Log</h2>
         <div class="panel-actions">
           <span class="conn-pill" id="conn-pill" aria-live="polite">● connecting…</span>
-          <span class="log-runs-slot" id="runs-slot" hidden></span>
+          <div class="log-runs-wrap" id="runs-slot">
+            <label class="log-runs-label" for="log-runs">Recent runs</label>
+            <select class="log-runs-select" id="log-runs"></select>
+          </div>
         </div>
-      </div>
       <div class="panel-body" id="log-body">
         <div class="log-card" id="log-card" hidden>
           <div class="log-card-main">
