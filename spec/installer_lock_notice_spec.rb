@@ -1,6 +1,7 @@
 # frozen_string_literal: true
 
 require 'spec_helper'
+require 'json'
 require 'stringio'
 require 'tmpdir'
 require 'timeout'
@@ -266,5 +267,143 @@ RSpec.describe SPMCache::Installer::Use, 'lock-wait notice (D-05)' do
     expect(out).not_to include(notice_text)
     expect(err).not_to include(notice_text)
     expect(body_ran).to be(true)
+  end
+end
+
+# Task 2: tee-landing proof (D-05's second truth). The notice is a plain
+# T-12-01 body line in the blocked run's own JSONL -- captured by the
+# Phase 12 TeeIO that Main.run / RunLog::CycleWrapper swap over $stdout
+# (run_log.rb:428-480, 536-541), with ZERO new logging machinery. Every
+# assertion parses JSON per line (never raw substring hits on the whole
+# file), per the run_log_spec.rb fixture idiom.
+RSpec.describe SPMCache::Installer::Build, 'lock-wait notice tee-landing (D-05 / T-12-01)' do
+  include LockNoticeHelpers
+
+  let(:tmpdir) { Dir.mktmpdir }
+  let(:runs_dir) { File.join(tmpdir, 'runs') }
+  let(:project_path) { File.join(tmpdir, 'Fake.xcodeproj') }
+  let(:lock_path) { File.join(tmpdir, '.spm-cache-build.lock') }
+
+  let(:cachemap) do
+    SPMCache::Cache::Cachemap.new(graph_data: [{ 'module' => 'Alamofire', 'status' => 'missed' }])
+  end
+
+  before do
+    FileUtils.mkdir_p(project_path)
+    config = SPMCache::Core::Config.instance
+    @original_project_dir = config.project_dir
+    config.project_dir = tmpdir
+    allow(SPMCache::Core::Sh).to receive(:run) do |cmd, *_opts|
+      raise "unexpected real invocation: Sh.run(#{cmd.inspect})"
+    end
+    allow(SPMCache::Core::Sh).to receive(:capture_output) do |cmd, *_opts|
+      raise "unexpected real invocation: Sh.capture_output(#{cmd.inspect})"
+    end
+    allow_any_instance_of(SPMCache::Installer).to receive(:perform_install).and_wrap_original do |original, *_args|
+      me = original.receiver
+      me.instance_variable_set(:@cachemap, cachemap) if me.respond_to?(:cachemap)
+      nil
+    end
+    allow_any_instance_of(SPMCache::Installer::Build).to receive(:resolve_umbrella_checkouts).and_return(nil)
+    allow_any_instance_of(SPMCache::Installer::Build).to receive(:checkout_map).and_return({})
+    allow_any_instance_of(SPMCache::Installer::Build).to receive(:build_single_target).and_return(nil)
+    allow(SPMCache::Core::Config.instance).to receive(:ignore_build_errors?).and_return(false)
+    allow(SPMCache::Core::Config.instance).to receive(:default_sdk).and_return('iphonesimulator')
+    allow(SPMCache::Core::Config.instance).to receive(:cache_dir).and_return(tmpdir)
+  end
+
+  after do
+    SPMCache::Core::RunLog.current = nil # run_log_spec.rb:26-29 cleanup idiom
+    SPMCache::Core::Config.instance.project_dir = @original_project_dir
+    FileUtils.rm_rf(tmpdir)
+  end
+
+  def jsonl(path)
+    File.read(path).lines.map { |line| JSON.parse(line) }
+  end
+
+  def notice_body_lines(path)
+    jsonl(path).select { |line| !line.key?('event') && line['text'] == "#{notice_text}\n" }
+  end
+
+  # Main.run's swap shape (main_run_log_spec.rb:67-81; run_log.rb:269-271):
+  # the tee is installed DIRECTLY over $stdout so UI.info's puts rides it.
+  def with_run_log_tee(log, terminal)
+    old_out = $stdout
+    $stdout = log.tee_out(terminal)
+    begin
+      yield
+    ensure
+      $stdout = old_out
+    end
+  end
+
+  it "lands in the run's JSONL as a T-12-01 body line: only ts/stream 'out'/text, no event key" do
+    log = SPMCache::Core::RunLog.open(runs_dir: runs_dir, command: 'build')
+    terminal = StringIO.new
+    with_run_log_tee(log, terminal) do
+      with_lock_held_until_notice(lock_path, announce_visible_in: terminal) do
+        described_class.new(project: project_path, targets: []).perform_install
+      end
+    end
+    log.finish(0)
+
+    body = notice_body_lines(log.path)
+    expect(body.length).to eq(1)
+    expect(body.first.keys.sort).to eq(%w[stream text ts]) # T-12-01: body lines carry ONLY ts/stream/text
+    expect(body.first['stream']).to eq('out')
+    expect(body.first['ts']).to match(/\A\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z\z/)
+    # SC3 write-through: the terminal leg saw the identical string.
+    expect(terminal.string).to include(notice_text)
+  end
+
+  it "lands ONLY in the blocked run's file -- a concurrently open holder run gains nothing" do
+    holder_log = SPMCache::Core::RunLog.open(runs_dir: runs_dir, command: 'build')
+    blocked_log = SPMCache::Core::RunLog.open(runs_dir: runs_dir, command: 'build')
+    terminal = StringIO.new
+    with_run_log_tee(blocked_log, terminal) do
+      with_lock_held_until_notice(lock_path, announce_visible_in: terminal) do
+        described_class.new(project: project_path, targets: []).perform_install
+      end
+    end
+    holder_log.finish(0)
+    blocked_log.finish(0)
+
+    expect(notice_body_lines(blocked_log.path).length).to eq(1)
+    expect(notice_body_lines(holder_log.path)).to be_empty
+    expect(File.read(holder_log.path)).not_to include(notice_text) # raw bytes too
+  end
+
+  it 'testifies identically through a watch cycle (RunLog::CycleWrapper tee)' do
+    installer = described_class.new(project: project_path, targets: [])
+    terminal = StringIO.new
+    old_out = $stdout
+    $stdout = terminal
+    begin
+      with_lock_held_until_notice(lock_path, announce_visible_in: terminal) do
+        SPMCache::Core::RunLog.cycle_wrapper(installer, argv: ['watch'], log_dir: runs_dir).perform_install
+      end
+    ensure
+      $stdout = old_out
+    end
+
+    cycle_files = Dir.glob(File.join(runs_dir, '*-watch.jsonl'))
+    expect(cycle_files.length).to eq(1)
+    body = notice_body_lines(cycle_files.first)
+    expect(body.length).to eq(1)
+    expect(body.first.keys.sort).to eq(%w[stream text ts])
+    expect(body.first['stream']).to eq('out')
+  end
+
+  it 'adds no line on the free-lock path under the tee (byte-identity pin)' do
+    log = SPMCache::Core::RunLog.open(runs_dir: runs_dir, command: 'build')
+    terminal = StringIO.new
+    with_run_log_tee(log, terminal) do
+      described_class.new(project: project_path, targets: []).perform_install
+    end
+    log.finish(0)
+
+    expect(jsonl(log.path).none? { |line| line['text'].to_s.include?(notice_text) }).to be(true)
+    expect(terminal.string).not_to include(notice_text)
   end
 end
