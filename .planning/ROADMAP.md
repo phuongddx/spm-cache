@@ -45,7 +45,7 @@ Full phase detail: `milestones/v0.4.0-ROADMAP.md` · Audit: `v0.4.0-MILESTONE-AU
 
 - [x] **Phase 12: Run-Log Capture Foundation** - Every CLI run writes a queryable JSONL run log outside the sandbox, terminal behavior unchanged — the keystone all streaming consumes (completed 2026-09-01)
 - [x] **Phase 13: Server Skeleton + Read-Only Dashboard** - `spm-cache web`: hardened localhost server serving the cache-state, doctor, and graph panels, fully offline (completed 2026-09-01)
-- [ ] **Phase 14: Live Log Streaming + Terminal/Watch Relay** - One SSE stream of the shared run log — UI-triggered, terminal, and `watch` builds all appear live in the browser
+- [x] **Phase 14: Live Log Streaming + Terminal/Watch Relay** - One SSE stream of the shared run log — UI-triggered, terminal, and `watch` builds all appear live in the browser (completed 2026-09-01)
 - [ ] **Phase 15: UI Build Controls** - Build/Rebuild/Rollback buttons that spawn the real CLI with lock-derived busy state and failure surfacing
 - [ ] **Phase 16: Package Toggles + Panel Completion** - Per-package cache on/off toggles through the shared config mutators, with saved-vs-applied semantics and WHY-not reasons
 
@@ -135,17 +135,17 @@ Plans:
 Plans:
 **Wave 1**
 
-- [ ] 14-01-PLAN.md — Tracer: `Web::Events` tailer + broadcaster + `/api/events` SSE route (200-always, Last-Event-ID replay/resume, heartbeats, shutdown sentinel)
-- [ ] 14-02-PLAN.md — D-05 "Waiting for build lock…" at both Installer flock sites (one string, two surfaces; tee-landing proof)
+- [x] 14-01-PLAN.md — Tracer: `Web::Events` tailer + broadcaster + `/api/events` SSE route (200-always, Last-Event-ID replay/resume, heartbeats, shutdown sentinel)
+- [x] 14-02-PLAN.md — D-05 "Waiting for build lock…" at both Installer flock sites (one string, two surfaces; tee-landing proof)
 
 **Wave 2** *(blocked on Wave 1 completion)*
 
-- [ ] 14-03-PLAN.md — Runs read model (CP10/CP14) + `/api/runs` + hello lock/now + pinned `?run=` replay + the one-boot SSE integration weld (shutdown-within-bound)
-- [ ] 14-04-PLAN.md — Frontend stream core: log.js module, identity card, follow/pause + ring, failure/interrupt banners, cold load
+- [x] 14-03-PLAN.md — Runs read model (CP10/CP14) + `/api/runs` + hello lock/now + pinned `?run=` replay + the one-boot SSE integration weld (shutdown-within-bound)
+- [x] 14-04-PLAN.md — Frontend stream core: log.js module, identity card, follow/pause + ring, failure/interrupt banners, cold load
 
 **Wave 3** *(blocked on Wave 2 completion)*
 
-- [ ] 14-05-PLAN.md — Frontend completion (anchor rail + filter/pierce, auto-switch, recent-runs dropdown, notices) + D-14 recorded agent-browser probe (phase weld)
+- [x] 14-05-PLAN.md — Frontend completion (anchor rail + filter/pierce, auto-switch, recent-runs dropdown, notices) + D-14 recorded agent-browser probe (phase weld)
 
 **UI hint**: yes
 
@@ -200,7 +200,7 @@ Pitfall-to-phase mapping (full set in `research/PITFALLS.md`): CP3 → P12; CP7/
 |-------|-----------|----------------|--------|-----------|
 | 12. Run-Log Capture Foundation | v0.5.0 | 5/5 | Complete    | 2026-09-01 |
 | 13. Server Skeleton + Read-Only Dashboard | v0.5.0 | 5/5 | Complete    | 2026-09-01 |
-| 14. Live Log Streaming + Terminal/Watch Relay | v0.5.0 | 0/? | Not started | - |
+| 14. Live Log Streaming + Terminal/Watch Relay | v0.5.0 | 5/5 | Complete    | 2026-09-01 |
 | 15. UI Build Controls | v0.5.0 | 0/? | Not started | - |
 | 16. Package Toggles + Panel Completion | v0.5.0 | 0/? | Not started | - |
 

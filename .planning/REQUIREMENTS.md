@@ -24,10 +24,10 @@ Requirements for milestone v0.5.0. Each maps to roadmap phases (traceability bel
 ### Live log streaming
 
 - [x] **LOGS-01**: Every CLI run (build/use/watch) writes a JSONL run log (header/body/exit lines) under the project run dir, outside the sandbox
-- [ ] **LOGS-02**: Browser shows a single live log stream with per-package anchors while a build runs
-- [ ] **LOGS-03**: Loading mid-build replays the run from the start; reconnects resume without lost lines (Last-Event-ID; never 204)
-- [ ] **LOGS-04**: Terminal- and `watch`-initiated runs stream into the same browser view as UI-triggered runs
-- [ ] **LOGS-05**: Each run shows identity — trigger source (UI/terminal/watch), command, status — with external-run detection from the build lock
+- [x] **LOGS-02**: Browser shows a single live log stream with per-package anchors while a build runs
+- [x] **LOGS-03**: Loading mid-build replays the run from the start; reconnects resume without lost lines (Last-Event-ID; never 204)
+- [x] **LOGS-04**: Terminal- and `watch`-initiated runs stream into the same browser view as UI-triggered runs
+- [x] **LOGS-05**: Each run shows identity — trigger source (UI/terminal/watch), command, status — with external-run detection from the build lock
 
 ### Build control
 
@@ -90,10 +90,10 @@ Which phases cover which requirements. Updated during roadmap creation.
 | DASH-02 | Phase 13 | Complete |
 | DASH-03 | Phase 13 | Complete |
 | LOGS-01 | Phase 12 | Complete |
-| LOGS-02 | Phase 14 | Pending |
-| LOGS-03 | Phase 14 | Pending |
-| LOGS-04 | Phase 14 | Pending |
-| LOGS-05 | Phase 14 | Pending |
+| LOGS-02 | Phase 14 | Complete |
+| LOGS-03 | Phase 14 | Complete |
+| LOGS-04 | Phase 14 | Complete |
+| LOGS-05 | Phase 14 | Complete |
 | BLD-01 | Phase 15 | Pending |
 | BLD-02 | Phase 15 | Pending |
 | BLD-03 | Phase 15 | Pending |
