@@ -41,6 +41,8 @@ module SPMCache
       # runs to fresh replay (an exact-resume miss, LOGS-03).
       RESUME_ID = /\A(\d{8}T\d{6}\d{3}Z-\d+-[a-z]+(-\d+)?)\.jsonl:(\d+)\z/
 
+      # D-07/Pitfall 3, pinned verbatim -- the frontend renders it as-is.
+      PRUNED_NOTICE = 'run log pruned while viewing; switching to newest'
       # One complete JSONL line as delivered on the wire. data is the
       # line VERBATIM: it is already JSON, and JSON.generate escaped
       # embedded newlines at write time (run_log.rb:248), so framing is
@@ -247,16 +249,34 @@ module SPMCache
       # clients surface as EPIPE/ECONNRESET on write and are handled
       # here; WEBrick already ends the response (httpresponse.rb:243-249).
       def stream(client, resume: nil)
-        run = live_resume(resume) || fresh_run
+        pruned = resume && !resume[:exists] # well-formed name, vanished file
+        run = (!pruned && live_resume(resume)) || fresh_run
         deliver_hello(client, run)
+        deliver_notice(client, PRUNED_NOTICE) if pruned # D-07: honest fallback
 
         last_file = run && run[:name]
         last_offset = run && run[:offset]
         if run
-          self.class.each_entry(run[:path], run[:offset]) do |entry|
-            client.write(self.class.frame(event: 'entry', data: entry.line, id: entry.id))
-            last_file = entry.file
-            last_offset = entry.offset
+          begin
+            self.class.each_entry(run[:path], run[:offset]) do |entry|
+              client.write(self.class.frame(event: 'entry', data: entry.line, id: entry.id))
+              last_file = entry.file
+              last_offset = entry.offset
+            end
+          rescue Errno::ENOENT
+            # Pruned between parse and open mid-flight: same honest notice,
+            # then the fresh fallback (D-07 / research Pattern 2 sketch).
+            deliver_notice(client, PRUNED_NOTICE)
+            fresh = fresh_run
+            if fresh
+              last_file = fresh[:name]
+              last_offset = fresh[:offset]
+              self.class.each_entry(fresh[:path], fresh[:offset]) do |entry|
+                client.write(self.class.frame(event: 'entry', data: entry.line, id: entry.id))
+                last_file = entry.file
+                last_offset = entry.offset
+              end
+            end
           end
         end
         pop_loop(client, last_file, last_offset)
@@ -266,9 +286,14 @@ module SPMCache
         @broadcaster.unregister(client)
       end
 
+      def deliver_notice(client, message)
+        client.write(self.class.frame(
+                       event: 'notice',
+                       data: JSON.generate('message' => message)
+                     ))
+      end
+
       # Server#shutdown seam (WEB-03): stop the tailer, then push the
-      # sentinel to every client queue so each body proc's pop returns
-      # and WEBrick's connection-thread join completes.
       def shutdown!
         @tailer.stop
         @broadcaster.shutdown!
@@ -551,6 +576,7 @@ module SPMCache
           @started = false
           @stopped = false
           @path = nil
+          @prune_notified = false # D-07: one pruned notice per episode
           @io = nil
           @offset = 0
           @buffer = String.new(encoding: BINARY)
@@ -605,18 +631,45 @@ module SPMCache
           read_appended
         end
 
-        # Discovery by glob + sort (lexicographic == chronological per
-        # the filename format). Task 1 scope: attach when not yet
-        # following; the switch-over notice (D-04) extends this seam.
+        # Discovery each tick (glob + sort; lexicographic == chronological
+        # per the filename format). FORWARD-ONLY switching: a newer run
+        # starting mid-view switches the follow to its byte 0 with a
+        # switch event (D-04). A file that merely VANISHED from the
+        # listing (retention pruned the served run) keeps its held fd --
+        # POSIX keeps an unlinked file readable (D-07) -- and an absent
+        # runs dir (transient) is simply no glob hits.
         def discover
-          return if @path
-
           newest = Dir.glob(File.join(@config.runs_dir, '*.jsonl')).sort.last
-          attach(newest, from_byte0: false) if newest
+          if @path.nil?
+            attach(newest, from_byte0: false) if newest
+          elsif newest && newest > @path
+            switch_to(newest)
+          end
+        end
+
+        def switch_to(path)
+          previous = File.basename(@path)
+          attach(path, from_byte0: true) # D-04: the new run replays from byte 0
+          @broadcaster.publish_switch(run: File.basename(path), previous: previous)
+        rescue Errno::ENOENT
+          # Candidate vanished between glob and open (retention race):
+          # pin the honest notice once per episode and re-discover on the
+          # next tick (D-07).
+          publish_pruned_notice
+          close_io
+          @path = nil
+        end
+
+        def publish_pruned_notice
+          return if @prune_notified
+
+          @prune_notified = true
+          @broadcaster.publish_notice(Events::PRUNED_NOTICE)
         end
 
         def attach(path, from_byte0:)
           @path = path
+          @prune_notified = false # a successful attach re-arms the notice
           @offset = from_byte0 ? 0 : last_complete_line_offset(path)
           @buffer = String.new(encoding: BINARY)
           # Held fd: retention's unlink keeps an unlinked file readable
