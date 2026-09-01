@@ -73,13 +73,13 @@ created: "2026-09-01"
 
 | Behavior | Requirement | Why Manual | Test Instructions |
 |----------|-------------|------------|-------------------|
-| Live render of a terminal-started run | LOGS-02, LOGS-04 | Requires a real EventSource client + real CLI run | Boot `spm-cache web --no-open --port=0` against a real project; read port/token from `.spm-cache/web/server.json`; open the dashboard in a real (headless) browser; start `spm-cache use`/`build` in a terminal; assert the stream renders live with identity card, anchor rail, and follow-tail |
-| Mid-run replay in a second tab | LOGS-03 | Browser-side EventSource + replay-from-0 | With a run in flight, open a second dashboard tab; assert it replays the run from the first line, then follows |
-| Reconnect without loss or duplication | LOGS-03 | Real network drop semantics | Mid-run: `kill -9` the server, restart it, reopen/resume the tab; assert `Last-Event-ID` resume yields no lost and no duplicated lines |
-| Failure surfacing | LOGS-05, D-03 | Visual judgment vs UI contract | Force a failing run; assert sticky banner with exit status, jump-to-first-error anchor, and identity-card status dot flipping to ✗ |
-| Filter/banner interaction | D-09, D-10 | Interaction semantics | Filter to package X; force a failure in package Y; assert the banner appears anyway and its jump clears the filter |
-| Watch-cycle relay + auto-switch | LOGS-04, D-04 | Two-source live behavior | With `spm-cache watch` running and ≥ 2 cycle runs present, select an older finished cycle from the recent-runs dropdown (the `?run=` pin — per 14-05 Task 3's pinned setup: proves switch broadcasts reach pinned connections), then trigger a cycle; assert auto-switch with the "switched to new run — previous: <run-id>" notice naming the pinned run |
-| Lock-wait attribution | D-05, CP10 | Cross-process contention | Hold the build lock from a terminal run; start a second run; assert the blocked run shows "waiting for build lock…" inline |
+| ✅ Live render of a terminal-started run (2026-09-01, agent-browser) | LOGS-02, LOGS-04 | Requires a real EventSource client + real CLI run | PASS — reference project + generated scratch; identity card, anchor chips (partial→more as anchors arrive), follow-tail to "Done!", ✓ flip on completion. Evidence: 14-05-SUMMARY.md § D-14 Row 1 |
+| ✅ Mid-run replay in a second tab (2026-09-01, agent-browser) | LOGS-03 | Browser-side EventSource + replay-from-0 | PASS — parked run replayed from its first line, follow engaged, no notice (no previous run in that tab). Evidence: § Row 2 |
+| ✅ Reconnect without loss or duplication (2026-09-01, agent-browser + wire) | LOGS-03 | Real network drop semantics | PASS — kill -9 + same-port restart → old tab A6-locked (token rotation, correct terminal posture); fresh reopen replayed byte-exact (elements == renderable disk entries); curl Last-Event-ID reconnect = 0 dupes, exact tail; SIGINT with 2 open streams < 3 s + marker cleared. Evidence: § Row 3 |
+| ✅ Failure surfacing (2026-09-01, agent-browser) | LOGS-05, D-03 | Visual judgment vs UI contract | PASS — ✗ card, sticky "Run failed — exit status 1" banner, jump landed on first retained err line under ring eviction. Evidence: § Row 4 |
+| ✅ Filter/banner interaction (2026-09-01, agent-browser) | D-09, D-10 | Interaction semantics | PASS — GoodGit filter: pill + aria-pressed, 357/500 dimmed, ZERO removals; ZBrokenGit failure banner still visible; jump cleared filter first. Evidence: § Row 5 |
+| ✅ Watch-cycle relay + auto-switch (2026-09-01, agent-browser) | LOGS-04, D-04 | Two-source live behavior | PASS — dropdown-pinned cycle 1 received the switch broadcast for cycle 3: pin dropped, unpinned reconnect, notice named the PINNED run (strict {run-id} divergence case). Evidence: § Row 6 |
+| ✅ Lock-wait attribution (2026-09-01, agent-browser) | D-05, CP10 | Cross-process contention | PASS — "Waiting for build lock…" rendered verbatim as a plain out line while a thread held the lock; hello lock.state=held. Evidence: § Row 7 |
 
 ---
 
