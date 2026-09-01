@@ -96,13 +96,139 @@ RSpec.describe 'spm-cache web dashboard frontend (Plan 13-03)' do
       expect(styles_css).not_to match(/cdn\./i)
     end
 
-    it 'app.js (once it lands in Task 2) carries zero scheme-absolute URLs and zero cdn. references' do
-      path = File.join(asset_dir, 'app.js')
-      pending 'app.js lands in Task 2 of this plan' unless File.exist?(path)
+    it 'app.js carries zero scheme-absolute URLs and zero cdn. references' do
+      expect(app_js).not_to match(%r{https?://}i)
+      expect(app_js).not_to match(/cdn\./i)
+    end
+  end
 
-      content = File.read(path)
-      expect(content).not_to match(%r{https?://}i)
-      expect(content).not_to match(/cdn\./i)
+  describe 'app.js source contract — token bootstrap (locked)' do
+    it 'moves the token from the URL to sessionStorage, then cleans the URL BEFORE first render' do
+      expect(app_js).to include('sessionStorage.setItem')
+      expect(app_js).to include('history.replaceState')
+      setitem_at = app_js.index('sessionStorage.setItem')
+      replace_at = app_js.index('history.replaceState')
+      boot_at = app_js.index('boot();')
+      expect(setitem_at).to be < replace_at
+      expect(replace_at).to be < boot_at # order pinned textually; 13-VALIDATION re-checks in a browser
+    end
+
+    it 'sends X-SPM-Token on every request' do
+      expect(app_js).to include("'X-SPM-Token': token")
+    end
+
+    it 'never writes the token into the DOM (T-13-15)' do
+      expect(app_js).not_to match(/el\([^)]*token/)
+      expect(app_js).not_to match(/textContent\s*=\s*[^;]*token/)
+    end
+  end
+
+  describe 'app.js source contract — fetch layer + 401/403' do
+    it 'renders the full-page token-invalid copy replacing all panels' do
+      expect(app_js)
+        .to include("This page's access token is no longer valid. Restart spm-cache web and open the URL it prints.")
+    end
+
+    it 'consumes the {status,data} envelope and throws the server message' do
+      expect(app_js).to include("envelope.status === 'error'")
+      expect(app_js).to include('envelope.data && envelope.data.message')
+    end
+  end
+
+  describe 'app.js source contract — state table (DASH-01)' do
+    it 'pins the status→class vocabulary exactly' do
+      expect(app_js).to include("hit: 'ok', missed: 'warn', ignored: 'neutral', excluded: 'excluded', plugin: 'plugin'")
+    end
+
+    it 'renders the five locked columns' do
+      expect(app_js).to include("'Package', 'Config', 'Size', 'State', 'Fidelity'")
+    end
+
+    it 'prefixes macro packages with ◆ in the name cell' do
+      expect(app_js).to include('◆ ${p.name}')
+    end
+
+    it 'renders state null as a muted plain dash, never a badge' do
+      expect(app_js).to include("'—'")
+      expect(app_js).to include('p.state')
+    end
+
+    it 'sizes are human-formatted with one decimal in KB/MB/GB' do
+      expect(app_js).to include("'KB', 'MB', 'GB'")
+      expect(app_js).to include('toFixed(1)')
+    end
+
+    it 'fidelity colors per the locked mapping' do
+      expect(app_js).to include("'graph-pinned': 'ok', 'host-pinned': 'ok'")
+      expect(app_js).to include("'resolution-incompatible': 'warn'")
+      expect(app_js).to include("'not-graph-pinned': 'neutral'")
+    end
+
+    it 'empty state copy verbatim, with .cmd accent spans' do
+      expect(app_js).to include("'No cached packages yet'")
+      expect(app_js).to include("'spm-cache build'")
+      expect(app_js).to include("' to populate the cache, then '")
+      expect(app_js).to include("class: 'cmd'")
+    end
+  end
+
+  describe 'app.js source contract — polling, stamps, errors' do
+    it 'polls /api/state at data.poll_seconds with a 5s fallback' do
+      expect(app_js).to include("'/api/state'")
+      expect(app_js).to include('poll_seconds || 5')
+    end
+
+    it 'stamp format: Updated {HH:MM:SS} · auto-refresh {N}s (server time, middot)' do
+      expect(app_js).to match(/Updated \$\{fmtHMS\([^)]*\)\} · auto-refresh \$\{pollSeconds\}s/)
+      expect(app_js).to include('padStart(2')
+    end
+
+    it 'panel error copy is the exact Couldn’t-load sentence' do
+      expect(app_js)
+        .to include("Couldn't load ${panel}: ${message}. Check that spm-cache web is still running, then Refresh.")
+    end
+
+    it 'a failed poll keeps the last rows (error line prepends, never replaces)' do
+      expect(app_js).to include('dataset.rendered')
+      expect(app_js).to include('insertBefore')
+    end
+
+    it 'the poll loop never stops: failures are caught and the next tick is always scheduled' do
+      expect(app_js).to include('window.setTimeout(loop')
+    end
+
+    it 'refresh buttons disable while in flight (label unchanged, no spinners)' do
+      expect(app_js).to include('btn.disabled = true')
+      expect(app_js).to include('btn.disabled = false')
+    end
+
+    it 'stamps derive from server timestamps, never client now() (T-13-16)' do
+      expect(app_js).not_to include('Date.now()')
+      expect(app_js).to include('new Date(iso)')
+    end
+
+    it 'fills the port label as 127.0.0.1:{port}' do
+      expect(app_js).to include('127.0.0.1:${window.location.port}')
+    end
+  end
+
+  describe 'app.js XSS hygiene + serving (T-13-13)' do
+    it 'contains no innerHTML or insertAdjacentHTML — dynamic text is textContent-only' do
+      expect(app_js).not_to include('innerHTML')
+      expect(app_js).not_to include('insertAdjacentHTML')
+    end
+
+    it 'is served from /assets/app.js as JavaScript' do
+      res = served('/assets/app.js')
+      expect(res.code).to eq('200')
+      expect(res['Content-Type']).to eq('application/javascript')
+    end
+
+    it 'ships inside the gem (gemspec spec.files membership)' do
+      files = Dir.chdir(SPMCache::ROOT) do
+        Gem::Specification.load('spm_cache.gemspec').files
+      end
+      expect(files).to include('lib/spm_cache/web/assets/app.js')
     end
   end
 
