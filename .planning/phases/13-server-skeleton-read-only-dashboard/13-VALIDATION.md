@@ -23,7 +23,7 @@ created: "2026-09-01"
 | **Config file** | `spec/spec_helper.rb` (per-file default-deny `Core::Sh` guards per repo convention) |
 | **Quick run command** | `bundle exec rspec spec/web_server_spec.rb` (Wave 0 names the real files below) |
 | **Full suite command** | `bundle exec rspec` |
-| **Socket policy** | CP7 discipline: exactly ONE port-0 integration spec (`spec/web_integration_spec.rb`) + the signal-subprocess pair (`spec/web_signals_spec.rb`); all other specs are StringIO/tmpdir-hermetic |
+| **Socket policy** | One exhaustive cross-route integration spec (`spec/web_integration_spec.rb`, single before-all boot <15s) + the signal-subprocess pair (`spec/web_signals_spec.rb`); single-feature thread-booted serve-through examples inside unit specs are hermetic (loopback, ephemeral port, tmpdir); everything else is StringIO/tmpdir-hermetic |
 | **Estimated runtime** | ~45–75 s full suite (integration + signals files add ~20–30 s) |
 
 ---
