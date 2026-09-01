@@ -468,7 +468,7 @@ end
 | A6 | Manual Refresh click bypasses the poll-skip (user-invoked reads are never torn because writes are atomic under the lock) | Q3 | Minor UX divergence from the spec's letter (spec speaks of "the 5s poll" only) — planner confirms |
 | A7 | WEBrick thread-per-connection makes concurrent toggle POSTs real (same premise as 15-RESEARCH A3, slot Mutex) | Q2 | Low — the flock is correct regardless |
 
-## Open Questions
+## Open Questions (RESOLVED — all four resolved in 16-0{1,4} plan content; see 16-VALIDATION rows)
 
 1. **Binary-target fact (TOGL-03's one real gap).** What we know: nothing persists it today; the enrichment seam (installer.rb:390-421) already runs describe and can record it Ruby-side (option 1), or the reason ships never-firing (option 3). What's unclear: whether describe's target types are reliably present for local-path packages (checkout caveat, installer.rb:439-443). Recommendation: option 1, accepting A5's under-detection caveat; **planner decides**.
 2. **`off`'s redundant `config.load`** (off.rb:18) once the mutator loads under the lock: keep (harmless, smaller diff) or remove (one load path). Recommendation: keep — the byte-identical free-path constraint argues for the smallest possible diff to a published CLI. Planner pins.
