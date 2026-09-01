@@ -182,11 +182,13 @@ RSpec.describe 'SPMCache::Web one-boot integration matrix', order: :defined do
         'assets/app.js' => 'application/javascript'
       }
       refs.each do |ref|
-        # Browser resolution: each scanned ref resolved against the
-        # document base '/' exactly as a browser would. No test-side
-        # /assets/ rewriting -- a ref the router cannot serve as-is
-        # must 404 here (G-13-1 regression net).
-        res = get(URI.join('/', ref).to_s)
+        # Browser resolution: each scanned ref resolved via URI.join
+        # against the document's own origin root (the page sits at
+        # http://127.0.0.1:<port>/, base path '/'). No test-side
+        # /assets/ rewriting -- a ref the router cannot serve as
+        # resolved must 404 here (G-13-1 regression net).
+        resolved = URI.join("http://127.0.0.1:#{@server.port}/", ref)
+        res = get(resolved.request_uri)
         expect(res.code).to eq('200')
         expect(res['Content-Type']).to eq(content_types.fetch(ref))
       end
