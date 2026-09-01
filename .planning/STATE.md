@@ -2,26 +2,26 @@
 gsd_state_version: 1.0
 milestone: v0.5.0
 milestone_name: Web Interface
-current_phase: 13 — Server Skeleton + Read-Only Dashboard
-current_phase_name: Server Skeleton + Read-Only Dashboard
-status: verifying
-stopped_at: Completed 13-04-PLAN.md — Phase 13 execution complete (4/4)
-last_updated: "2026-09-01T05:52:18.349Z"
+current_phase: 14 — Live Log Streaming + Terminal/Watch Relay
+current_phase_name: Live Log Streaming + Terminal/Watch Relay
+status: planning
+stopped_at: Phase 13 complete, ready to plan Phase 14
+last_updated: "2026-09-01T09:13:46.823Z"
 last_activity: 2026-09-01
-last_activity_desc: Phase 12 complete, transitioned to Phase 13
-state_head: f12da5846bca918cdeac43cdcab89af1ae032125
+last_activity_desc: Phase 13 complete, transitioned to Phase 14
+state_head: 6405e48e4cf06ed7bf1aab407b1035a41c49a8f7
 progress:
   total_phases: 5
-  completed_phases: 1
-  total_plans: 9
-  completed_plans: 9
-  percent: 20
+  completed_phases: 2
+  total_plans: 10
+  completed_plans: 10
+  percent: 40
 ---
 
 # Project State: spm-cache
 
 **Initialized:** 2026-08-10
-**Current Phase:** 13 — Server Skeleton + Read-Only Dashboard
+**Current Phase:** 14 — Live Log Streaming + Terminal/Watch Relay
 **Project Mode:** Horizontal Layers
 **Direction:** v0.5.0 Web Interface — localhost dashboard, live log streaming, per-package toggles
 
@@ -30,26 +30,26 @@ progress:
 See: .planning/PROJECT.md (updated 2026-09-01)
 
 **Core value:** Reduce Xcode clean build times by serving prebuilt SPM dependency binaries transparently, with automatic fallback to source on cache miss — so a cache hit never breaks a build.
-**Current focus:** Phase 13 — Server Skeleton + Read-Only Dashboard
+**Current focus:** Phase 14 — Live Log Streaming + Terminal/Watch Relay
 
 v0.4.0 shipped and released 2026-08-31 (first fully-green tap publish in project history). Full milestone history: `.planning/MILESTONES.md`.
 
 ## Current Position
 
-Phase: 13 (Server Skeleton + Read-Only Dashboard) — EXECUTING
-Plan: 13-01 complete (1 of 4 plans; wave 1 done — 13-02/13-03 next)
-Status: Phase complete — ready for verification
-Last activity: 2026-09-01 — 13-01 executed (WEBrick skeleton + middleware + Command::Web lifecycle)
+Phase: 14 (Live Log Streaming + Terminal/Watch Relay) — planning next (needs `--research-phase` per roadmap flag)
+Plan: Not started
+Status: Ready to plan
+Last activity: 2026-09-01 — Phase 13 complete (5/5 plans + G-13-1 gap closure; verification passed 23/23; UAT 6/6; SECURITY SECURED 23/23)
 
-Progress: [██░░░░░░░░] 20%
+Progress: [████░░░░░░] 40%
 
 ## v0.5.0 Phase Status
 
 | Phase | Name | Status | Branch |
 |-------|------|--------|--------|
 | 12 | Run-Log Capture Foundation | Complete (2026-09-01) | gsd/v0.5.0-web-interface |
-| 13 | Server Skeleton + Read-Only Dashboard | Executing — 13-01 done | gsd/v0.5.0-web-interface |
-| 14 | Live Log Streaming + Terminal/Watch Relay | Not started | — |
+| 13 | Server Skeleton + Read-Only Dashboard | Complete (2026-09-01) | gsd/v0.5.0-web-interface |
+| 14 | Live Log Streaming + Terminal/Watch Relay | Ready to plan | — |
 | 15 | UI Build Controls | Not started | — |
 | 16 | Package Toggles + Panel Completion | Not started | — |
 
@@ -114,6 +114,8 @@ Full log: PROJECT.md Key Decisions table. Roadmap decisions (2026-08-31):
 - [Phase 13 — Server Skeleton + Read-Only Dashboard]: 13-03: offline frontend shipped as 4 static assets — vendored cytoscape v3.34.2 structurally pinned (version comment, >300KB, gemspec membership), first-party assets byte-gated for scheme URLs
 - [Phase 13 — Server Skeleton + Read-Only Dashboard]: 13-03: app.js stored-XSS defense by construction — zero innerHTML, all dynamic text via textContent; stamps derive from server timestamps only (no Date.now())
 - [Phase 13 — Server Skeleton + Read-Only Dashboard]: 13-04: exhaustive 25-cell route x auth matrix + CP13 drive-by shapes proven from ONE port-0 boot with zero production edits — middleware as shipped held every cell; packaging pins make the four-asset gem ship and webrick >= 1.8 < 2 un-regressible
+- [Phase 13 — Server Skeleton + Read-Only Dashboard]: 13-05 (G-13-1 gap closure): index.html asset refs are RELATIVE `assets/…` (absolute `/assets/` would violate the locked relative-only offline negative pins); integration spec resolves every scanned ref with browser semantics (URI.join against the document origin) — test-side `/assets/#{ref}` re-prefixing is forbidden, that rewrite hid a ship-blocking 404 from 119 green examples (first real-browser exercise caught it)
+- [Phase 13 — Server Skeleton + Read-Only Dashboard]: User acceptances 2026-09-01: WR-02 second-launch UX = block-then-replace (second launch blocks on boot flock, then boots fresh; 'already running' print only manifests in the synthetic lock-free scenario); default-browser auto-open accepted on StartCallback-after-bind spec evidence; true-offline UAT accepted on same-origin evidence (loopback never traverses NIC)
 
 ## Deferred Items
 
@@ -129,5 +131,5 @@ Items acknowledged and deferred at milestone close, most recent first:
 ## Session Continuity
 
 Last session: 2026-09-01T05:52:18.209Z
-Stopped at: Completed 13-04-PLAN.md — Phase 13 execution complete (4/4)
+Stopped at: Phase 13 complete, ready to plan Phase 14
 Resume file: None
