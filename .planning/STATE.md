@@ -36,10 +36,10 @@ v0.4.0 shipped and released 2026-08-31 (first fully-green tap publish in project
 
 ## Current Position
 
-Phase: 13 (Server Skeleton + Read-Only Dashboard) — PLANNING
-Plan: Not started
-Status: Ready to discuss
-Last activity: 2026-09-01 — Phase 12 complete, transitioned to Phase 13
+Phase: 13 (Server Skeleton + Read-Only Dashboard) — EXECUTING
+Plan: 13-01 complete (1 of 4 plans; wave 1 done — 13-02/13-03 next)
+Status: Executing phase 13
+Last activity: 2026-09-01 — 13-01 executed (WEBrick skeleton + middleware + Command::Web lifecycle)
 
 Progress: [██░░░░░░░░░] 20%
 
@@ -48,7 +48,7 @@ Progress: [██░░░░░░░░░] 20%
 | Phase | Name | Status | Branch |
 |-------|------|--------|--------|
 | 12 | Run-Log Capture Foundation | Complete (2026-09-01) | gsd/v0.5.0-web-interface |
-| 13 | Server Skeleton + Read-Only Dashboard | Current — ready to discuss | gsd/v0.5.0-web-interface |
+| 13 | Server Skeleton + Read-Only Dashboard | Executing — 13-01 done | gsd/v0.5.0-web-interface |
 | 14 | Live Log Streaming + Terminal/Watch Relay | Not started | — |
 | 15 | UI Build Controls | Not started | — |
 | 16 | Package Toggles + Panel Completion | Not started | — |
