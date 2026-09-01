@@ -1129,6 +1129,20 @@ RSpec.describe 'spm-cache web dashboard frontend (Plan 13-03)' do
       expect(on_run_end).to include("emitProgress('ended');")
     end
 
+    it 'WR-01: emitProgress no-ops while pinned to a user-selected run — a pinned run\'s own body-line/run-end milestones must never drive the CLICK-scoped controls row' do
+      # A pinned view (loadRun) is ALWAYS an explicit user selection, live
+      # or historical, and onSwitchEvent unconditionally clears `pinned`
+      # the moment ANY new run's own switch broadcast lands -- including
+      # the run this tab's own Build/Rollback click just spawned. So by
+      # the time `currentRun` genuinely IS the click-spawned run, `pinned`
+      # is guaranteed false; suppressing emission while pinned is true
+      # therefore never withholds a milestone for the run the click
+      # actually started -- only for whatever unrelated run the viewer
+      # happens to be pinned to (replaying or not).
+      emit = log_js[/const emitProgress = \(phase\) => \{[\s\S]*?\n  \};/]
+      expect(emit).to include('if (pinned) return;')
+    end
+
     it 'listener mapping: app.js maps waiting to the frozen wait string, active to the verb baseline message, ended to idle — buttons re-enabled, message cleared' do
       listener = app_js[/document\.addEventListener\('spm-run-progress'[\s\S]*?\n  \}\);/]
       expect(listener).to include("phase === 'ended'")
