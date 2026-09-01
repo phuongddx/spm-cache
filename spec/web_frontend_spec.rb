@@ -1061,6 +1061,10 @@ RSpec.describe 'spm-cache web dashboard frontend (Plan 13-03)' do
       expect(app_js).to include('const disarmBar = () => { bar.hidden = true; row.hidden = false; };')
     end
 
+    it 'confirm bar keyboard order: Cancel precedes Confirm in the DOM — focus lands on Cancel and Tab reaches Confirm (A6; D-15 probe catch)' do
+      bar = index_html[%r{<div class="build-confirm".*?</div>}m]
+      expect(bar.index('id="ctl-cancel"')).to be < bar.index('id="ctl-confirm"')
+    end
     it 'confirm copy byte-exact — sentence, Confirm label, Cancel label, em dash included' do
       expect(index_html).to include('Restore source mode — this removes proxy packages from the Xcode project')
       expect(index_html).to include('>Confirm</button>')
