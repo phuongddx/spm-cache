@@ -800,4 +800,116 @@ RSpec.describe 'spm-cache web dashboard frontend (Plan 13-03)' do
       expect(target).to include('lines.length > 0 ? lines[0] : null')
     end
   end
+
+  # Plan 14-05 Task 2 — auto-switch + switch notice (D-04), the
+  # recent-runs dropdown (D-12), and verbatim notice/lock-wait
+  # rendering (D-05). FILE bytes pin every mechanic; the pinned rule
+  # that the notice's {run-id} comes from the client's
+  # previously-DISPLAYED run (view state), never the switch event's
+  # previous field, is cross-checked against 14-03's pinned-connection
+  # broadcasts here.
+  describe 'log.js auto-switch + recent runs + notices (Plan 14-05)' do
+    let(:log_js) { File.read(File.join(asset_dir, 'log.js')) }
+
+    it 'auto-switch: UNCONDITIONAL reset (fresh replay, follow on, filter cleared, banner re-derived); a pinned connection drops the pin, closes the stream, reconnects via the plain URL' do
+      expect(log_js).to match(/resetForRun\(data\.run, \{ followOn: true \}\)/)
+      expect(log_js).to include('const previousRun = currentRun;')
+      expect(log_js).to include('if (pinned) {')
+      expect(log_js).to include('pinned = false;')
+      expect(log_js).to include('source.close();')
+      expect(log_js).to include('connect(storedToken());')
+      # payload validity is the ONLY guard — the view-state check is
+      # gone (D-04: unconditional, even mid-read of an older run)
+      expect(log_js).not_to include('data.run === currentRun')
+    end
+
+    it "switch notice: 'switched to new run — previous: {run-id}' in ONE slot (a newer switch replaces the text); the run id is an accent control wired from the PREVIOUSLY-DISPLAYED run, never the event's previous field" do
+      expect(log_js).to include("switchNotice: 'switched to new run — previous: '")
+      expect(log_js).to include('renderSwitchNotice(previousRun);')
+      expect(log_js).to include('switchBar.replaceChildren(')
+      expect(log_js).to match(/el\('button', \{\s*type: 'button',\s*class: 'log-pill-btn log-runid-btn',/)
+      expect(log_js).to include('text: previousRun,')
+      expect(log_js).to include('title: previousRun,')
+      expect(log_js).not_to include('data.previous') # view state, never the wire's previous field
+    end
+
+    it 'no previously-displayed run → NO notice: the slot stays hidden (first run of a session; a switch arriving into the empty state)' do
+      expect(log_js).to include('if (!switchBar || !previousRun) return;')
+    end
+
+    it 'loadRun: ONE path for the notice control and dropdown selections — close the stream, reconnect with ?run= (encodeURIComponent), no page reload' do
+      expect(log_js).to include('const loadRun = (name) => {')
+      expect(log_js).to include("'&run=' + encodeURIComponent(run)")
+      expect(log_js).to include('connect(storedToken(), name);')
+      expect(log_js).to match(/control\.addEventListener\('click', \(\) => loadRun\(previousRun\)\);/)
+      expect(log_js).to match(/loadRun\(runsSelect\.value\)/)
+      expect(log_js.scan(/const loadRun = /).size).to eq(1)
+      expect(log_js).not_to include('location.reload')
+      expect(log_js).not_to include('window.open')
+    end
+
+    it 'dropdown fetch: every OPEN re-fires a token-gated /api/runs fetch (X-SPM-Token, envelope check); the viewing suffix marks the displayed run' do
+      expect(log_js).to include("window.fetch('/api/runs', { headers: { 'X-SPM-Token': storedToken() } })")
+      expect(log_js).to include("runsSelect.addEventListener('click', refreshRuns);")
+      expect(log_js).to include("runsSelect.addEventListener('focus', refreshRuns);")
+      expect(log_js).to include("envelope.status === 'error'")
+      expect(log_js).to include("viewingSuffix: ' · viewing'")
+      expect(log_js).to include('entry.run === currentRun ? COPY.viewingSuffix')
+    end
+
+    it "entry template '{glyph} {command} · {relative}' — the glyph per derived state; 10 newest, newest first (the server's newest-first listing renders in order)" do
+      expect(log_js).to include('const RUNS_GLYPH = {')
+      expect(log_js).to include("running: '●',")
+      expect(log_js).to include("success: '✓',")
+      expect(log_js).to include("failed: '✗',")
+      expect(log_js).to include("'interrupted — exit unknown': '!',")
+      expect(log_js).to match(/`\$\{glyph\} \$\{entry\.command\} · \$\{relative\(entry\.started_at\)\}\$\{viewing\}`/)
+    end
+
+    it "empty dir: ONE disabled 'No runs yet' entry" do
+      expect(log_js).to include("el('option', { text: COPY.noRunsTitle, disabled: true })")
+      expect(log_js).to include('if (opts.disabled) node.disabled = true;')
+    end
+
+    it "fetch pending: a single 'Loading…' entry renders while the open's fetch is in flight" do
+      expect(log_js).to include("runsSelect.replaceChildren(el('option', { text: COPY.loading, disabled: true }));")
+      expect(log_js).to include('let runsFetching = false;')
+    end
+
+    it "fetch failure: 'Couldn't load the run list: {message}. Reload the page to retry.' renders in the panel; the last good list stays" do
+      expect(log_js).to include("runsError: (message) => `Couldn't load the run list: ${message}. Reload the page to retry.`")
+      expect(log_js).to include('const renderRunsError = (message) => {')
+      expect(log_js).to include("body.querySelector('.panel-error')?.remove();")
+      expect(log_js).to include('let lastRuns = null;')
+    end
+
+    it 'fresh derivation: no caching of the runs response across opens — the only guard is the in-flight dedupe; no TTL, no memo skip (CP10 client-side)' do
+      expect(log_js).to include('if (!alive() || runsFetching) return;')
+      expect(log_js).not_to include('runsCache')
+    end
+
+    it "in-stream notices render '! {message}' in warn byte-identically — the two known server strings are server-authored (events.rb pins them), never client copies" do
+      expect(log_js).to include('notice: (message) => `! ${message}`')
+      expect(log_js).to include("'log-notice'")
+      expect(log_js).not_to include('lines dropped')
+      expect(log_js).not_to include('run log pruned')
+      # a pruned pinned run's notice precedes the unpinned reconnect —
+      # the fallback rides the switch handler's pin-drop
+      expect(log_js).to include('if (pinned) {')
+      events_rb = File.read(File.join(SPMCache::ROOT, 'lib/spm_cache/web/events.rb'))
+      expect(events_rb).to include('lines dropped')
+      expect(events_rb).to include('run log pruned while viewing; switching to newest')
+    end
+
+    it "lock-wait: 'Waiting for build lock…' renders as a plain out line — no badge, no card lock state, no special-case path in log.js (A11; the hello lock field is server-internal)" do
+      expect(log_js).not_to include('Waiting for build lock')
+      expect(log_js).not_to include('.lock')
+      expect(log_js).not_to include('lock-wait')
+      expect(log_js).not_to include('payload.lock')
+      expect(log_js).to include("class: isErr ? 'log-line log-err' : 'log-line',") # the exact path every out line takes
+      # the card path renders status only — where a lock surface would
+      # have lived, nothing lands (the hello deepening stays status-only)
+      expect(log_js).to include('} else if (cardPending) {')
+    end
+  end
 end
