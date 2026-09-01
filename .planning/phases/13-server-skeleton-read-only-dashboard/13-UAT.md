@@ -29,8 +29,8 @@ evidence: "Post-fix live: stamp advanced 'Updated 15:27:57' → 'Updated 15:28:0
 
 ### 4. True-offline load
 expected: Disconnect the machine from the network, hard-reload — everything renders (all assets local, zero blocked-external-request console errors).
-result: skipped
-reason: "Physical network-disconnect gesture not executable from an agent session (loopback traffic to 127.0.0.1 is unaffected by a NIC disconnect, so the gesture would not change what the page can reach). The requirement's substance IS independently evidenced: across the entire live headless-Chromium session the only non-2xx request was the browser's automatic /favicon.ico probe — every resource the dashboard consumes came from 127.0.0.1 same-origin; offline gate spec (web_frontend_spec.rb offline group) green; zero scheme-absolute/cdn references grep-verified twice. Whether this evidentiary basis may stand in for the physical gesture is a user call (the phase-completion predicate treats skipped as non-passing); pending that ruling the honest record is skipped-with-reason."
+result: pass
+evidence: "USER-ACCEPTED on evidentiary basis (2026-09-01, in-session ruling): the physical network-disconnect gesture was not performed — it is a no-op for a loopback-only app (127.0.0.1 traffic never traverses the NIC) — but the requirement's substance is directly observed: across the entire live headless-Chromium session the only non-2xx request was the browser's automatic /favicon.ico probe; every resource the dashboard consumes (index.html, styles.css, app.js, cytoscape.min.js, all three API payloads) came from 127.0.0.1 same-origin with zero external requests to block; offline gate spec (web_frontend_spec.rb offline group) green; zero scheme-absolute/cdn references grep-verified twice. Physical spot-check remains an optional user gesture."
 
 ### 5. Real-TTY Ctrl-C exit
 expected: Ctrl-C on a foreground `spm-cache web` exits 0 promptly; `.spm-cache/web/server.json` is removed.
@@ -45,10 +45,10 @@ evidence: "Re-confirmed via direct grep this session: zero innerHTML/insertAdjac
 ## Summary
 
 total: 6
-passed: 5
+passed: 6
 issues: 0
 pending: 0
-skipped: 1
+skipped: 0
 blocked: 0
 
 ## Gaps
