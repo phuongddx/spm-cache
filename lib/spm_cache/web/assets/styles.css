@@ -283,12 +283,16 @@ body {
 
 .check-name {
   font-weight: 600;
+  /* Flex children default to min-width: auto, which hard-clips instead
+   * of ellipsizing (review IN-04). */
+  min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
 }
 
 .check-message {
   color: var(--c-muted);
+  min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
 }
