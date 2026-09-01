@@ -96,7 +96,7 @@ Plans:
   4. The cache-state table shows per-package size, cached/source state, and fidelity status, re-derived from the same files the CLI reads
   5. The doctor panel runs checks on demand from the check registry (statuses + fix hints, data-driven — no hard-coded checks; results cached with a timestamp), and the graph panel renders package nodes via a repaired vendored-cytoscape visualization, with an affordance when graph.json hasn't been generated yet
 
-**Plans**: 4/4 plans executed planned
+**Plans**: 5 (4 executed + 1 gap-closure planned)
 
 Plans:
 **Wave 1**
@@ -111,6 +111,10 @@ Plans:
 **Wave 3** *(blocked on Wave 2 completion)*
 
 - [x] 13-04-PLAN.md — Cross-route hardening matrix + packaging/offline proof (phase weld)
+
+**Gap closure** *(post-verification — G-13-1)*
+
+- [ ] 13-05-PLAN.md — Gap closure G-13-1: dashboard asset refs 404 in real browsers — relative `assets/` prefix + browser-honest resolution spec (RED→GREEN + live-boot curl smoke)
 
 **UI hint**: yes
 
