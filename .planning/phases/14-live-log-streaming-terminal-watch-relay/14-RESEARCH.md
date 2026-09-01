@@ -467,14 +467,17 @@ data: {"message":"97 lines dropped"}
 | A5 | A permanently wedged TCP write on loopback (zero-window, peer alive but not reading) does not occur in practice; graceful-shutdown residual risk accepted | Pattern 3 | Worst case: graceful TERM with a wedged tab delays exit until TCP gives up; kill -9 path (D-14) unaffected |
 | A6 | The D-14 agent-browser probe runs in the user's default browser via the existing auto-open path; exact browser = whatever `open` selects | Validation Architecture | None — the probe is recorded manually regardless |
 
-## Open Questions
+## Open Questions (RESOLVED)
 
 1. **Older-run replay affordance: reload vs in-place `?run=` param.**
    - What we know: D-04/D-12 require previous runs stay reachable; the dropdown lists them. A fresh `/api/events` connect always serves current-or-newest (D-13).
    - What's unclear: whether selecting an older run should navigate/reload (cheap, stateless) or stream it in-place via a `?run=` query param (small server addition: validate + serve that file; same regex/containment machinery as Last-Event-ID).
    - Recommendation: implement `?run=` — it reuses the id-validation machinery and makes D-12's "previous stays reachable" literal without page reloads; flag for the planner to confirm against UI-SPEC.
+   - **Resolved:** `?run=` adopted — pinned by 14-UI-SPEC.md's 'Recent-runs dropdown (D-12)' interaction row (in-place load from byte 0 via `?run=`) and implemented by 14-03 Task 2 (pinned replay over the shared validation machinery).
 2. **D-05 line wording.** "Waiting for build lock…" is BLD-02's quoted phrase and this research's working string; final copy is UI-SPEC territory (user-visible in two surfaces per D-05's reversibility note).
+   - **Resolved:** the wording stands verbatim — pinned by 14-UI-SPEC.md's Copywriting Contract row 'Lock-wait line (D-05)' and implemented at both flock sites by 14-02 (Core::UI.info announce, tee'd into the blocked run's JSONL).
 3. **Heartbeat interval + queue cap as constants vs Config keys.** Recommendation: constants (CP11's ~15s; cap order 10³) — Config is the user-facing state surface and no user knob is warranted; revisit only if a real session shows drops.
+   - **Resolved:** constants — 14-01 pins HEARTBEAT_SECONDS = 15 and QUEUE_CAP = 1000 as code constants in `web/events.rb` (injectable per constructor keyword for specs); no Config keys added.
 
 ## Environment Availability
 

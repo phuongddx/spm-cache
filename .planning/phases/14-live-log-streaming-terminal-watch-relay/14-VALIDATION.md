@@ -78,7 +78,7 @@ created: "2026-09-01"
 | Reconnect without loss or duplication | LOGS-03 | Real network drop semantics | Mid-run: `kill -9` the server, restart it, reopen/resume the tab; assert `Last-Event-ID` resume yields no lost and no duplicated lines |
 | Failure surfacing | LOGS-05, D-03 | Visual judgment vs UI contract | Force a failing run; assert sticky banner with exit status, jump-to-first-error anchor, and identity-card status dot flipping to ✗ |
 | Filter/banner interaction | D-09, D-10 | Interaction semantics | Filter to package X; force a failure in package Y; assert the banner appears anyway and its jump clears the filter |
-| Watch-cycle relay + auto-switch | LOGS-04, D-04 | Two-source live behavior | With `spm-cache watch` running, trigger a cycle while viewing an older run; assert auto-switch with the "switched to new run — previous: <run-id>" notice |
+| Watch-cycle relay + auto-switch | LOGS-04, D-04 | Two-source live behavior | With `spm-cache watch` running and ≥ 2 cycle runs present, select an older finished cycle from the recent-runs dropdown (the `?run=` pin — per 14-05 Task 3's pinned setup: proves switch broadcasts reach pinned connections), then trigger a cycle; assert auto-switch with the "switched to new run — previous: <run-id>" notice naming the pinned run |
 | Lock-wait attribution | D-05, CP10 | Cross-process contention | Hold the build lock from a terminal run; start a second run; assert the blocked run shows "waiting for build lock…" inline |
 
 ---
