@@ -685,6 +685,98 @@ RSpec.describe 'SPMCache::Web one-boot integration matrix', order: :defined do
       end
     end
 
+    # 16-04: the phase's whole server-side claim as ONE story --
+    # change the config from the browser, see it diverge on
+    # /api/state, run the REAL re-sync through the one slot, and
+    # watch convergence on a FRESH /api/state read once the run has
+    # ended -- never asserted from the POST's own answer (A7/A13).
+    # Nested beside the toggle/build tracers for the same ordering
+    # reason: after WELD_RUN, before the file's real shutdown acts.
+    describe 'POST /api/apply -> converge (16-04)' do
+      def toggle_body(package, cached)
+        JSON.generate('package' => package, 'cached' => cached)
+      end
+
+      def disk_ignore
+        path = File.join(@project_dir, 'spm-cache.yml')
+        return [] unless File.exist?(path)
+
+        parsed = YAML.safe_load(File.read(path))
+        parsed.is_a?(Hash) ? parsed['ignore'] : nil
+      end
+
+      def state_row(name)
+        payload = JSON.parse(get('/api/state', 'X-SPM-Token' => @token).body)
+        expect(payload['status']).to eq('ok')
+        payload['data']['packages'].find { |row| row['name'] == name }
+      end
+
+      def update_graph(entries)
+        path = File.join(@project_dir, 'spm-cache', 'packages', 'proxy', 'graph.json')
+        File.write(path, JSON.generate(entries))
+      end
+
+      it 'toggling Alamofire off diverges it: saved-not-cached, still applied-cached, pending' do
+        res = post('/api/toggle', { 'X-SPM-Token' => @token }, toggle_body('Alamofire', false))
+        expect(res.code).to eq('200')
+
+        row = state_row('Alamofire')
+        expect(row['saved_cached']).to eq(false)
+        expect(row['applied_cached']).to eq(true)
+        expect(row['pending']).to eq(true)
+      end
+
+      it 'POST /api/apply spawns the bare sync verb through the slot (ui trigger, project dir) -- and a toggle during the run stays live (D-08)' do
+        before_count = probe_entries.length
+        apply_pid = nil
+        begin
+          ENV['FAKE_BIN_SLEEP'] = '1'
+          res = post('/api/apply', 'X-SPM-Token' => @token)
+          expect(res.code).to eq('200')
+          envelope = JSON.parse(res.body)
+          expect(envelope['data']['scope']).to eq('use')
+
+          entry = wait_for_probe_entry(before_count)
+          expect(entry).not_to be_nil
+          expect(entry['argv']).to eq(['use'])
+          expect(entry['trigger_env']).to eq('ui')
+          expect(File.realpath(entry['pwd'])).to eq(File.realpath(@project_dir))
+          apply_pid = entry['pid']
+
+          # The slot is GENUINELY held right now (a build harvests the
+          # 409) -- yet toggling the OTHER fixture package is never
+          # slot-gated and still writes (D-08).
+          busy = post('/api/build', { 'X-SPM-Token' => @token }, JSON.generate('scope' => 'build'))
+          expect(busy.code).to eq('409')
+
+          toggle_res = post('/api/toggle', { 'X-SPM-Token' => @token }, toggle_body('SnapKit', true))
+          expect(toggle_res.code).to eq('200')
+          expect(disk_ignore).to eq(['Alamofire'])
+        ensure
+          ENV.delete('FAKE_BIN_SLEEP')
+          wait_for_pid_exit(apply_pid)
+        end
+      end
+
+      it 'converges once the run has ended and the applied truth catches up: a fresh /api/state shows Alamofire no longer pending' do
+        update_graph([
+                       { 'module' => 'Alamofire', 'status' => 'ignored', 'hasMacro' => false },
+                       { 'module' => 'SnapKit', 'status' => 'missed', 'hasMacro' => true }
+                     ])
+
+        row = state_row('Alamofire')
+        expect(row['state']).to eq('ignored')
+        expect(row['saved_cached']).to eq(false)
+        expect(row['applied_cached']).to eq(false)
+        expect(row['pending']).to eq(false)
+
+        snap = state_row('SnapKit')
+        expect(snap['saved_cached']).to eq(true)
+        expect(snap['applied_cached']).to eq(true)
+        expect(snap['pending']).to eq(false)
+      end
+    end
+
     # Wrapped in its own describe (not a direct it): RSpec always runs
     # a group's direct examples before its nested groups, regardless
     # of source interleaving -- nesting this is what keeps it running
@@ -728,6 +820,28 @@ RSpec.describe 'SPMCache::Web one-boot integration matrix', order: :defined do
       # The example reaps the child itself (D-02: no server code ever
       # does) -- TERM the process GROUP, then the bounded liveness
       # poll every other row uses, so no example leaks a process.
+      begin
+        Process.kill('-TERM', pid) if pid
+      rescue Errno::ESRCH, Errno::EPERM
+        nil
+      end
+      wait_for_pid_exit(pid)
+    end
+
+    it 'shutdown with an in-flight Apply-now spawn returns bounded and leaves the child alive (16-04, the new spawn verb)' do
+      pid = nil
+      ENV['FAKE_BIN_SLEEP'] = '2'
+      pid = @jobs.spawn_run(scope: 'use')
+      expect(pid).not_to be_nil
+
+      started = Process.clock_gettime(Process::CLOCK_MONOTONIC)
+      WebServerBoot.shutdown(@server) # neither waits on, reaps, nor kills the child
+      elapsed = Process.clock_gettime(Process::CLOCK_MONOTONIC) - started
+      expect(elapsed).to be < 5.0
+
+      expect { Process.kill(0, pid) }.not_to raise_error
+    ensure
+      ENV.delete('FAKE_BIN_SLEEP')
       begin
         Process.kill('-TERM', pid) if pid
       rescue Errno::ESRCH, Errno::EPERM
