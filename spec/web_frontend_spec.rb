@@ -104,11 +104,9 @@ RSpec.describe 'spm-cache web dashboard frontend (Plan 13-03)' do
 
   describe 'app.js source contract — token bootstrap (locked)' do
     it 'moves the token from the URL to sessionStorage, then cleans the URL BEFORE first render' do
-      expect(app_js).to include('sessionStorage.setItem')
-      expect(app_js).to include('history.replaceState')
-      setitem_at = app_js.index('sessionStorage.setItem')
-      replace_at = app_js.index('history.replaceState')
-      boot_at = app_js.index('boot();')
+      setitem_at = app_js.index(/sessionStorage\.setItem\(/)
+      replace_at = app_js.index(/history\.replaceState\(/)
+      boot_at = app_js.index(/boot\(\);/)
       expect(setitem_at).to be < replace_at
       expect(replace_at).to be < boot_at # order pinned textually; 13-VALIDATION re-checks in a browser
     end
