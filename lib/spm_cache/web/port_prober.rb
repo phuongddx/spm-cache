@@ -1,5 +1,6 @@
 # frozen_string_literal: true
 
+require 'socket'
 module SPMCache
   module Web
     # Bounded upward port probe for `spm-cache web` (WEB-01). macOS
@@ -18,7 +19,14 @@ module SPMCache
           attempts.times do
             unless SKIP_PORTS.include?(candidate)
               server = bind(host, candidate)
-              return server.addr[1] if server # addr[1]: the actually-bound port (start_port 0 probes ephemeral)
+              if server
+                # addr[1] is the actually-bound port (start_port 0 probes
+                # ephemeral); close BEFORE returning so the caller can
+                # rebind the port (WEBrick binds it next).
+                port = server.addr[1]
+                server.close
+                return port
+              end
             end
             candidate += 1
           end

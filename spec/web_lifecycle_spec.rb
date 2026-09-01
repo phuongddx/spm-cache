@@ -310,6 +310,26 @@ RSpec.describe SPMCache::Command::Web do
     end
   end
 
+  describe 'boot resilience' do
+    it 're-probes when the probed port is squatted between probe and WEBrick bind' do
+      server_attempts = 0
+      allow(SPMCache::Web::Server).to receive(:new) do |**kwargs|
+        server_attempts += 1
+        raise Errno::EADDRINUSE, 'bind(2) for 127.0.0.1' if server_attempts == 1
+
+        spy = ServerSpy.new(kwargs)
+        spies << spy
+        spy
+      end
+      allow(SPMCache::Web::PortProber).to receive(:pick).and_return(8123)
+
+      run_web('--no-open')
+
+      expect(server_attempts).to eq(2)
+      expect(spies.size).to eq(1)
+    end
+  end
+
   describe '--port parsing' do
     def picked_start_port
       @picked = nil

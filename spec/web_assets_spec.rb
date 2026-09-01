@@ -99,17 +99,25 @@ RSpec.describe SPMCache::Web::Assets do
       end
     end
 
-    it '404s every traversal form, encoded or raw, without escaping the root' do
+    it '404s every traversal form carrying a target, without escaping the root' do
       with_assets_server do |handle|
         ['/assets/%2e%2e/marker.json', '/assets/..%2Fserver.json',
          '/assets/../server.rb', '/assets/sub/nested.js',
-         '/assets/.hidden', '/assets/..'].each do |path|
+         '/assets/.hidden'].each do |path|
           res = WebServerBoot.http_get(handle, path)
           expect(res.code).to eq('404'), "expected #{path} to 404"
         end
       end
     end
 
+    it 'never serves a file for a bare dot-segment path (collapsed to / pre-dispatch)' do
+      with_assets_server do |handle|
+        ['/assets/..', '/assets/../'].each do |path|
+          res = WebServerBoot.http_get(handle, path)
+          expect(res.code).not_to eq('200'), "expected #{path} to never serve a file"
+        end
+      end
+    end
     it '403s an asset request on a bad Host before any file IO' do
       with_assets_server do |handle|
         res = WebServerBoot.http_get(handle, '/assets/app.js', 'Host' => "evil.com:#{handle.port}")

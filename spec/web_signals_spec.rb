@@ -12,8 +12,11 @@ require 'rbconfig'
 # actual `spm-cache web --no-open --port=0` in a tmpdir project must
 # publish a live marker, and SIGTERM/SIGINT must stop the server, remove
 # the marker, and exit 0. SIGKILL leaves an honest stale marker that
-# reads dead -- the stale path web_lifecycle_spec proves heals.
-CHILD_SCRIPT = <<~'RUBY'
+# WEB_CHILD_SCRIPT is uniquely named: watch_signals_spec.rb defines a
+# top-level CHILD_SCRIPT for its own children, and a same-named constant
+# here would silently replace it once both files load -- each spec's
+# children would run the other's script.
+WEB_CHILD_SCRIPT = <<~'RUBY'
   # frozen_string_literal: true
 
   require 'spm_cache/main'
@@ -35,7 +38,7 @@ RSpec.describe 'spm-cache web signal contract (real subprocess)' do
   after { FileUtils.remove_entry(tmpdir) if File.directory?(tmpdir) }
 
   def with_web_child
-    File.write(script_path, CHILD_SCRIPT)
+    File.write(script_path, WEB_CHILD_SCRIPT)
     pid = Process.spawn(
       RbConfig.ruby, '-I', File.expand_path('lib', SPMCache::ROOT),
       script_path, project_dir,

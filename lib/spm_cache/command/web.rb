@@ -3,6 +3,7 @@
 require 'securerandom'
 
 require 'spm_cache/command'
+require 'spm_cache/web/assets'
 require 'spm_cache/web/marker'
 require 'spm_cache/web/port_prober'
 require 'spm_cache/web/router'
@@ -15,8 +16,11 @@ module SPMCache
     # (13-CONTEXT "Launch & Port Behavior"). CLAide auto-registers the
     # verb from the class name; command.rb stays untouched.
     class Web < Command
+      BOOT_RETRIES = 2
       DEFAULT_PORT = 7915
+
       self.summary = 'Serve the read-only cache dashboard on localhost'
+      self.description = 'Starts a hardened localhost-only web server showing cache state, doctor health, and the dependency graph. Read-only. Re-running while a server is live reuses it; SIGTERM/SIGINT stops it cleanly.'
 
       def self.options
         [
@@ -54,9 +58,8 @@ module SPMCache
         end
         ::SPMCache::Web::Marker.clear if marker # stale (dead pid / unreadable): heal
 
-        port = ::SPMCache::Web::PortProber.pick(start_port: @port)
         token = SecureRandom.hex(32) # per launch, rotated every launch
-        server = build_server(port: port, token: token)
+        port, server = boot_with_retry(token)
 
         ::SPMCache::Web::Marker.write(pid: Process.pid, port: port, token: token)
 
@@ -76,10 +79,27 @@ module SPMCache
 
       private
 
+      # Probe + construct, retrying past the rare ephemeral-reuse race:
+      # between PortProber's bind-and-close and WEBrick's bind, another
+      # process can squat the port. Re-probing moves past the squatter
+      # (pick rescues EADDRINUSE per candidate) instead of dying at boot.
+      def boot_with_retry(token)
+        attempts = 0
+        begin
+          port = ::SPMCache::Web::PortProber.pick(start_port: @port)
+          [port, build_server(port: port, token: token)]
+        rescue Errno::EADDRINUSE
+          attempts += 1
+          retry if attempts <= BOOT_RETRIES
+          raise
+        end
+      end
+
       # Overridable seam (installer_factory precedent, watch.rb): specs
       # inject a double at the ::SPMCache::Web::Server.new boundary inside.
       def build_server(port:, token:)
-        router = ::SPMCache::Web::Router.new(token: token, port: port)
+        router = ::SPMCache::Web::Router.new(token: token, port: port,
+                                             assets: ::SPMCache::Web::Assets.new)
         ::SPMCache::Web::Server.new(
           port: port,
           token: token,

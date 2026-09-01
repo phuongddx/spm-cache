@@ -90,6 +90,9 @@ module SPMCache
         respond(res, 200, file[:content_type], file[:body])
       end
 
+      # Static assets: no token check (see the class-level matrix note),
+      # but names resolve through Web::Assets' validated-basename +
+      # containment contract (T-13-04) -- every traversal form 404s.
       def asset(res, name)
         file = @assets&.serve(name)
         return reject(res, 404, 'not found') unless file
