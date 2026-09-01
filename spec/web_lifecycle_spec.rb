@@ -381,14 +381,15 @@ RSpec.describe SPMCache::Command::Web do
       # parse_port runs in #initialize, so the raise surfaces before
       # any probing -- never as a raw errno dump mid-boot.
       expect { run_web('--port=-5', '--no-open') }
-        .to raise_error(SPMCache::Core::GeneralError, /between 1 and 65535/)
-      expect { run_web('--port=0', '--no-open') }
-        .to raise_error(SPMCache::Core::GeneralError, /between 1 and 65535/)
+        .to raise_error(SPMCache::Core::GeneralError, /between 0 and 65535/)
       expect { run_web('--port=70000', '--no-open') }
-        .to raise_error(SPMCache::Core::GeneralError, /between 1 and 65535/)
+        .to raise_error(SPMCache::Core::GeneralError, /between 0 and 65535/)
     end
 
-    it 'accepts the full valid port range' do
+    it 'accepts the full valid port range, including ephemeral 0' do
+      picked_start_port
+      run_web('--port=0', '--no-open')
+      expect(@picked).to eq(0)
       picked_start_port
       run_web('--port=1', '--no-open')
       expect(@picked).to eq(1)

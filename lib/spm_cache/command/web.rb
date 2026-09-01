@@ -143,9 +143,12 @@ module SPMCache
       # dump from deep inside the boot (review WR-04).
       def parse_port(raw)
         port = Integer(raw || DEFAULT_PORT)
-        unless (1..65_535).cover?(port)
+        # 0 is a first-class value here: Server#resolve_port and the
+        # prober both treat it as "bind ephemeral, resolve the real
+        # port" (the real-subprocess signal specs boot with --port=0).
+        unless (0..65_535).cover?(port)
           raise Core::GeneralError,
-                "--port must be between 1 and 65535 (got #{port})"
+                "--port must be between 0 and 65535 (got #{port})"
         end
         port
       rescue ArgumentError, TypeError
