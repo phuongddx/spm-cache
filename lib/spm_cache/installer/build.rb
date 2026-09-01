@@ -10,9 +10,10 @@ require 'spm_cache/spm/resolved_graph'
 module SPMCache
   class Installer
     class Build < Installer
-      def initialize(project:, config: 'debug', targets: [])
+      def initialize(project:, config: 'debug', targets: [], rebuild: false)
         super(project: project, config: config)
         @requested_targets = targets
+        @rebuild = rebuild
       end
 
       def perform_install
@@ -26,6 +27,17 @@ module SPMCache
 
           missed = @cachemap.missed.dup
           missed.concat(@cachemap.hit.select { |m| !slice_complete?(cache_out, m, destinations) })
+
+          # D-01/A8: a forced rebuild widens the candidate set into the
+          # ENTIRE cachemap hit set, not just incomplete slices -- "rebuild
+          # what is cached", never "override the ignore/cache-only
+          # partitions" (T-15-13). The requested-target filter and its
+          # warnings run unchanged immediately below, so narrowing and the
+          # ignore/exclude warnings behave identically whether or not this
+          # branch fires. The trailing uniq! absorbs any overlap with the
+          # incomplete-slice top-up above (T-15-14: still inside the same
+          # build flock, unchanged).
+          missed.concat(@cachemap.hit) if @rebuild
 
           filter_requested_targets!(missed) if @requested_targets.any?
           missed.uniq!
