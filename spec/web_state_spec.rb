@@ -328,6 +328,122 @@ RSpec.describe SPMCache::Web::ReadModels::State do
     end
   end
 
+  # (16-03, D-06/TOGL-02) Saved and applied are two independently
+  # sourced truths; pending is narrowed to rows the UI can actually
+  # act on; the read path re-reads on every call and mutates nothing.
+  describe 'saved vs applied' do
+    it 'saved truth is the exact-entry test regardless of any matching glob pattern' do
+      write_framework('debug', 'GlobExact')
+      write_framework('debug', 'GlobOnly')
+      File.write(config.config_path, "ignore:\n  - 'Glob*'\n  - GlobExact\n")
+
+      exact = state['packages'].find { |p| p['name'] == 'GlobExact' }
+      only = state['packages'].find { |p| p['name'] == 'GlobOnly' }
+      expect(exact['saved_cached']).to eq(false)
+      expect(only['saved_cached']).to eq(true)
+      expect(only['reason']).to eq('pattern-managed')
+    end
+
+    it 'applied truth is the last-sync graph verdict: ignored means not cached, hit and missed mean cached' do
+      write_graph([
+                    { 'module' => 'AppliedIgnored', 'status' => 'ignored' },
+                    { 'module' => 'AppliedHit', 'status' => 'hit' },
+                    { 'module' => 'AppliedMissed', 'status' => 'missed' }
+                  ])
+      %w[AppliedIgnored AppliedHit AppliedMissed].each { |n| write_framework('debug', n) }
+
+      applied = state['packages'].each_with_object({}) { |row, acc| acc[row['name']] = row['applied_cached'] }
+      expect(applied).to eq('AppliedIgnored' => false, 'AppliedHit' => true, 'AppliedMissed' => true)
+    end
+
+    it 'has no applied signal and is never pending when the row has no graph entry' do
+      write_graph([{ 'module' => 'Known', 'status' => 'hit' }])
+      write_framework('debug', 'Known')
+      write_framework('debug', 'GhostRow')
+
+      ghost = state['packages'].find { |p| p['name'] == 'GhostRow' }
+      expect(ghost['applied_cached']).to be_nil
+      expect(ghost['pending']).to eq(false)
+    end
+
+    it 'pending is exactly toggleable AND has an applied signal AND the two disagree' do
+      write_graph([
+                    { 'module' => 'FreshOff', 'status' => 'hit' },
+                    { 'module' => 'Converged', 'status' => 'ignored' },
+                    { 'module' => 'LockedDivergent', 'status' => 'plugin' }
+                  ])
+      %w[FreshOff Converged LockedDivergent].each { |n| write_framework('debug', n) }
+      File.write(config.config_path, "ignore:\n  - FreshOff\n  - Converged\n  - LockedDivergent\n")
+
+      rows = state['packages'].each_with_object({}) { |row, acc| acc[row['name']] = row }
+      expect(rows['FreshOff']['pending']).to eq(true)
+      expect(rows['Converged']['pending']).to eq(false)
+      expect(rows['LockedDivergent']['toggleable']).to eq(false)
+      expect(rows['LockedDivergent']['pending']).to eq(false)
+    end
+
+    it 'duplicate rows for a package cached in both configs carry identical toggle fields' do
+      write_graph([{ 'module' => 'DualConfig', 'status' => 'plugin' }])
+      write_framework('debug', 'DualConfig')
+      write_framework('release', 'DualConfig')
+      File.write(config.config_path, "ignore:\n  - DualConfig\n")
+
+      rows = state['packages'].select { |p| p['name'] == 'DualConfig' }
+      expect(rows.size).to eq(2)
+      toggle_fields = rows.map { |r| r.values_at('toggleable', 'reason', 'saved_cached', 'applied_cached', 'pending') }
+      expect(toggle_fields.uniq.size).to eq(1)
+    end
+
+    it 'CP1: re-reads spm-cache.yml on every call and leaves the Config singleton untouched' do
+      write_framework('debug', 'FreshPkg')
+      raw_snapshot = config.raw.dup
+
+      expect(state['packages'].first['saved_cached']).to eq(true)
+
+      File.write(config.config_path, "ignore:\n  - FreshPkg\n")
+
+      expect(state['packages'].first['saved_cached']).to eq(false)
+      expect(config.raw).to eq(raw_snapshot)
+    end
+  end
+
+  describe 'the read path stays total' do
+    it 'answers honestly with no config file' do
+      write_framework('debug', 'NoConfigPkg')
+
+      expect { state }.not_to raise_error
+      row = state['packages'].first
+      expect(row['saved_cached']).to eq(true)
+      expect(row['reason']).to be_nil
+    end
+
+    it 'answers honestly when spm-cache.yml is malformed YAML' do
+      write_framework('debug', 'BadYamlPkg')
+      File.write(config.config_path, "ignore: [Unterminated\n")
+
+      expect { state }.not_to raise_error
+      expect(state['packages'].first['saved_cached']).to eq(true)
+    end
+
+    it 'answers honestly with no lockfile: no binary-target reason ever fires' do
+      write_framework('debug', 'NoLockPkg')
+
+      expect { state }.not_to raise_error
+      row = state['packages'].first
+      expect(row['reason']).to be_nil
+      expect(row['toggleable']).to eq(true)
+    end
+
+    it 'answers honestly with no graph.json: no applied signal, never pending' do
+      write_framework('debug', 'NoGraphPkg')
+
+      expect { state }.not_to raise_error
+      row = state['packages'].first
+      expect(row['applied_cached']).to be_nil
+      expect(row['pending']).to eq(false)
+    end
+  end
+
   describe 'router mount' do
     it 'token-gates GET /api/state (401 without the launch token)' do
       Dir.mktmpdir do |project|
