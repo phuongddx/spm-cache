@@ -573,6 +573,10 @@ RSpec.describe 'spm-cache web dashboard frontend (Plan 13-03)' do
         expect(log_js).to include("word: 'failed'")
         expect(log_js).to include("word: 'interrupted — exit unknown'")
       end
+
+      it 'statusKey maps the FULL CP14 phrase to interrupted — the server vocabulary, never running (D-14 probe catch)' do
+        expect(log_js).to include("if (status === 'interrupted' || status === 'interrupted — exit unknown') return 'interrupted';")
+      end
     end
 
     describe 'prohibitions (14-UI-SPEC)' do
