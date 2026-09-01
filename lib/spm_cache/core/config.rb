@@ -24,7 +24,10 @@ module SPMCache
         # `runs_max_mb` MB. Fidelity is absolute (D-05) -- growth is
         # bounded only by whole-file retention pruning (Plan 12-03).
         'runs_keep' => 50,
-        'runs_max_mb' => 500
+        'runs_max_mb' => 500,
+        # Dashboard state-table auto-poll interval in seconds
+        # (13-UI-SPEC "server-configurable" auto-refresh, default 5s).
+        'web_poll_seconds' => 5
       }.freeze
 
       SANDBOX_DIR = 'spm-cache'
@@ -182,6 +185,17 @@ module SPMCache
         Integer(raw['runs_max_mb'] || DEFAULT_CONFIG['runs_max_mb'])
       rescue ArgumentError, TypeError
         DEFAULT_CONFIG['runs_max_mb']
+      end
+
+      # Dashboard state-table auto-poll interval (13-UI-SPEC
+      # "server-configurable"). Integer()-coerced with rescue-to-default,
+      # runs_keep posture: spm-cache.yml is user-authored, not adversarial
+      # (research V5) -- a typo falls back to the default instead of
+      # raising into a poll loop.
+      def web_poll_seconds
+        Integer(raw['web_poll_seconds'] || DEFAULT_CONFIG['web_poll_seconds'])
+      rescue ArgumentError, TypeError
+        DEFAULT_CONFIG['web_poll_seconds']
       end
 
       def should_ignore?(package_name)

@@ -9,6 +9,7 @@ default_sdk: iphonesimulator
 # truncated (D-05) -- growth is bounded only by deleting whole old runs.
 # runs_keep: 50
 # runs_max_mb: 500
+# web_poll_seconds: 5   # dashboard state-table auto-refresh interval
 # remote:
 #   debug:
 #     git: git@github.com:your-org/cache.git
