@@ -700,4 +700,102 @@ RSpec.describe 'spm-cache web dashboard frontend (Plan 13-03)' do
       end
     end
   end
+  # Plan 14-05 Task 1 — the anchor rail (D-07/D-08), jump + filter
+  # dimming (D-09), the filter pill, and banner piercing (D-10). Same
+  # discipline as 14-04: FILE bytes pin every mechanic. The 14-UI-SPEC
+  # Interaction rows and assumptions A5 (dim, never hide) and A10
+  # (dedupe by name, first position) are BINDING here.
+  describe 'log.js anchor rail + filter + piercing (Plan 14-05)' do
+    let(:log_js) { File.read(File.join(asset_dir, 'log.js')) }
+
+    it 'chips: package names verbatim + the four phase markers; duplicates dedupe by name, first position wins (A10); no chips for no-line or unknown events' do
+      expect(log_js).to include("addAnchor('package', name, divider)")
+      expect(log_js).to include("addAnchor('phase', name, divider)")
+      # A10: dedupe-by-name, first position wins — defensive only in the
+      # frozen Phase-12 vocabulary
+      expect(log_js).to include('if (anchors.some((a) => a.kind === kind && a.name === name)) return;')
+      # addAnchor exists ONLY inside the divider branch: the 14-04 taxonomy
+      # rows already pin package_end/run_start/run_end/sh/unknown keys to
+      # no-line returns — chips render as their anchor events arrive, no
+      # placeholders (D-07)
+      expect(log_js.scan(/addAnchor\(/).size).to eq(2)
+      expect(log_js).to match(/data\.event === 'package_start' \|\| data\.event === 'phase'[\s\S]*?addAnchor\('package'/)
+    end
+
+    it 'rail DOM: Phases precedes Packages (labels always rendered); chips stack with ellipsized labels + title tooltips' do
+      expect(index_html.index('>Phases</div>')).to be < index_html.index('>Packages</div>')
+      expect(log_js).to include("const railPhases = byId('rail-phases');")
+      expect(log_js).to include("const railPackages = byId('rail-packages');")
+      expect(styles_css).to include('.log-chip {')
+      expect(styles_css).to match(/\.log-chip\s*\{[^}]*text-overflow: ellipsis/)
+      expect(log_js).to include('text: anchor.name, title: anchor.name')
+    end
+
+    it 'jump: chip activation scrolls to the anchor divider element via the registry and disengages follow (D-09 + the 14-04 seam)' do
+      expect(log_js).to include('const jumpToAnchor = (anchor) => {')
+      expect(log_js).to include('anchor.lineEl && anchor.lineEl.isConnected')
+      expect(log_js).to match(/const jumpToAnchor = \(anchor\) => \{[\s\S]*?follow = false;/)
+      expect(log_js).to include('jumpToAnchor(anchor);')
+    end
+
+    it 'package filter: the package_start..package_end segment stays primary (inclusive); every other line — before the first anchor included — takes the dim class; NO line leaves the DOM (A5)' do
+      expect(log_js).to include('const matches = (line) => {')
+      expect(log_js).to include('seg.pkg === activeFilter.name')
+      expect(log_js).to include("classList.toggle('log-dim', !matches(node));")
+      apply = log_js[/const applyFilter = \(\) => \{[\s\S]*?\n  \};/]
+      expect(apply).to include("classList.toggle('log-dim', !matches(line));")
+      expect(apply).not_to include('remove') # A5: dim, never hide — no DOM removal in the filter path
+    end
+
+    it 'phase filter: from the marker to the line before the next phase marker OR package_start (segment rules verbatim)' do
+      expect(log_js).to include('seg.phase === activeFilter.name')
+      expect(log_js).to include('segPackage = name;')
+      expect(log_js).to include('segPhase = null;') # a package_start ends the phase segment
+      expect(log_js).to include('SEG.set(divider, { pkg: name, phase: null });')
+      expect(log_js).to include('SEG.set(divider, { pkg: null, phase: name });')
+    end
+
+    it 'filter pill: ONE button carrying filtered: {name}; activation clears the filter with the view put; 240px max-width + ellipsis + tooltip' do
+      expect(log_js).to include('filtered: (name) => `filtered: ${name}`')
+      expect(log_js).to include('if (activeFilter) {')
+      expect(log_js).to include('text: COPY.filtered(activeFilter.name),')
+      expect(log_js).to include('title: COPY.filtered(activeFilter.name),')
+      expect(log_js).to include("fp.addEventListener('click', clearFilter);")
+      expect(styles_css).to match(/\.log-filter-pill\s*\{[^}]*max-width: 240px[^}]*text-overflow: ellipsis/)
+    end
+
+    it 'active chip: accent badge style (text on 10%-alpha fill) + aria-pressed=true; clicking the ACTIVE chip clears the filter with the view staying put' do
+      expect(log_js).to include("chip.setAttribute('aria-pressed', isActive ? 'true' : 'false');")
+      expect(log_js).to match(%r{if \(isActive\) \{\s*clearFilter\(\); //})
+      expect(styles_css).to include('.log-chip-active')
+      expect(styles_css).to include('rgba(33, 150, 243, 0.1)')
+      # A3: the active chip joins the ONE accent-text declaration's group —
+      # still exactly one accent-color declaration on the sheet
+      expect(styles_css).to match(/\.cmd,\s*\.log-live,\s*\.log-chip-active\s*\{/)
+      expect(styles_css.scan(/color: var\(--c-accent\)/).size).to eq(1)
+    end
+
+    it 'piercing: the banner renders regardless of filter state — its slot sits outside the filtered viewport and its render path never reads filter state (D-10)' do
+      expect(index_html.index('id="log-banner"')).to be < index_html.index('id="log-viewport"')
+      on_run_end = log_js[/const onRunEnd = \(data\) => \{[\s\S]*?\n  \};/]
+      expect(on_run_end).to include("showBanner('failed', status)")
+      expect(on_run_end).not_to include('activeFilter')
+      show_banner = log_js[/const showBanner = \(kind, status\) => \{[\s\S]*?\n  \};/]
+      expect(show_banner).not_to include('activeFilter')
+      # the dim walk is scoped to the viewport's own lines — the banner is
+      # not a line and can never take the dim class
+      expect(log_js).to include("viewport.querySelectorAll('.log-line').forEach((line) => {")
+    end
+
+    it 'exit-filter jump: Jump to first error clears the filter FIRST (pill removed, dim removed, chips revert) and THEN moves the view (D-10)' do
+      expect(log_js).to match(/const jumpToFirstError = \(\) => \{[\s\S]*?clearFilter\(\);[\s\S]*?viewport\.scrollTop/)
+      expect(log_js).to include("viewport.querySelectorAll('.log-line.log-dim')")
+    end
+
+    it 'eviction interplay: an anchor jump whose target left the ring lands on the oldest retained line — never a no-op (D-02 degradation)' do
+      target = log_js[/const anchorTarget = \(anchor\) => \{[\s\S]*?\n  \};/]
+      expect(target).to include('anchor.lineEl.isConnected')
+      expect(target).to include('lines.length > 0 ? lines[0] : null')
+    end
+  end
 end
