@@ -60,16 +60,18 @@ end
 ```
 Also copy the **continue-on-error** posture (watcher.rb:64-67: `rescue StandardError => e` → `warn_msg` → keep looping) — the tailer must never die on a transient read error, same as the watcher never dies on a transient regeneration failure.
 
-**Line-split analog:** `lib/spm_cache/core/run_log.rb:216-240` — `record_line`'s buffer-until-newline loop is EXACTLY the transform the tailer inverts (bytes in → complete `\n`-terminated lines out, partial tail stays buffered):
+**Line-split analog:** `lib/spm_cache/core/run_log.rb:222-243` — `record_line`'s buffer-until-newline loop is EXACTLY the transform the tailer inverts (bytes in → complete `\n`-terminated lines out, partial tail stays buffered). Buffers are keyed `[Thread.current, stream]` (WR-01 pair atomicity: a mutex serializes each call, but a writer's partial + completing chunks are two calls — thread-keyed buffers keep concurrent writers' lines whole):
 ```ruby
 def record_line(str, stream)
   ...
   @buffer_mutex.synchronize do
-    buffer = (@buffers[stream] ||= +'')
+    key = [Thread.current, stream]
+    buffer = (@buffers[key] ||= +'')
     buffer << str
     while (nl = buffer.index("\n"))
       record_text(buffer.slice!(0..nl), stream)
     end
+    @buffers.delete(key) if buffer.empty?
   end
 end
 ```

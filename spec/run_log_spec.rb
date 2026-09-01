@@ -215,6 +215,36 @@ RSpec.describe SPMCache::Core::RunLog do
       expected = [1, 2].flat_map { |t| (0...50).map { |i| "t#{t}-line-#{i}-part\n" } }
       expect(bodies.map { |b| b['text'] }.sort).to eq(expected.sort)
     end
+
+    # WR-01 follow-up (found live: a loaded full-suite run failed the example
+    # above with every lock held): the buffer mutex serializes each CALL, but
+    # a writer's partial chunk and its completing chunk are two calls -- a
+    # second writer scheduled between them merges and splits lines at call
+    # granularity. Partial buffers are keyed [thread, stream] so each
+    # writer's chunks pair atomically; pinned here with a Queue-forced
+    # deterministic interleave (no scheduling luck required).
+    it 'keeps concurrent writers partial-chunk pairs atomic (WR-01 interleave at call granularity)' do
+      log = open_log
+      release = Queue.new
+      buffered = Queue.new
+      slow = Thread.new do
+        log.record_line('slow-partial-', 'out')
+        buffered << true
+        release.pop # the fast writer completes its whole pair while this partial is pending
+        log.record_line("tail\n", 'out')
+      end
+      buffered.pop
+      fast = Thread.new do
+        log.record_line('fast-partial-', 'out')
+        log.record_line("tail\n", 'out')
+      end
+      fast.join
+      release << true
+      slow.join
+      entries = File.read(log.path).lines.map { |line| JSON.parse(line) }
+      texts = entries.select { |entry| entry.key?('text') }.map { |body| body['text'] }
+      expect(texts).to contain_exactly("fast-partial-tail\n", "slow-partial-tail\n")
+    end
   end
 
   describe 'safety degradation' do

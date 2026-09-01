@@ -194,7 +194,7 @@ module SPMCache
         @previous_current = previous_current
         @mutex = Mutex.new
         @buffer_mutex = Mutex.new # WR-01: @buffers is multi-writer state
-        @buffers = {}
+        @buffers = {} # [thread, stream] => pending partial (WR-01 pair atomicity)
         @finished = false
         @disabled = false
         @warned = false
@@ -206,13 +206,19 @@ module SPMCache
       # Tee entry point: writes may arrive in partial chunks, so buffer per
       # stream until a newline arrives -- record_line("par") followed by
       # record_line("tial\n") must land as ONE body line "partial\n".
-      # The read-modify-write on @buffers plus the in-place slice! loop are
-      # unsynchronized state (WR-01): safe_append's mutex serializes only
-      # the final write, so any future caller printing from a second thread
-      # (parallel hooks) would interleave or lose body lines. One buffer
-      # mutex covers append + extraction + same-stream emission order;
+      # Concurrency (WR-01) has TWO layers. (1) The read-modify-write on
+      # @buffers plus the in-place slice! loop need @buffer_mutex: it
+      # serializes append + extraction + same-stream emission order, and
       # record_text inside it acquires @mutex (append), never the reverse,
-      # so the two locks cannot deadlock.
+      # so the two locks cannot deadlock. (2) A mutex only serializes each
+      # CALL -- a writer's partial chunk and its completing chunk are two
+      # calls, so a second writer scheduled between them would merge and
+      # split lines at call granularity (observed live in a loaded
+      # full-suite run with every lock held). Buffers are therefore keyed
+      # [thread, stream]: each concurrent writer's chunks pair atomically
+      # in its own buffer, giving partial-chunk callers the same per-line
+      # integrity record_text already has. Emission stays line-atomic and
+      # per-thread ordered, like record_text.
       def record_line(str, stream)
         # CR-05: once degraded, stop before the buffer mutex. The
         # degradation warning itself travels through $stderr, which with a
@@ -226,11 +232,13 @@ module SPMCache
         return if @disabled
 
         @buffer_mutex.synchronize do
-          buffer = (@buffers[stream] ||= +'')
+          key = [Thread.current, stream]
+          buffer = (@buffers[key] ||= +'')
           buffer << str
           while (nl = buffer.index("\n"))
             record_text(buffer.slice!(0..nl), stream)
           end
+          @buffers.delete(key) if buffer.empty?
         end
       end
 
@@ -342,16 +350,16 @@ module SPMCache
       # Emit any trailing partial line (a `print` without newline) before the
       # exit line so a zero-newline tail is not silently dropped (SC2).
       # Same @buffer_mutex discipline as record_line (WR-01) -- finish must
-      # not race a straggler writer's append/extract loop.
+      # not race a straggler writer's append/extract loop. Buffers are
+      # [thread, stream]-keyed (WR-01 pair atomicity); strands are emitted
+      # from a to_a snapshot and the hash cleared after, so the loop never
+      # mutates the hash it is iterating.
       def flush_partial_buffers
         @buffer_mutex.synchronize do
-          @buffers.each_key do |stream|
-            buffer = @buffers[stream]
-            next if buffer.empty?
-
-            @buffers[stream] = +''
-            record_text(buffer, stream)
+          @buffers.to_a.each do |(_thread, stream), buffer|
+            record_text(buffer, stream) unless buffer.empty?
           end
+          @buffers.clear
         end
       end
 
