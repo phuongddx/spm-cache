@@ -4,17 +4,17 @@ milestone: v0.5.0
 milestone_name: Web Interface
 current_phase: 13 — Server Skeleton + Read-Only Dashboard
 current_phase_name: Server Skeleton + Read-Only Dashboard
-status: planning
-stopped_at: Completed 13-02-PLAN.md
-last_updated: "2026-09-01T05:25:31.155Z"
+status: verifying
+stopped_at: Completed 13-03-PLAN.md (wave 2 frontend)
+last_updated: "2026-09-01T05:34:59.635Z"
 last_activity: 2026-09-01
 last_activity_desc: Phase 12 complete, transitioned to Phase 13
-state_head: e5299a96cf6d66c09b433021d2fcbf36fd859f7e
+state_head: 4995e13af863f5257cb300f316eb97af9c7e3497
 progress:
   total_phases: 5
   completed_phases: 1
   total_plans: 9
-  completed_plans: 7
+  completed_plans: 8
   percent: 20
 ---
 
@@ -38,7 +38,7 @@ v0.4.0 shipped and released 2026-08-31 (first fully-green tap publish in project
 
 Phase: 13 (Server Skeleton + Read-Only Dashboard) — EXECUTING
 Plan: 13-01 complete (1 of 4 plans; wave 1 done — 13-02/13-03 next)
-Status: Executing phase 13
+Status: Phase complete — ready for verification
 Last activity: 2026-09-01 — 13-01 executed (WEBrick skeleton + middleware + Command::Web lifecycle)
 
 Progress: [██░░░░░░░░] 20%
@@ -88,6 +88,7 @@ Trend: stable (typical plan 10–35 min; outliers involve real xcodebuild runs).
 | Phase 12 P04 | 11min | 2 tasks | 8 files |
 | Phase 12 P05 | 10min | 2 tasks | 4 files |
 | Phase 13 P02 | 13min | 3 tasks | 15 files |
+| Phase 13 P03 | 25min | 3 tasks | 6 files |
 
 ## Decisions
 
@@ -109,6 +110,8 @@ Full log: PROJECT.md Key Decisions table. Roadmap decisions (2026-08-31):
 - [Phase 12]: Buildable#xcodebuild activates Plan 12-02's sinks: per-stream live_log_out/live_log_err StreamSinks forwarded on both Sh.run calls when run_log is threaded; nil forwards no sink keys at all (byte-identical) (Plan 12-04)
 - [Phase 12]: [Phase 12]: Watch cycles log via RunLog.cycle_wrapper at Command::Watch's factory seam — Core::Watcher untouched; each cycle is its own file (command watch / trigger watch / cycle true) with runs_dir resolved per cycle from pre_scan(argv).log_dir || Config#runs_dir (D-01 live at the watch surface) (Plan 12-05)
 - [Phase 12]: [Phase 12]: D-08 no-allowlist spec-proven — exclusion set is exactly {web, watch} + --no-run-log (future-verb row mutation-proven); A6 legacy 'use --watch' = session-level 'use' run; A5 inter-cycle narrative terminal-only (D-09) (Plan 12-05)
+- [Phase 13 — Server Skeleton + Read-Only Dashboard]: 13-03: offline frontend shipped as 4 static assets — vendored cytoscape v3.34.2 structurally pinned (version comment, >300KB, gemspec membership), first-party assets byte-gated for scheme URLs
+- [Phase 13 — Server Skeleton + Read-Only Dashboard]: 13-03: app.js stored-XSS defense by construction — zero innerHTML, all dynamic text via textContent; stamps derive from server timestamps only (no Date.now())
 
 ## Deferred Items
 
@@ -123,6 +126,6 @@ Items acknowledged and deferred at milestone close, most recent first:
 
 ## Session Continuity
 
-Last session: 2026-09-01T05:25:31.021Z
-Stopped at: Completed 13-02-PLAN.md
+Last session: 2026-09-01T05:34:59.501Z
+Stopped at: Completed 13-03-PLAN.md (wave 2 frontend)
 Resume file: None
