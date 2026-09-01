@@ -26,6 +26,7 @@ tools/spm-cache-proxy/Package.resolved
 /spm-cache/
 spm-cache.lock
 spm-cache.yml
+spm-cache.yml.lock
 
 # spm-cache web marker + run logs
 .spm-cache/
