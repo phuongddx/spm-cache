@@ -3,7 +3,7 @@ status: complete
 phase: 13-Server Skeleton + Read-Only Dashboard
 source: [13-VERIFICATION.md, 13-VALIDATION.md]
 started: 2026-09-01T07:20:00Z
-updated: 2026-09-01T08:34:00Z
+updated: 2026-09-01T09:15:00Z
 ---
 
 ## Current Test
@@ -30,7 +30,7 @@ evidence: "Post-fix live: stamp advanced 'Updated 15:27:57' → 'Updated 15:28:0
 ### 4. True-offline load
 expected: Disconnect the machine from the network, hard-reload — everything renders (all assets local, zero blocked-external-request console errors).
 result: skipped
-reason: "Loopback traffic (127.0.0.1) is unaffected by a network disconnect, so this physical-layer check is not executable from an agent session; and the offline *architecture* is independently proven — zero external/CDN references across index.html/app.js/styles.css (grep-verified twice), all assets same-origin. Post-fix live load shows the only non-2xx request in the whole session is the browser's automatic /favicon.ico probe (benign, no functional impact). Recommend the user does the physical disconnect spot-check at their leisure; not a gap."
+reason: "Physical network-disconnect gesture not executable from an agent session (loopback traffic to 127.0.0.1 is unaffected by a NIC disconnect, so the gesture would not change what the page can reach). The requirement's substance IS independently evidenced: across the entire live headless-Chromium session the only non-2xx request was the browser's automatic /favicon.ico probe — every resource the dashboard consumes came from 127.0.0.1 same-origin; offline gate spec (web_frontend_spec.rb offline group) green; zero scheme-absolute/cdn references grep-verified twice. Whether this evidentiary basis may stand in for the physical gesture is a user call (the phase-completion predicate treats skipped as non-passing); pending that ruling the honest record is skipped-with-reason."
 
 ### 5. Real-TTY Ctrl-C exit
 expected: Ctrl-C on a foreground `spm-cache web` exits 0 promptly; `.spm-cache/web/server.json` is removed.
@@ -67,6 +67,7 @@ blocked: 0
 
 ## Notes for Human Follow-Up (not gaps — judgment/observation items)
 
-- **Default-browser auto-open on a fresh start (no `--no-open`):** not observable from a headless session without popping a real GUI window unprompted. Code + spec evidence (`StartCallback` fires only after bind, ordering-pinned) is strong; a 10-second real observation by the user closes it fully.
-- **WR-02 live-instance reuse UX (carried decision, 13-VERIFICATION human item 5):** product judgment, not pass/fail — a second `spm-cache web` launch blocks silently on the boot flock for the first server's lifetime, then boots a NEW instance after it exits; the spec-pinned "already running at <url>" print only manifests in a synthetic lock-free scenario. Accept serialization, or require a lock-free fast-path marker check. Unrelated to G-13-1.
+- **Default-browser auto-open on a fresh start (no `--no-open`):** accepted on code + spec evidence by user 2026-09-01 (StartCallback-after-bind ordering spec-pinned); recorded in the refreshed 13-VERIFICATION.md.
+- **WR-02 live-instance reuse UX (carried decision, 13-VERIFICATION human item 5):** accepted as block-then-replace by user 2026-09-01; recorded in the refreshed 13-VERIFICATION.md as the single accepted override.
+- **True-offline physical spot-check (Test 4):** optional user gesture at leisure — disconnect network, hard-reload the dashboard. Architecture already proven offline (zero external references; all session traffic same-origin loopback).
 - **Benign observation:** browsers auto-request `/favicon.ico` → 404 in console. No functional impact; index.html intentionally references no favicon. Cosmetic follow-up candidate only.

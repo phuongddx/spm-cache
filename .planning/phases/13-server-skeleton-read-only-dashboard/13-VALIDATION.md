@@ -97,6 +97,8 @@ created: "2026-09-01"
 
 ---
 
+
+## Validation Sign-Off
 - [x] All tasks have `<automated>` verify or Wave 0 dependencies
 - [x] Sampling continuity: no 3 consecutive tasks without automated verify
 - [x] Wave 0 covers all MISSING references
