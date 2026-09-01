@@ -1,0 +1,360 @@
+/*
+ * spm-cache dashboard — hand-rolled dark-first CSS (13-UI-SPEC, locked).
+ * Zero build step, zero CDN: system font stacks only. Every value below
+ * traces to a signed-off dimension of the design contract; the specs in
+ * spec/web_frontend_spec.rb pin them byte-for-byte.
+ */
+
+:root {
+  /* Spacing scale — multiples of 4 (13-UI-SPEC Spacing Scale) */
+  --space-xs: 4px;   /* status-glyph gaps, badge vertical padding */
+  --space-sm: 8px;   /* table cell padding, badge horizontal padding */
+  --space-md: 16px;  /* panel padding, gap between panels */
+  --space-lg: 24px;  /* page content padding, panel header margin-bottom */
+  --space-xl: 32px;  /* reserved for Phase 14+ section breaks */
+  --space-2xl: 48px; /* header bar height */
+  --space-3xl: 64px; /* page top margin below the header bar */
+
+  /* Color tokens (13-UI-SPEC Color, locked) */
+  --c-bg: #0D1117;
+  --c-panel: #161B22;
+  --c-border: #30363D;
+  --c-accent: #2196F3;
+  --c-fail: #F44336;
+  --c-text: #E6EDF3;
+  --c-muted: #8B949E;
+  --c-ok: #4CAF50;
+  --c-warn: #FF9800;
+  --c-neutral: #9E9E9E;
+  --c-excluded: #607D8B;
+  --c-plugin: #3F51B5;
+  --c-macro: #9C27B0;
+
+  /* Font stacks (13-UI-SPEC Design System) */
+  --font-system: -apple-system, BlinkMacSystemFont, sans-serif;
+  --font-mono: ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  background: var(--c-bg);
+  color: var(--c-text);
+  font-family: var(--font-system);
+  font-size: 14px;   /* Body role */
+  font-weight: 400;
+  line-height: 1.5;
+}
+
+/* -- header bar ------------------------------------------------------- */
+
+.topbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  height: var(--space-2xl);
+  padding: 0 var(--space-lg);
+  background: var(--c-panel);
+  border-bottom: 1px solid var(--c-border);
+}
+
+.topbar h1 {
+  margin: 0;
+  font-size: 20px;   /* Display role */
+  font-weight: 600;
+  line-height: 1.2;
+}
+
+.port-label {
+  font-family: var(--font-mono);
+  font-size: 12px;   /* Label role */
+  font-weight: 400;
+  line-height: 1.4;
+  color: var(--c-muted);
+}
+
+/* -- content column + panels ------------------------------------------ */
+
+.content {
+  max-width: 1280px;
+  margin: var(--space-3xl) auto 0;
+  padding: 0 var(--space-lg);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-md);
+}
+
+.panel {
+  background: var(--c-panel);
+  border: 1px solid var(--c-border);
+  border-radius: 8px;
+  padding: var(--space-md);
+}
+
+.panel-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-sm);
+  margin-bottom: var(--space-lg);
+}
+
+.panel-header h2 {
+  margin: 0;
+  font-size: 16px;   /* Heading role */
+  font-weight: 600;
+  line-height: 1.3;
+}
+
+.panel-actions {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+}
+
+/* Stamps are timestamps: mono, Label size, muted. */
+.stamp {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  font-weight: 400;
+  line-height: 1.4;
+  color: var(--c-muted);
+}
+
+/* -- buttons (accent solid fill, white text, accent focus ring) -------- */
+
+.btn {
+  background: var(--c-accent);
+  color: #FFFFFF;
+  border: none;
+  border-radius: 4px;
+  padding: var(--space-xs) var(--space-sm);
+  font-family: var(--font-system);
+  font-size: 14px;
+  font-weight: 400;
+  line-height: 1.5;
+  cursor: pointer;
+}
+
+.btn:focus-visible {
+  outline: 2px solid var(--c-accent);
+  outline-offset: 2px;
+}
+
+.btn:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+
+/* -- state table ------------------------------------------------------- */
+
+.state-table {
+  width: 100%;
+  table-layout: fixed;
+  border-collapse: collapse;
+}
+
+.state-table th,
+.state-table td {
+  padding: var(--space-sm);
+  text-align: left;
+  border-bottom: 1px solid var(--c-border);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.state-table th {
+  font-size: 12px;   /* Label role */
+  font-weight: 400;
+  line-height: 1.4;
+  color: var(--c-muted);
+}
+
+/* Page-level scroll only: the table never inner-scrolls, never paginates. */
+.col-name { width: 40%; }
+.col-config { width: 12%; }
+.col-size { width: 12%; }
+.col-state { width: 14%; }
+.col-fidelity { width: 22%; }
+
+/* Sizes, fidelity values, timestamps: mono at Label size. */
+.mono {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  font-weight: 400;
+  line-height: 1.4;
+}
+
+.fid-ok { color: var(--c-ok); }
+.fid-warn { color: var(--c-warn); }
+.fid-neutral { color: var(--c-neutral); }
+
+.state-empty {
+  color: var(--c-muted);
+}
+
+/* -- badges: status-colored text on a 10%-alpha fill of the same color -- */
+
+.badge {
+  display: inline-block;
+  padding: var(--space-xs) var(--space-sm);
+  border-radius: 4px;
+  font-size: 12px;
+  font-weight: 400;
+  line-height: 1.4;
+}
+
+.badge-ok { color: var(--c-ok); background: rgba(76, 175, 80, 0.1); }
+.badge-warn { color: var(--c-warn); background: rgba(255, 152, 0, 0.1); }
+.badge-fail { color: var(--c-fail); background: rgba(244, 67, 54, 0.1); }
+.badge-neutral { color: var(--c-neutral); background: rgba(158, 158, 158, 0.1); }
+.badge-excluded { color: var(--c-excluded); background: rgba(96, 125, 139, 0.1); }
+.badge-plugin { color: var(--c-plugin); background: rgba(63, 81, 181, 0.1); }
+
+/* -- empty / loading / error states ------------------------------------ */
+
+.loading {
+  margin: 0;
+  color: var(--c-muted);
+  font-size: 12px;
+  font-weight: 400;
+  line-height: 1.4;
+}
+
+.empty-title {
+  margin: 0 0 var(--space-xs);
+  font-size: 14px;
+  font-weight: 600;
+  line-height: 1.5;
+}
+
+.empty-body {
+  margin: 0;
+  color: var(--c-muted);
+  font-size: 14px;
+  font-weight: 400;
+  line-height: 1.5;
+}
+
+/* Inline command references in empty-state copy: accent, NOT anchors —
+ * empty states navigate nowhere (13-UI-SPEC Accent rules). */
+.cmd {
+  color: var(--c-accent);
+  font-family: var(--font-mono);
+}
+
+.panel-error {
+  margin: 0 0 var(--space-sm);
+  color: var(--c-fail);
+  font-size: 14px;
+  font-weight: 400;
+  line-height: 1.5;
+}
+
+.error-page {
+  max-width: 1280px;
+  margin: var(--space-3xl) auto 0;
+  padding: 0 var(--space-lg);
+  color: var(--c-text);
+  font-size: 14px;
+  font-weight: 400;
+  line-height: 1.5;
+}
+
+/* -- doctor rows -------------------------------------------------------- */
+
+.check-line {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-xs);
+  white-space: nowrap;
+  overflow: hidden;
+  padding: var(--space-xs) 0;
+}
+
+.check-marker { font-weight: 600; }
+.check-marker-ok { color: var(--c-ok); }
+.check-marker-warn { color: var(--c-warn); }
+.check-marker-fail { color: var(--c-fail); }
+
+.check-name {
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.check-message {
+  color: var(--c-muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* Fix hints wrap to a second line at a 24px indent (terminal ↳ hang). */
+.fix-hint {
+  margin: 0;
+  padding-left: var(--space-lg);
+  color: var(--c-muted);
+  font-size: 12px;
+  font-weight: 400;
+  line-height: 1.4;
+  white-space: normal;
+}
+
+.check-summary {
+  margin: var(--space-sm) 0 0;
+  color: var(--c-muted);
+  font-size: 12px;
+  font-weight: 400;
+  line-height: 1.4;
+}
+
+/* -- dependency graph ---------------------------------------------------- */
+
+.graph-wrap {
+  position: relative;
+  height: 480px;
+  background: var(--c-bg);
+  border: 1px solid var(--c-border);
+  border-radius: 4px;
+}
+
+.cy-canvas {
+  position: absolute;
+  inset: 0;
+}
+
+/* Legend fixed inside the canvas top-right corner (cachemap precedent). */
+.legend {
+  position: absolute;
+  top: var(--space-sm);
+  right: var(--space-sm);
+  z-index: 1;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-xs);
+  padding: var(--space-sm);
+  background: rgba(13, 17, 23, 0.85);
+  border: 1px solid var(--c-border);
+  border-radius: 4px;
+}
+
+.legend-item {
+  display: flex;
+  align-items: center;
+  gap: var(--space-xs);
+  color: var(--c-muted);
+  font-size: 12px;
+  font-weight: 400;
+  line-height: 1.4;
+}
+
+.legend-swatch {
+  flex: none;
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+}

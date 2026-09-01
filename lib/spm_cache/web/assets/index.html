@@ -1,0 +1,59 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>spm-cache</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <header class="topbar">
+    <h1>spm-cache</h1>
+    <span class="port-label" id="port-label"></span>
+  </header>
+  <main class="content">
+    <section class="panel">
+      <div class="panel-header">
+        <h2>Cache State</h2>
+        <div class="panel-actions">
+          <span class="stamp" id="state-stamp"></span>
+          <button type="button" class="btn" id="state-refresh">Refresh</button>
+        </div>
+      </div>
+      <div class="panel-body" id="state-body">
+        <p class="loading">Loading…</p>
+      </div>
+    </section>
+    <section class="panel">
+      <div class="panel-header">
+        <h2>Doctor</h2>
+        <div class="panel-actions">
+          <span class="stamp" id="doctor-stamp"></span>
+          <button type="button" class="btn" id="doctor-run">Run Doctor</button>
+        </div>
+      </div>
+      <div class="panel-body" id="doctor-body">
+        <p class="loading">Loading…</p>
+      </div>
+    </section>
+    <section class="panel">
+      <div class="panel-header">
+        <h2>Dependency Graph</h2>
+        <div class="panel-actions">
+          <span class="stamp" id="graph-stamp"></span>
+          <button type="button" class="btn" id="graph-refresh">Refresh</button>
+        </div>
+      </div>
+      <div class="panel-body" id="graph-body">
+        <p class="loading">Loading…</p>
+        <div class="graph-wrap" id="graph-wrap" hidden>
+          <div class="legend" id="graph-legend"></div>
+          <div class="cy-canvas" id="cy-canvas"></div>
+        </div>
+      </div>
+    </section>
+  </main>
+  <script src="cytoscape.min.js"></script>
+  <script type="module" src="app.js"></script>
+</body>
+</html>

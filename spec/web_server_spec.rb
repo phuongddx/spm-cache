@@ -31,12 +31,13 @@ RSpec.describe 'SPMCache::Web::Server request matrix' do
   describe 'binding' do
     it 'binds explicitly to 127.0.0.1 on an ephemeral port and exposes #port' do
       Dir.mktmpdir do |project_dir|
-        with_server(project_dir) do |handle|
+        with_server(project_dir, assets: SPMCache::Web::Assets.new) do |handle|
           expect(handle.server.bind_address).to eq('127.0.0.1')
           expect(handle.port).to be > 0
-          # The server actually answers on that port via the loopback.
+          # The server actually answers on that port via the loopback —
+          # since Plan 13-03, with the dashboard index itself.
           res = http_get(handle, "/?token=#{handle.token}")
-          expect(res.code).to eq('404') # tracer gap: index.html lands in Plan 13-03
+          expect(res.code).to eq('200')
         end
       end
     end
@@ -57,12 +58,13 @@ RSpec.describe 'SPMCache::Web::Server request matrix' do
         end
       end
     end
-
-    it 'serves /?token=... as the index only when the asset exists (404 until Plan 13-03)' do
+    it 'serves /?token=... as the dashboard index (200 text/html since Plan 13-03)' do
       Dir.mktmpdir do |project_dir|
-        with_server(project_dir) do |handle|
+        with_server(project_dir, assets: SPMCache::Web::Assets.new) do |handle|
           res = http_get(handle, '/?token=anything')
-          expect(res.code).to eq('404')
+          expect(res.code).to eq('200')
+          expect(res['Content-Type']).to eq('text/html')
+          expect(res.body).to include('<title>spm-cache</title>')
         end
       end
     end

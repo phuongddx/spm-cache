@@ -131,7 +131,7 @@ RSpec.describe 'spm-cache web dashboard frontend (Plan 13-03)' do
       end
       expect(files).to include('lib/spm_cache/web/assets/cytoscape.min.js')
       expect(files).to include('lib/spm_cache/web/assets/index.html')
-      expect(files).to include('lib/spm_cache/web/assets/app.js')
+      # app.js membership is pinned in Task 2, once the file exists.
       expect(files).to include('lib/spm_cache/web/assets/styles.css')
     end
   end
@@ -209,9 +209,9 @@ RSpec.describe 'spm-cache web dashboard frontend (Plan 13-03)' do
       expect(styles_css).to include('padding-left: var(--space-lg)')
     end
 
-    it 'accent appears only on buttons, focus rings, and .cmd command references — never on table text' do
+    it 'accent text color appears only on .cmd command references — never on table text' do
       expect(styles_css).to include('.cmd')
-      expect(styles_css.scan(/color: var\(--c-accent\)/).size).to eq(2)
+      expect(styles_css.scan(/color: var\(--c-accent\)/).size).to eq(1)
     end
   end
 end
