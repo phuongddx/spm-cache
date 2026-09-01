@@ -96,7 +96,7 @@ Plans:
   4. The cache-state table shows per-package size, cached/source state, and fidelity status, re-derived from the same files the CLI reads
   5. The doctor panel runs checks on demand from the check registry (statuses + fix hints, data-driven — no hard-coded checks; results cached with a timestamp), and the graph panel renders package nodes via a repaired vendored-cytoscape visualization, with an affordance when graph.json hasn't been generated yet
 
-**Plans**: 5 (4 executed + 1 gap-closure planned)
+**Plans**: 5 (4 executed + 1 gap closure executed — G-13-1 closed)
 
 Plans:
 **Wave 1**
@@ -114,7 +114,7 @@ Plans:
 
 **Gap closure** *(post-verification — G-13-1)*
 
-- [ ] 13-05-PLAN.md — Gap closure G-13-1: dashboard asset refs 404 in real browsers — relative `assets/` prefix + browser-honest resolution spec (RED→GREEN + live-boot curl smoke)
+- [x] 13-05-PLAN.md — Gap closure G-13-1: dashboard asset refs 404 in real browsers — relative `assets/` prefix + browser-honest resolution spec (RED→GREEN + live-boot curl smoke)
 
 **UI hint**: yes
 
@@ -183,7 +183,7 @@ Pitfall-to-phase mapping (full set in `research/PITFALLS.md`): CP3 → P12; CP7/
 | Phase | Milestone | Plans Complete | Status | Completed |
 |-------|-----------|----------------|--------|-----------|
 | 12. Run-Log Capture Foundation | v0.5.0 | 5/5 | Complete    | 2026-09-01 |
-| 13. Server Skeleton + Read-Only Dashboard | v0.5.0 | 4/4 | In Progress|  |
+| 13. Server Skeleton + Read-Only Dashboard | v0.5.0 | 5/5 | In Progress|  |
 | 14. Live Log Streaming + Terminal/Watch Relay | v0.5.0 | 0/? | Not started | - |
 | 15. UI Build Controls | v0.5.0 | 0/? | Not started | - |
 | 16. Package Toggles + Panel Completion | v0.5.0 | 0/? | Not started | - |
