@@ -97,7 +97,7 @@ RSpec.describe SPMCache::Installer::Rollback, 'build-lock acquisition (BLD-04/CP
   # Config#build_lock_path derives from project_dir (config.rb:110-112):
   # pointing project_dir at tmpdir makes THIS the real lock path.
   let(:lock_path) { File.join(tmpdir, '.spm-cache-build.lock') }
-  let(:sandbox_dir) { File.join(tmpdir, '.spm-cache') }
+  let(:sandbox_dir) { File.join(tmpdir, 'spm-cache') }
 
   before do
     FileUtils.mkdir_p(project_path)
