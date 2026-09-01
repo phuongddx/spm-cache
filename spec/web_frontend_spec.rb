@@ -619,8 +619,9 @@ RSpec.describe 'spm-cache web dashboard frontend (Plan 13-03)' do
         expect(index_html).to include('>Packages</div>')
         expect(index_html).to include('id="log-overlay"')
         expect(index_html).to include('id="log-banner" role="alert"')
-        # exactly two polite live regions: the card status flip + the pill
-        expect(index_html.scan(/aria-live="polite"/).size).to eq(2)
+        # exactly three polite live regions: the card status flip, the
+        # pill, and 15-05's controls message slot (15-UI-SPEC a11y)
+        expect(index_html.scan(/aria-live="polite"/).size).to eq(3)
       end
 
       it 'styles: log rules on the existing sheet — fixed-height viewport, pre-wrap mono lines, ONE accent-text home' do

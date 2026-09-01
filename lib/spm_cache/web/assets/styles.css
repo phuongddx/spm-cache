@@ -149,6 +149,78 @@ body {
   cursor: default;
 }
 
+/* -- build controls (15-UI-SPEC, Phase 15 — zero new tokens) -------- */
+
+/* Controls row: the Run Log panel body's first child — a wrapping
+ * flex line; buttons size to their labels, the message slot flexes. */
+.build-controls {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--space-sm);
+  margin-bottom: var(--space-sm);
+}
+
+/* Inline status slot: pushed to the row's end, Label size, muted —
+ * plain text, the string is the signal (no color-only encoding). */
+.ctl-message {
+  margin-left: auto;
+  font-size: 12px;   /* Label role */
+  font-weight: 400;
+  line-height: 1.4;
+  color: var(--c-muted);
+}
+
+/* A rejected click is an error surface: the .panel-error treatment. */
+.ctl-error {
+  color: var(--c-fail);
+  font-size: 14px;   /* Body role */
+}
+
+/* Destructive pair (Rollback, Confirm): the .btn mirror on the fail
+ * fill — dark foreground ≈6.0:1 (W1 AA amendment, 15-UI-SPEC). */
+.btn-danger {
+  background: var(--c-fail);
+  color: var(--c-bg);
+}
+
+.btn-danger:focus-visible {
+  outline: 2px solid var(--c-fail);
+  outline-offset: 2px;
+}
+
+/* Quiet Cancel: the panel fill with the sheet's border. */
+.btn-quiet {
+  background: var(--c-panel);
+  color: var(--c-text);
+  border: 1px solid var(--c-border);
+}
+
+.btn-quiet:focus-visible {
+  outline: 2px solid var(--c-accent);
+  outline-offset: 2px;
+}
+
+/* Confirm bar: the row's hidden swap — the .log-banner geometry with
+ * the warn 10%-alpha fill; bar text is Body size in primary. */
+.build-confirm {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--space-sm);
+  padding: var(--space-xs) var(--space-sm);
+  border-radius: 4px;
+  margin-bottom: var(--space-sm);
+  background: rgba(255, 152, 0, 0.1);
+}
+
+.build-confirm-text {
+  font-size: 14px;   /* Body role */
+  font-weight: 400;
+  line-height: 1.5;
+  color: var(--c-text);
+}
+
 /* -- state table ------------------------------------------------------- */
 
 .state-table {

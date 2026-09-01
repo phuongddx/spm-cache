@@ -27,6 +27,18 @@
           </div>
         </div>
       <div class="panel-body" id="log-body">
+        <!-- Controls row (15-UI-SPEC layout contract): the panel
+             body's FIRST child, above the identity card — static
+             markup, rendered unconditionally including over the cold
+             empty state (A5). The confirm bar below is its hidden
+             swap (the card/banner pattern). -->
+        <div class="build-controls" id="build-controls">
+          <button type="button" class="btn" id="ctl-build">Build</button>
+          <button type="button" class="btn" id="ctl-rebuild">Rebuild all</button>
+          <button type="button" class="btn btn-danger" id="ctl-rollback">Rollback</button>
+          <span class="ctl-message" id="ctl-message" aria-live="polite" hidden></span>
+        </div>
+        <div class="build-confirm" id="build-confirm" role="group" aria-label="Confirm rollback" hidden></div>
         <div class="log-card" id="log-card" hidden>
           <div class="log-card-main">
             <span class="log-status" id="log-status" aria-live="polite"></span>
