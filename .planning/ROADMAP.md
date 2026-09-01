@@ -96,7 +96,7 @@ Plans:
   4. The cache-state table shows per-package size, cached/source state, and fidelity status, re-derived from the same files the CLI reads
   5. The doctor panel runs checks on demand from the check registry (statuses + fix hints, data-driven — no hard-coded checks; results cached with a timestamp), and the graph panel renders package nodes via a repaired vendored-cytoscape visualization, with an affordance when graph.json hasn't been generated yet
 
-**Plans**: 3/4 plans executed planned
+**Plans**: 4/4 plans executed planned
 
 Plans:
 **Wave 1**
@@ -110,7 +110,7 @@ Plans:
 
 **Wave 3** *(blocked on Wave 2 completion)*
 
-- [ ] 13-04-PLAN.md — Cross-route hardening matrix + packaging/offline proof (phase weld)
+- [x] 13-04-PLAN.md — Cross-route hardening matrix + packaging/offline proof (phase weld)
 
 **UI hint**: yes
 
@@ -179,7 +179,7 @@ Pitfall-to-phase mapping (full set in `research/PITFALLS.md`): CP3 → P12; CP7/
 | Phase | Milestone | Plans Complete | Status | Completed |
 |-------|-----------|----------------|--------|-----------|
 | 12. Run-Log Capture Foundation | v0.5.0 | 5/5 | Complete    | 2026-09-01 |
-| 13. Server Skeleton + Read-Only Dashboard | v0.5.0 | 3/4 | In Progress|  |
+| 13. Server Skeleton + Read-Only Dashboard | v0.5.0 | 4/4 | In Progress|  |
 | 14. Live Log Streaming + Terminal/Watch Relay | v0.5.0 | 0/? | Not started | - |
 | 15. UI Build Controls | v0.5.0 | 0/? | Not started | - |
 | 16. Package Toggles + Panel Completion | v0.5.0 | 0/? | Not started | - |

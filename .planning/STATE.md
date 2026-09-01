@@ -5,16 +5,16 @@ milestone_name: Web Interface
 current_phase: 13 — Server Skeleton + Read-Only Dashboard
 current_phase_name: Server Skeleton + Read-Only Dashboard
 status: verifying
-stopped_at: Completed 13-03-PLAN.md (wave 2 frontend)
-last_updated: "2026-09-01T05:34:59.635Z"
+stopped_at: Completed 13-04-PLAN.md — Phase 13 execution complete (4/4)
+last_updated: "2026-09-01T05:52:18.349Z"
 last_activity: 2026-09-01
 last_activity_desc: Phase 12 complete, transitioned to Phase 13
-state_head: 4995e13af863f5257cb300f316eb97af9c7e3497
+state_head: f12da5846bca918cdeac43cdcab89af1ae032125
 progress:
   total_phases: 5
   completed_phases: 1
   total_plans: 9
-  completed_plans: 8
+  completed_plans: 9
   percent: 20
 ---
 
@@ -89,6 +89,7 @@ Trend: stable (typical plan 10–35 min; outliers involve real xcodebuild runs).
 | Phase 12 P05 | 10min | 2 tasks | 4 files |
 | Phase 13 P02 | 13min | 3 tasks | 15 files |
 | Phase 13 P03 | 25min | 3 tasks | 6 files |
+| Phase 13 P04 | 11min | 2 tasks | 2 files |
 
 ## Decisions
 
@@ -112,6 +113,7 @@ Full log: PROJECT.md Key Decisions table. Roadmap decisions (2026-08-31):
 - [Phase 12]: [Phase 12]: D-08 no-allowlist spec-proven — exclusion set is exactly {web, watch} + --no-run-log (future-verb row mutation-proven); A6 legacy 'use --watch' = session-level 'use' run; A5 inter-cycle narrative terminal-only (D-09) (Plan 12-05)
 - [Phase 13 — Server Skeleton + Read-Only Dashboard]: 13-03: offline frontend shipped as 4 static assets — vendored cytoscape v3.34.2 structurally pinned (version comment, >300KB, gemspec membership), first-party assets byte-gated for scheme URLs
 - [Phase 13 — Server Skeleton + Read-Only Dashboard]: 13-03: app.js stored-XSS defense by construction — zero innerHTML, all dynamic text via textContent; stamps derive from server timestamps only (no Date.now())
+- [Phase 13 — Server Skeleton + Read-Only Dashboard]: 13-04: exhaustive 25-cell route x auth matrix + CP13 drive-by shapes proven from ONE port-0 boot with zero production edits — middleware as shipped held every cell; packaging pins make the four-asset gem ship and webrick >= 1.8 < 2 un-regressible
 
 ## Deferred Items
 
@@ -126,6 +128,6 @@ Items acknowledged and deferred at milestone close, most recent first:
 
 ## Session Continuity
 
-Last session: 2026-09-01T05:34:59.501Z
-Stopped at: Completed 13-03-PLAN.md (wave 2 frontend)
+Last session: 2026-09-01T05:52:18.209Z
+Stopped at: Completed 13-04-PLAN.md — Phase 13 execution complete (4/4)
 Resume file: None
