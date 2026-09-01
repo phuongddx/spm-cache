@@ -65,17 +65,9 @@ module SPMCache
       end
 
       def print_json(results)
-        payload = {
-          checks: results.map do |r|
-            { name: r.name, status: r.status.to_s, message: r.message, fix_hint: r.fix_hint }
-          end,
-          summary: {
-            ok: results.count(&:ok?),
-            warnings: results.count(&:warn?),
-            failures: results.count(&:fail?)
-          }
-        }
-        puts JSON.pretty_generate(payload)
+        # The payload shape is shared with the web doctor read model
+        # (13-02): Core::Diagnostics.payload is its single definition.
+        puts JSON.pretty_generate(Core::Diagnostics.payload(results))
       end
     end
   end

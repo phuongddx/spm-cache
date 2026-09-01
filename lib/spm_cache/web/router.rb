@@ -3,8 +3,10 @@
 require 'json'
 require 'time'
 
+require 'spm_cache/web/middleware'
 require 'spm_cache/web/read_models/state'
 require 'spm_cache/web/read_models/graph'
+require 'spm_cache/web/read_models/doctor'
 
 module SPMCache
   module Web
@@ -39,12 +41,14 @@ module SPMCache
         @port = port
         @assets = assets
         @config = config
-        # Read models answer .call(config:) and re-read disk on every
-        # request (13-02). Overridable per-key for specs and, later,
-        # the stateful doctor instance (Task 3).
+        # Read models: State/Graph are stateless callables answering
+        # .call(config:) and re-reading disk on every request; doctor
+        # is an INSTANCE -- it holds the {data, generated_at} cache
+        # (13-02). Per-key overridable for specs.
         @read_models = {
           state: Web::ReadModels::State,
-          graph: Web::ReadModels::Graph
+          graph: Web::ReadModels::Graph,
+          doctor: Web::ReadModels::Doctor.new(config: config)
         }.merge(read_models)
       end
 
@@ -78,6 +82,8 @@ module SPMCache
           api_read(req, res, supplied, :state)
         when '/api/graph'
           api_read(req, res, supplied, :graph)
+        when '/api/doctor'
+          api_doctor(req, res, supplied)
         else
           reject(res, 404, 'not found')
         end
@@ -123,6 +129,26 @@ module SPMCache
         rescue JSON::ParserError => e
           respond_json(res, 500, error_envelope(e.message))
         end
+      end
+
+      # DASH-02: the doctor endpoint. Any truthy ?run= value (the Run
+      # Doctor button sends 1) executes the check registry
+      # synchronously in-request; without it the cached result (or the
+      # honest never-run shape) is served. The envelope's generated_at
+      # is the read model's OWN stamp -- nil before the first run --
+      # passed through verbatim, never re-stamped, so "Cached —
+      # generated at" always labels the run that produced the data.
+      def api_doctor(req, res, supplied)
+        unless Middleware.valid_token?(token: supplied, expected_token: @token)
+          return reject(res, 401, 'missing or invalid token')
+        end
+        return reject(res, 404, 'not found') unless req.request_method == 'GET'
+
+        result = @read_models[:doctor].call(run: !req.query['run'].nil?)
+        respond_json(res, 200,
+                     'status' => 'ok',
+                     'data' => result[:data],
+                     'generated_at' => result[:generated_at])
       end
 
       # -- helpers ---------------------------------------------------------
