@@ -62,6 +62,15 @@ RSpec.describe SPMCache::Web::ReadModels::Graph do
                                                                ]))
     end
 
+    it 're-reads graph.json on every call: deleting the file flips present back to false' do
+      write_graph(JSON.generate([{ 'module' => 'A', 'status' => 'hit' }]))
+      expect(call_graph['present']).to eq(true)
+
+      File.delete(graph_path)
+
+      expect(call_graph).to eq('present' => false, 'nodes' => [], 'graph_generated_at' => nil)
+    end
+
     it 'returns an empty nodes array for a zero-entry graph.json (present stays true)' do
       write_graph('[]')
 

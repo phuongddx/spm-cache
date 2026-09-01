@@ -3,7 +3,8 @@
 require 'json'
 require 'time'
 
-require 'spm_cache/web/middleware'
+require 'spm_cache/web/read_models/state'
+require 'spm_cache/web/read_models/graph'
 
 module SPMCache
   module Web
@@ -33,13 +34,18 @@ module SPMCache
       # syncs this after ephemeral-port (port: 0) resolution.
       attr_accessor :port
 
-      def initialize(token:, port:, assets: nil, read_models: {})
+      def initialize(token:, port:, assets: nil, read_models: {}, config: Core::Config.instance)
         @token = token
         @port = port
         @assets = assets
-        # Plan 13-02 replaces the inline graph reader with read-model
-        # objects behind this same callable interface.
-        @read_models = { graph: default_graph_reader }.merge(read_models)
+        @config = config
+        # Read models answer .call(config:) and re-read disk on every
+        # request (13-02). Overridable per-key for specs and, later,
+        # the stateful doctor instance (Task 3).
+        @read_models = {
+          state: Web::ReadModels::State,
+          graph: Web::ReadModels::Graph
+        }.merge(read_models)
       end
 
       def service(req, res)
@@ -68,8 +74,10 @@ module SPMCache
           # the gem source); the decoded name goes straight into
           # validation -- decode-then-validate, never the reverse.
           asset(res, req.path.sub(%r{\A/assets/}, ''))
+        when '/api/state'
+          api_read(req, res, supplied, :state)
         when '/api/graph'
-          api_graph(req, res, supplied)
+          api_read(req, res, supplied, :graph)
         else
           reject(res, 404, 'not found')
         end
@@ -100,16 +108,18 @@ module SPMCache
         respond(res, 200, file[:content_type], file[:body])
       end
 
-      def api_graph(req, res, supplied)
+      # Shared shape of every GET-only /api/* read endpoint: token gate
+      # first (T-13-09 -- no un-gated route exists), then verb check.
+      # Malformed project files (graph.json) surface as the 500 error
+      # envelope -- the shape Plan 13-03's error copy consumes.
+      def api_read(req, res, supplied, model)
         unless Middleware.valid_token?(token: supplied, expected_token: @token)
           return reject(res, 401, 'missing or invalid token')
         end
         return reject(res, 404, 'not found') unless req.request_method == 'GET'
 
-        # Malformed graph.json surfaces as a 500 error envelope -- the
-        # shape Plan 13-03's error copy consumes.
         begin
-          respond_json(res, 200, ok_envelope(@read_models[:graph].call))
+          respond_json(res, 200, ok_envelope(@read_models[model].call(config: @config)))
         rescue JSON::ParserError => e
           respond_json(res, 500, error_envelope(e.message))
         end
@@ -151,22 +161,6 @@ module SPMCache
       def error_envelope(message)
         { 'status' => 'error', 'data' => { 'message' => message },
           'generated_at' => Time.now.utc.iso8601 }
-      end
-
-      # Tracer read model (DASH-03, server side): the graph panel's data
-      # derives from the CLI's own graph.json via Cache::Cachemap -- the
-      # server is a stateless file reader, never a second source of truth.
-      def default_graph_reader
-        lambda do
-          graph_path = File.join(Core::Config.instance.proxy_dir, 'graph.json')
-          return { 'present' => false, 'nodes' => [], 'graph_generated_at' => nil } unless File.exist?(graph_path)
-
-          {
-            'present' => true,
-            'nodes' => Cache::Cachemap.load(graph_path).depgraph_for_viz,
-            'graph_generated_at' => File.mtime(graph_path).utc.iso8601
-          }
-        end
       end
     end
   end
