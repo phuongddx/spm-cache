@@ -23,7 +23,15 @@ module SPMCache
           runs_dir: scan.log_dir || Core::Config.instance.runs_dir, # D-01 override, D-02 default
           command: scan.verb,
           argv: argv,
-          trigger: 'terminal'
+          # D-03/LOGS-05: 15-01's UI-spawned subprocess carries
+          # SPM_CACHE_TRIGGER=ui in its env; a closed whitelist, never
+          # passthrough -- unset, empty, or ANY other value normalizes to
+          # 'terminal' (Pitfall 7: the marker is forgeable by any terminal
+          # user, so it feeds ONLY this header value and nothing may ever
+          # branch behavior on it). RunLog::CycleWrapper's own 'watch'
+          # trigger is a separate call site, untouched -- the three-value
+          # LOGS-05 vocabulary stays closed.
+          trigger: ENV['SPM_CACHE_TRIGGER'] == 'ui' ? 'ui' : 'terminal'
         )
       end
 
