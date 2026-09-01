@@ -63,11 +63,11 @@ RSpec.describe 'spm-cache web dashboard frontend (Plan 13-03)' do
       expect(index_html.scan(%r{<p class="loading">Loading…</p>}).size).to eq(3)
     end
 
-    it 'references exactly three RELATIVE assets: styles.css, cytoscape.min.js, app.js (module)' do
-      expect(index_html).to include('href="styles.css"')
-      expect(index_html).to include('src="cytoscape.min.js"')
+    it 'references exactly three RELATIVE assets: assets/styles.css, assets/cytoscape.min.js, assets/app.js (module)' do
+      expect(index_html).to include('href="assets/styles.css"')
+      expect(index_html).to include('src="assets/cytoscape.min.js"')
       expect(index_html).to include('type="module"')
-      expect(index_html).to include('src="app.js"')
+      expect(index_html).to include('src="assets/app.js"')
       # Relative ONLY: no leading-slash paths, no protocol-relative URLs,
       # no scheme-absolute references anywhere in the document.
       expect(index_html).not_to match(%r{(?:src|href)=["']/})

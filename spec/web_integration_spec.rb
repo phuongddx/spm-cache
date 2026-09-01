@@ -6,6 +6,7 @@ require 'time'
 require 'tmpdir'
 require 'fileutils'
 require 'securerandom'
+require 'uri'
 
 require_relative 'support/web_server_boot'
 
@@ -173,15 +174,19 @@ RSpec.describe 'SPMCache::Web one-boot integration matrix', order: :defined do
     it 'serves every asset referenced by the served HTML with the right content types' do
       html = get("/?token=#{@token}").body
       refs = html.scan(/(?:href|src)="([^"]+)"/).flatten
-      expect(refs).to include('styles.css', 'cytoscape.min.js', 'app.js')
+      expect(refs).to include('assets/styles.css', 'assets/cytoscape.min.js', 'assets/app.js')
 
       content_types = {
-        'styles.css' => 'text/css',
-        'cytoscape.min.js' => 'application/javascript',
-        'app.js' => 'application/javascript'
+        'assets/styles.css' => 'text/css',
+        'assets/cytoscape.min.js' => 'application/javascript',
+        'assets/app.js' => 'application/javascript'
       }
       refs.each do |ref|
-        res = get("/assets/#{ref}")
+        # Browser resolution: each scanned ref resolved against the
+        # document base '/' exactly as a browser would. No test-side
+        # /assets/ rewriting -- a ref the router cannot serve as-is
+        # must 404 here (G-13-1 regression net).
+        res = get(URI.join('/', ref).to_s)
         expect(res.code).to eq('200')
         expect(res['Content-Type']).to eq(content_types.fetch(ref))
       end
