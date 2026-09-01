@@ -1356,4 +1356,105 @@ RSpec.describe 'spm-cache web dashboard frontend (Plan 13-03)' do
       expect(log_js).not_to match(/checkbox|state-sync|Apply now|Revert all/)
     end
   end
+
+  # Plan 16-05 Task 2 — the unsaved-changes bar: the comment-loss
+  # honesty sentence, Apply now, Revert all, and the busy-string/
+  # freeze-set amendments (A4/A5). Same idiom: FILE bytes pin the
+  # copy, structure, and mechanic; 16-06 proves behavior in a browser.
+  describe 'the unsaved-changes bar (Plan 16-05 Task 2)' do
+    it 'existence: rendered as the panel body FIRST child only when >=1 row is pending; the empty-state render is unchanged' do
+      render = app_js[/const renderState = \(envelope\) => \{[\s\S]*?\n  \};/]
+      expect(render).to include('data.packages.some((p) => p.pending)')
+      expect(render.index('body.insertBefore(buildSyncBar(), body.firstChild);'))
+        .to be > render.index('body.replaceChildren(table);')
+      expect(render).to include('renderEmpty(body,') # the cold-table branch returns before any bar logic
+    end
+
+    it 'structure and DOM order: group + polite label, then text, then Revert all, then Apply now, then the hidden message slot' do
+      build = app_js[/const buildSyncBar = \(\) => \{[\s\S]*?\n  \};/]
+      expect(build).to include("bar.setAttribute('role', 'group');")
+      expect(build).to include("bar.setAttribute('aria-label', 'Unsaved changes');")
+      expect(build).to include("bar.setAttribute('aria-live', 'polite');")
+      expect(build.index("class: 'state-sync-text'")).to be < build.index("id = 'sync-revert'")
+      expect(build.index("id = 'sync-revert'")).to be < build.index("id = 'sync-apply'")
+      expect(build.index("id = 'sync-apply'")).to be < build.index("id = 'sync-message'")
+      expect(build).to include('bar.append(revertBtn, applyBtn, message);')
+    end
+
+    it 'copy: the honesty sentence, both button labels, both in-flight messages and both failure templates are pinned byte-exact' do
+      expect(app_js).to include(
+        "'Changes are saved but not applied yet. spm-cache.yml is rewritten on '"
+      )
+      expect(app_js).to include(
+        "'every change — hand-written comments in the file are not preserved.';"
+      )
+      expect(app_js).to include("revertBtn.textContent = 'Revert all';")
+      expect(app_js).to include("applyBtn.textContent = 'Apply now';")
+      expect(app_js).to include("apply: 'Applying…', revert: 'Reverting…',")
+      expect(app_js).to include(
+        "revertFailure: (message) => `Couldn't revert the changes: ${message}. " \
+        'Check that spm-cache web is still running, then try again.`,'
+      )
+    end
+
+    it 'exactly one Apply now and no per-row apply or master checkbox exists anywhere' do
+      expect(app_js.scan(/'Apply now'/).size).to eq(1)
+      expect(app_js.scan(/const buildSyncBar = /).size).to eq(1)
+      expect(app_js.scan(/\.type = 'checkbox'/).size).to eq(1)
+    end
+
+    it 'the busy amendment: ONE three-verb CTRL.busy constant; the two-verb 15 string appears nowhere in the assets' do
+      expect(app_js.scan(/busy:\s*'/).size).to eq(1)
+      expect(app_js).to include("busy: 'A build, rollback, or apply is already running — wait for it to finish.'")
+      [app_js, styles_css, index_html].each do |asset|
+        expect(asset).not_to include('A build or rollback is already running — wait for it to finish.')
+      end
+    end
+
+    it 'the freeze set: the three static controls freeze Apply now too, remembered so a bar recreated mid-run comes up already disabled' do
+      freeze_fn = app_js[/const freeze = \(on\) => \{[\s\S]*?\n  \};/]
+      expect(freeze_fn).to include('barFrozen = on;')
+      expect(freeze_fn).to include("byId('sync-apply')")
+      expect(freeze_fn).to include('applyBtn.disabled = on;')
+      build = app_js[/const buildSyncBar = \(\) => \{[\s\S]*?\n  \};/]
+      expect(build).to include('applyBtn.disabled = barFrozen;')
+    end
+
+    it 'apply behavior: disables both buttons before the POST; success shows Applying… and freezes; busy/failure re-enable with the right templates' do
+      click = app_js[/const clickApply = \(\) => \{[\s\S]*?\n  \};/]
+      expect(click.index('applyBtn.disabled = true;')).to be < click.index('revertBtn.disabled = true;')
+      expect(click.index('revertBtn.disabled = true;')).to be < click.index("requestPost('/api/apply', {})")
+      expect(click.index('ans.status === 409')).to be < click.index('!ans.ok')
+      expect(click).to include('saySync(CTRL.busy, true);')
+      expect(click).to include("saySync(CTRL.failure('apply', data.message || `HTTP ${ans.status}`), true);")
+      expect(click).to include('saySync(CTRL.inflight.apply);')
+      expect(click).to include('freeze(true);')
+    end
+
+    it 'revert behavior: disables both buttons, clears the message and re-enables on success WITHOUT touching the bar or a pending marker; renders the revert-failure template on failure' do
+      click = app_js[/const clickRevert = \(\) => \{[\s\S]*?\n  \};/]
+      expect(click.index('applyBtn.disabled = true;')).to be < click.index("requestPost('/api/revert', {})")
+      expect(click).to include('saySync(CTRL.inflight.revert);')
+      expect(click).to include('saySync(CTRL.revertFailure(data.message || `HTTP ${ans.status}`), true);')
+      expect(click).to include("saySync('');")
+      expect(click).not_to match(/bar\.(hidden|remove)/)
+      expect(click).not_to include('pending')
+    end
+
+    it 'the exit: the run-progress ended milestone clears the bar message; the bar itself disappears only via a subsequent render seeing no pending rows' do
+      listener = app_js[/document\.addEventListener\('spm-run-progress'[\s\S]*?\n  \}\);/]
+      expect(listener).to include("if (phase === 'ended') { freeze(false); verb = null; say(''); saySync(''); return; }")
+    end
+
+    it 'the sheet: mirrors the confirm-bar geometry with the warn 10%-alpha fill, no new colour value; the message slot reuses the existing classes' do
+      bar = styles_css[/\.state-sync-bar\s*\{[^}]*\}/]
+      expect(bar).to include('display: flex')
+      expect(bar).to include('flex-wrap: wrap')
+      expect(bar).to include('gap: var(--space-sm)')
+      expect(bar).to include('padding: var(--space-xs) var(--space-sm)')
+      expect(bar).to include('border-radius: 4px')
+      expect(bar).to include('background: rgba(255, 152, 0, 0.1)')
+      expect(app_js).to include("const message = el('span', { class: 'ctl-message' });")
+    end
+  end
 end
