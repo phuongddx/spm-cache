@@ -692,7 +692,7 @@ RSpec.describe 'spm-cache web dashboard frontend (Plan 13-03)' do
       it 'the banner belongs to the displayed run — switching re-derives the slot, never a user dismiss' do
         expect(log_js.scan(/hideBanner\(\)/).size).to be >= 2
         expect(log_js).to match(/resetForRun = \(name, followOn\) => \{[\s\S]*?hideBanner\(\);/)
-        expect(log_js).to match(/resetForRun\(data\.run, \{ followOn: true \}\)/)
+        expect(log_js).to match(/resetForRun\(data\.run, true\)/)
       end
 
       it 'focus-visible accent rings cover pill/chip/select controls; native button only; pill name = full label' do
@@ -820,7 +820,7 @@ RSpec.describe 'spm-cache web dashboard frontend (Plan 13-03)' do
     let(:log_js) { File.read(File.join(asset_dir, 'log.js')) }
 
     it 'auto-switch: UNCONDITIONAL reset (fresh replay, follow on, filter cleared, banner re-derived); a pinned connection drops the pin, closes the stream, reconnects via the plain URL' do
-      expect(log_js).to match(/resetForRun\(data\.run, \{ followOn: true \}\)/)
+      expect(log_js).to match(/resetForRun\(data\.run, true\)/)
       expect(log_js).to include('const previousRun = currentRun;')
       expect(log_js).to include('if (pinned) {')
       expect(log_js).to include('pinned = false;')
