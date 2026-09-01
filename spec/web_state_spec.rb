@@ -63,11 +63,17 @@ RSpec.describe SPMCache::Web::ReadModels::State do
       expect(state['packages']).to eq(
         [
           { 'name' => 'Alamofire', 'config' => 'debug', 'size_bytes' => alamofire_size,
-            'state' => 'hit', 'fidelity' => 'not-graph-pinned', 'has_macro' => false },
+            'state' => 'hit', 'fidelity' => 'not-graph-pinned', 'has_macro' => false,
+            # (16-01) the saved/applied/pending fields land BESIDE the
+            # six: empty on-disk ignore list -> saved_cached true;
+            # hit/missed -> applied_cached true; nothing pending.
+            'saved_cached' => true, 'applied_cached' => true, 'pending' => false },
           { 'name' => 'Ziph', 'config' => 'debug', 'size_bytes' => File.lstat(File.join(cache_root, 'debug', 'Ziph.xcframework')).size,
-            'state' => 'missed', 'fidelity' => 'not-graph-pinned', 'has_macro' => true },
+            'state' => 'missed', 'fidelity' => 'not-graph-pinned', 'has_macro' => true,
+            'saved_cached' => true, 'applied_cached' => true, 'pending' => false },
           { 'name' => 'Alamofire', 'config' => 'release', 'size_bytes' => File.lstat(File.join(cache_root, 'release', 'Alamofire.xcframework')).size,
-            'state' => 'hit', 'fidelity' => 'not-graph-pinned', 'has_macro' => false }
+            'state' => 'hit', 'fidelity' => 'not-graph-pinned', 'has_macro' => false,
+            'saved_cached' => true, 'applied_cached' => true, 'pending' => false }
         ]
       )
     end

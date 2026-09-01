@@ -117,6 +117,10 @@ module SPMCache
           # the body -- rollback takes no scope, so an empty or absent
           # body is the documented shape.
           api_mutate(req, res, supplied, fixed_scope: 'rollback')
+        when '/api/toggle'
+          # D-08 (16-01): the instant config-write arm -- never
+          # slot-gated (the spawn slot governs Apply-now only).
+          api_toggle(req, res, supplied)
         when '/api/doctor'
           api_doctor(req, res, supplied)
         when '/api/events'
@@ -296,6 +300,42 @@ module SPMCache
 
         respond_json(res, 200, ok_envelope('scope' => scope,
                                            'lock' => @read_models[:runs].lock_state(config: @config)))
+      end
+
+      # POST /api/toggle (D-08, 16-01 tracer arm): the instant config
+      # write through the shared Config mutator. Mirrors api_mutate's
+      # gate ORDER -- token first (401), then the house 404 for
+      # anything but POST -- then the tracer-scope body validation:
+      # parseable JSON, `package` a non-empty String, `cached`
+      # EXACTLY true or false with no truthy coercion (V5). NEVER
+      # references @jobs: the slot governs Apply-now only, so a
+      # toggle stays live while a run holds the slot. The full
+      # validation matrix (unknown_package, not_toggleable,
+      # config_write_failed, revert, apply) is 16-04's.
+      def api_toggle(req, res, supplied)
+        unless Middleware.valid_token?(token: supplied, expected_token: @token)
+          return reject(res, 401, 'missing or invalid token')
+        end
+        return reject(res, 404, 'not found') unless req.request_method == 'POST'
+
+        body = begin
+          JSON.parse(req.body.to_s)
+        rescue JSON::ParserError
+          return respond_json(res, 400, error_envelope('malformed request body', reason: 'bad_body'))
+        end
+        package = body.is_a?(Hash) ? body['package'] : nil
+        unless package.is_a?(String) && !package.empty?
+          return respond_json(res, 400, error_envelope('package must be a non-empty string', reason: 'bad_package'))
+        end
+
+        cached = body.is_a?(Hash) ? body['cached'] : nil
+        unless [true, false].include?(cached)
+          return respond_json(res, 400, error_envelope('cached must be true or false', reason: 'bad_cached'))
+        end
+
+        # cached: true KEEPS the package cached -> ignore entry absent.
+        @config.set_ignored(package, !cached)
+        respond_json(res, 200, ok_envelope('package' => package, 'cached' => cached))
       end
 
       # -- helpers ---------------------------------------------------------
