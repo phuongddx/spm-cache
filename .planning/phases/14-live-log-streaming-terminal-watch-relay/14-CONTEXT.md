@@ -41,7 +41,8 @@ Locked by ROADMAP success criteria SC1–SC4 and requirements LOGS-02..05. UI hi
 
 ### Carrying forward (research/roadmap-locked — do not re-litigate in planning)
 - Transport: file-tail of the JSONL run logs; UDS is the documented sandbox fallback only.
-- SSE + `EventSource` (not WebSocket); failed connects answer 503 + `Retry:` (NEVER 204); `Last-Event-ID` replay; ~15s heartbeats; bounded per-client queues with drop-oldest + explicit notice (CP11).
+- SSE + `EventSource` (not WebSocket); `Last-Event-ID` replay; ~15s heartbeats; bounded per-client queues with drop-oldest + explicit notice (CP11).
+  - **AMENDED 2026-09-01 (phase research, spec-verbatim):** the milestone's "failed connects answer 503 + `Retry:`, never 204" clause is FALSIFIED. Per the WHATWG SSE processing model §9.2.3 (fetched verbatim during 14-RESEARCH), **any** non-200 status fails the connection permanently — 503 is exactly as fatal as 204 — and an HTTP `Retry:` header plays no role (only the in-stream `retry:` field sets reconnection time). Correct posture: the endpoint ALWAYS answers `200 text/event-stream` and holds with heartbeats / in-stream `retry:`; auth failures (401/403) are deliberately permanent. See `14-RESEARCH.md` § Summary finding 2.
 - Relay hygiene: watcher-daemon-only subscription (exclude legacy `--watch` path, CP5); SIGTERM forwarding + web-run self-trigger guard extended (CP6); health-check-before-open (CP12).
 - Honest pid-dead-without-exit-line runs (CP14 detection nuance from Phase 12's retention work).
 - Single stream + per-package anchors (N panes declined); stateless file reader; flock is the only mutex.
