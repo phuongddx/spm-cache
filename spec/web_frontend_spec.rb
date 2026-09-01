@@ -1243,4 +1243,111 @@ RSpec.describe 'spm-cache web dashboard frontend (Plan 13-03)' do
       expect(media[/\.panel-actions\s*\{[^}]*\}/]).to include('flex-wrap: wrap')
     end
   end
+
+  # Plan 16-05 Task 1 — the sixth column: native toggle checkboxes,
+  # verbatim reason chips, the pending marker, instant persist, poll
+  # integrity (A8), and the toggle-save failure line. Same idiom as
+  # every prior plan: FILE bytes pin every mechanic (16-UI-SPEC is
+  # BINDING; this repo runs no JavaScript in CI — 16-06 proves
+  # behavior in a real browser).
+  describe 'the Cached column — toggles, reasons, poll integrity (Plan 16-05 Task 1)' do
+    it 'the column arrays carry a sixth Cached entry and the sheet re-partitions to the pinned six widths' do
+      expect(app_js).to include("const COLS = ['Package', 'Config', 'Size', 'State', 'Fidelity', 'Cached'];")
+      expect(app_js).to include(
+        "const COL_CLASS = ['col-name', 'col-config', 'col-size', 'col-state', 'col-fidelity', 'col-cached'];"
+      )
+      widths = { '.col-name' => 36, '.col-config' => 12, '.col-size' => 10,
+                 '.col-state' => 12, '.col-fidelity' => 18, '.col-cached' => 12 }
+      widths.each { |sel, pct| expect(styles_css).to include("#{sel} { width: #{pct}%; }") }
+      expect(widths.values.sum).to eq(100)
+      expect(styles_css).not_to include('.col-name { width: 40%; }')
+    end
+
+    it 'the checkbox: checked from saved_cached, disabled from NOT toggleable, aria-label carries the RAW name' do
+      row = app_js[/const stateRow = \(p\) => \{[\s\S]*?\n  \};/]
+      expect(row).to include('checkbox.checked = p.saved_cached;')
+      expect(row).to include('checkbox.disabled = !p.toggleable;')
+      expect(row).to include('`Toggle caching for ${p.name}`')
+      expect(row).not_to match(/Toggle caching for.*has_macro/)
+    end
+
+    it 'the reason chip: five pinned classes only, unrecognised falls back to neutral, renders only on non-toggleable rows' do
+      expect(app_js).to include("'pattern-managed': 'neutral'")
+      expect(app_js).to include("plugin: 'plugin'")
+      expect(app_js).to include("'binary-target': 'neutral'")
+      expect(app_js).to include("excluded: 'excluded'")
+      expect(app_js).to include("fidelity: 'warn'")
+      row = app_js[/const stateRow = \(p\) => \{[\s\S]*?\n  \};/]
+      expect(row).to include("REASON_CLASS[p.reason] || 'neutral'")
+      expect(row).to include('!p.toggleable && p.reason')
+    end
+
+    it 'the pending chip: neutral class, pinned word as text and title, co-renders after the reason chip' do
+      row = app_js[/const stateRow = \(p\) => \{[\s\S]*?\n  \};/]
+      expect(row).to include("text: 'pending', title: 'pending'")
+      expect(row).to include('badge-neutral')
+      expect(row.index('p.reason')).to be < row.index('p.pending')
+    end
+
+    it 'the change handler POSTs the raw name and the NEW value through the existing POST helper — no new fetch wrapper, no per-row disable on click' do
+      row = app_js[/const stateRow = \(p\) => \{[\s\S]*?\n  \};/]
+      expect(row).to include("checkbox.addEventListener('change', () => postToggle(p.name, checkbox.checked));")
+      post = app_js[/const postToggle = \(name, cached\) => \{[\s\S]*?\n  \};/]
+      expect(post).to include("requestPost('/api/toggle', { package: name, cached })")
+      expect(app_js.scan(/const requestPost = /).size).to eq(1)
+      expect(row).not_to include('checkbox.disabled = true')
+    end
+
+    it 'poll integrity: the counter increments before the request and decrements in the completion path; the poll loop skips the whole refresh while it is non-zero; Refresh is not routed through the skip' do
+      post = app_js[/const postToggle = \(name, cached\) => \{[\s\S]*?\n  \};/]
+      expect(post.index('toggleInFlight += 1;')).to be < post.index('requestPost(')
+      expect(post).to include('.finally(() => { toggleInFlight -= 1; });')
+      loop_fn = app_js[/const loop = async \(\) => \{[\s\S]*?\n    \};/]
+      expect(loop_fn).to include('if (toggleInFlight === 0) await refreshState();')
+      expect(app_js).to include(
+        "byId('state-refresh').addEventListener('click', () => { clearToggleFailure(); refreshState(); });"
+      )
+    end
+
+    it 'the failure line: pinned template with package + message, re-inserted above the table on every render, cleared by success or Refresh' do
+      expect(app_js).to include(
+        "const toggleFailureCopy = (name, message) =>\n    `Couldn't save the toggle for ${name}: " \
+        '${message}. Check that spm-cache web is still running, then try again.`;'
+      )
+      render = app_js[/const renderState = \(envelope\) => \{[\s\S]*?\n  \};/]
+      expect(render).to include('showToggleFailure(body);')
+      post = app_js[/const postToggle = \(name, cached\) => \{[\s\S]*?\n  \};/]
+      expect(post).to include('clearToggleFailure(); return;')
+      expect(post).to include("showToggleFailure(byId('state-body'));")
+      show = app_js[/const showToggleFailure = \(body\) => \{[\s\S]*?\n  \};/]
+      expect(show).to include("body.querySelector('.toggle-failure')?.remove();")
+      expect(show).to include("class: 'toggle-failure'")
+    end
+
+    it 'the sheet: accent checked-state colour, the sheet disabled opacity, the focus ring extended to the checkbox' do
+      expect(styles_css).to include('.state-table input[type="checkbox"] {')
+      expect(styles_css).to include('accent-color: var(--c-accent);')
+      expect(styles_css).to include('.state-table input[type="checkbox"]:disabled {')
+      expect(styles_css).to include('opacity: 0.6;')
+      expect(styles_css).to include('.state-table input[type="checkbox"]:focus-visible {')
+      expect(styles_css.scan(/accent-color:/).size).to eq(1)
+    end
+
+    it 'prohibition sweep: no markup-assignment API, no dialog, no new timer, no clock, no role=switch, no master checkbox, no per-row apply button' do
+      %w[innerHTML insertAdjacentHTML document.write outerHTML].each { |api| expect(app_js).not_to include(api) }
+      expect(app_js).not_to match(/\balert\(|\bconfirm\(|\bprompt\(/)
+      expect(app_js.scan(/set(?:Timeout|Interval)|requestAnimationFrame/).size).to eq(1)
+      expect(app_js).not_to include('Date.now')
+      expect(app_js).not_to match(/role=["']switch["']/)
+      expect(app_js.scan(/\.type = 'checkbox'/).size).to eq(1) # exactly one construction site — no master checkbox
+      row = app_js[/const stateRow = \(p\) => \{[\s\S]*?\n  \};/]
+      expect(row).not_to include('Apply') # the row never gets its own apply control (D-06: bar-level only)
+    end
+
+    it 'index.html and log.js carry none of the new Phase 16 vocabulary (untouched by this plan)' do
+      expect(index_html).not_to match(/checkbox|Cached|sync-bar|Apply now|Revert all/)
+      log_js = File.read(File.join(asset_dir, 'log.js'))
+      expect(log_js).not_to match(/checkbox|state-sync|Apply now|Revert all/)
+    end
+  end
 end
