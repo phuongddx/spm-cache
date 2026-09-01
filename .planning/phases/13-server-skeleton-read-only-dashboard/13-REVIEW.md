@@ -52,7 +52,16 @@ severity:
   minor: 3
   info: 4
 findings_count: 8
-status: findings
+findings_status:
+  WR-01: resolved
+  WR-02: resolved
+  WR-03: resolved
+  WR-04: resolved
+  IN-01: resolved
+  IN-02: resolved
+  IN-03: resolved
+  IN-04: resolved
+status: resolved
 ---
 
 # Phase 13: Code Review Report
@@ -71,6 +80,7 @@ Residual defects found: one major (the router's error-envelope contract is only 
 ## Major Issues
 
 ### WR-01: Error-envelope contract only covers JSON parse errors — shape-malformed or non-UTF-8 project files produce raw WEBrick 500 HTML and a terminal backtrace
+**Status:** resolved — fix 3c67e47 (13-REVIEW-FIX.md)
 
 **File:** `lib/spm_cache/web/router.rb:121-155` (rescue at 129; `api_doctor` has no rescue at all), with `lib/spm_cache/web/read_models/state.rb:16-18` and `lib/spm_cache/cache/cachemap.rb:66-84` as the raising sites
 **Issue:** The phase contract (13-01 behavior bullet, re-asserted in the router's own doc comment: "Malformed project files (graph.json) surface as the 500 error envelope") is implemented as `rescue JSON::ParserError` only. Three realistic hostile-project inputs escape it:
@@ -97,6 +107,7 @@ end
 ## Minor Issues
 
 ### WR-02: Concurrent `spm-cache web` launches race the marker check-then-write; the unconditional clear can orphan a live server's liveness record
+**Status:** resolved — fix 13f4861 (13-REVIEW-FIX.md)
 
 **File:** `lib/spm_cache/command/web.rb:44-56` (read → live? → probe → write with no mutual exclusion), `lib/spm_cache/web/marker.rb:61-63` (clear unlinks whatever sits at the path), `marker.rb:72-89` (live? is pid-only)
 **Issue:** Two simultaneous invocations both observe a dead/absent marker before either writes; both boot servers on different ports (PortProber converges them onto distinct candidates), and the last `Marker.write` wins — the first server becomes an unrecorded zombie. Worse, `Marker.clear` is path-global: when the *overwritten* process later exits, its ensure deletes the *other live server's* marker, so the next `web` launch boots a third server instead of reusing it. All servers remain loopback-bound and token-gated, so this is a correctness/resource degradation of WEB-02's single-instance intent, not an exposure. (Plan 13-01 promised atomic marker writes — delivered — but never mutual exclusion.)
@@ -120,6 +131,7 @@ end
 Keep the heal-path clear (`Marker.clear if marker`) unconditional.
 
 ### WR-03: `Marker.clear`'s `exist?`-then-`unlink` race can crash the signal-cleanup ensure and break the exit-0 contract
+**Status:** resolved — fix b1f0822 (13-REVIEW-FIX.md)
 
 **File:** `lib/spm_cache/web/marker.rb:61-63`; consumer `lib/spm_cache/command/web.rb:64-68`
 **Issue:** `File.unlink(path) if File.exist?(path)` — if the file vanishes between the check and the unlink (concurrent clear, i.e. WR-02's two-process exit, or any future second clearer), `Errno::ENOENT` is raised *from the ensure block*, propagating out of `run` after a successful shutdown and producing a non-zero exit — precisely what WEB-03's contract forbids.
@@ -133,6 +145,7 @@ end
 ```
 
 ### WR-04: Out-of-range `--port` values crash with a raw errno backtrace, contradicting `parse_port`'s "never a crash mid-verb" posture
+**Status:** resolved — fix e3e16e5 + a55e031 (13-REVIEW-FIX.md)
 
 **File:** `lib/spm_cache/command/web.rb:125-129` (`Integer()` accepts anything numeric), `lib/spm_cache/web/port_prober.rb:40-44` (`bind` rescues only `Errno::EADDRINUSE`)
 **Issue:** `spm-cache web --port=-5` (or `--port=70000`, or a start port within 25 of 65536) passes `parse_port`, then `TCPServer.new` raises `Errno::EADDRNOTAVAIL`/`Errno::EPERM` — unrescued by `PortProber.pick` and `boot_with_retry` (both catch `EADDRINUSE` only) — escaping to `main.rb`'s bare re-raise: stderr dump + exit 1. The flag's own comment promises "user-authored CLI input … never a crash mid-verb"; the coercion handles `abc` but not numerically-valid garbage.
@@ -150,24 +163,28 @@ and/or in `PortProber.bind`, `rescue SystemCallError` → `nil` so any unbindabl
 ## Info
 
 ### IN-01: Graph re-render never destroys the previous cytoscape instance
+**Status:** resolved — fix 52d35dc (13-REVIEW-FIX.md)
 
 **File:** `lib/spm_cache/web/assets/app.js:273-278`
 **Issue:** Every `renderGraph` (panel load, Refresh, poll-free reload after 0→N nodes) calls `window.cytoscape({ container: byId('cy-canvas'), … })` anew. Cytoscape instances own canvases, listeners, and graph objects inside the container; repeated refreshes stack instances in the long-lived tab.
 **Fix:** hold one instance (`let cyGraph`) and `cyGraph?.destroy()` before re-creating (or update via `cyGraph.json({ elements: data.nodes })`).
 
 ### IN-02: Empty-state copy styles the non-command word "Refresh" as an accent `.cmd` span — deviation from the UI-SPEC accent contract
+**Status:** resolved — fix 52d35dc (13-REVIEW-FIX.md)
 
 **File:** `lib/spm_cache/web/assets/app.js:135-137, 257-259`
 **Issue:** Copy text is verbatim per 13-UI-SPEC, but the Color contract reserves empty-state accent for "`spm-cache build` / `spm-cache use` command references"; `cmd('Refresh')` applies accent + mono to a plain word. (13-03-PLAN's "two command references" phrasing appears to have smuggled it in — worth a note to the UI checker for the post-phase audit.) Cosmetic.
 **Fix:** render `Refresh` as plain text in both empty-state bodies (or introduce a non-accent emphasis class).
 
 ### IN-03: Dead surface — `Server#stop` alias and `Assets#root` reader have no callers
+**Status:** resolved — fix 909e9c1 (13-REVIEW-FIX.md)
 
 **File:** `lib/spm_cache/web/server.rb:59` (`alias stop shutdown`), `lib/spm_cache/web/assets.rb:34` (`attr_reader :root`)
 **Issue:** Neither appears in `lib/` or any spec; both are unused API surface (verified by grep across lib + spec).
 **Fix:** delete both, or wire `stop` into a spec if it is intended as public API.
 
 ### IN-04: Doctor check-line ellipsis will hard-clip instead of ellipsizing — flex children lack `min-width: 0`
+**Status:** resolved — fix 52d35dc (13-REVIEW-FIX.md)
 
 **File:** `lib/spm_cache/web/assets/styles.css:270-295`
 **Issue:** `.check-name`/`.check-message` set `overflow: hidden; text-overflow: ellipsis` inside a flex row, but flex items default to `min-width: auto`, so long check names/messages (the "long-text" UI-SPEC row) can push siblings out and clip without the ellipsis glyph.
