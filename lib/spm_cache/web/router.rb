@@ -117,10 +117,20 @@ module SPMCache
           # the body -- rollback takes no scope, so an empty or absent
           # body is the documented shape.
           api_mutate(req, res, supplied, fixed_scope: 'rollback')
+        when '/api/apply'
+          # D-07 (16-04): the ONE re-sync mechanism -- the existing
+          # mutation helper with the scope FIXED by the route,
+          # exactly as rollback's arm above. No bespoke handler, no
+          # second spawn path; the request never names a scope.
+          api_mutate(req, res, supplied, fixed_scope: 'use')
         when '/api/toggle'
           # D-08 (16-01): the instant config-write arm -- never
           # slot-gated (the spawn slot governs Apply-now only).
           api_toggle(req, res, supplied)
+        when '/api/revert'
+          # A3 (16-04): the batched instant config-write arm -- same
+          # posture as /api/toggle above, never slot-gated.
+          api_revert(req, res, supplied)
         when '/api/doctor'
           api_doctor(req, res, supplied)
         when '/api/events'
@@ -354,6 +364,40 @@ module SPMCache
           return respond_json(res, 500, error_envelope(e.message, reason: 'config_write_failed'))
         end
         respond_json(res, 200, ok_envelope('package' => package, 'cached' => cached))
+      end
+
+      # POST /api/revert (A3, 16-04): restores saved-to-applied for
+      # every diverging TOGGLEABLE row (the state model's own
+      # `pending` already narrows to toggleable rows -- a locked row
+      # never raises a bar it could not clear) in ONE call to the
+      # batch mutator -- one lock acquisition, not N. Same gate order
+      # and body posture as toggle; an empty body is the documented
+      # shape and any parseable body is otherwise ignored (there is
+      # no scope to read). Never slot-gated -- never references
+      # @jobs. A selection of zero pending rows is a successful
+      # no-op: the mutator is never even called.
+      def api_revert(req, res, supplied)
+        unless Middleware.valid_token?(token: supplied, expected_token: @token)
+          return reject(res, 401, 'missing or invalid token')
+        end
+        return reject(res, 404, 'not found') unless req.request_method == 'POST'
+
+        raw = req.body.to_s
+        begin
+          raw.strip.empty? ? {} : JSON.parse(raw)
+        rescue JSON::ParserError
+          return respond_json(res, 400, error_envelope('malformed request body', reason: 'bad_body'))
+        end
+
+        pending = @read_models[:state].call(config: @config)['packages'].select { |row| row['pending'] }
+        changes = pending.each_with_object({}) { |row, acc| acc[row['name']] = !row['applied_cached'] }
+
+        begin
+          @config.set_ignored_all(changes) unless changes.empty?
+        rescue StandardError => e
+          return respond_json(res, 500, error_envelope(e.message, reason: 'config_write_failed'))
+        end
+        respond_json(res, 200, ok_envelope('reverted' => changes.keys))
       end
 
       # -- helpers ---------------------------------------------------------

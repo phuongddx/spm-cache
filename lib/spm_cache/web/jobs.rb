@@ -39,7 +39,12 @@ module SPMCache
       SCOPES = {
         'build' => ['build'].freeze,
         'rebuild' => ['build', '--rebuild'].freeze,
-        'rollback' => ['rollback'].freeze
+        'rollback' => ['rollback'].freeze,
+        # (16-04, D-07) Apply-now: the bare sync verb -- command/use.rb's
+        # default subcommand, watch flag defaulted off. One frozen
+        # fragment, looked up by POST /api/apply's route-fixed scope;
+        # no second spawn mechanism exists anywhere in this class.
+        'use' => ['use'].freeze
       }.freeze
 
       def initialize(config: Core::Config.instance, bin_path: BIN_PATH)
