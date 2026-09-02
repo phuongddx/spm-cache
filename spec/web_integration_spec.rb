@@ -292,7 +292,11 @@ RSpec.describe 'SPMCache::Web one-boot integration matrix', order: :defined do
 
     it 'serves every asset referenced by the served HTML with the right content types' do
       html = get("/?token=#{@token}").body
-      refs = html.scan(/(?:href|src)="([^"]+)"/).flatten
+      # The app-shell's skip-link (href="#surface-main") is an in-page
+      # anchor, not an asset reference — URI.join would resolve its
+      # fragment against the document root and 302 (no token in that
+      # request), a false positive for this asset-serving gate.
+      refs = html.scan(/(?:href|src)="([^"]+)"/).flatten.reject { |r| r.start_with?('#') }
       expect(refs).to include('assets/styles.css', 'assets/cytoscape.min.js', 'assets/app.js')
 
       content_types = {

@@ -5,13 +5,13 @@ require 'tmpdir'
 
 require_relative 'support/web_server_boot'
 
-# Plan 13-03 — the dashboard frontend, pinned as SERVED and FILE bytes.
-# This repo runs no JavaScript in CI: every contract below is a
-# byte-level pin (the HTML the server serves, the asset files' exact
-# contents), cross-checked by the manual browser walkthrough in
-# 13-VALIDATION. The 13-UI-SPEC is BINDING: copy strings, color values,
-# spacing multiples, and typography roles are pinned verbatim.
-RSpec.describe 'spm-cache web dashboard frontend (Plan 13-03)' do
+# Plan 13-03 (ported 2026-09 to the Grok-palette app-shell) — the
+# dashboard frontend, pinned as SERVED and FILE bytes. This repo runs
+# no JavaScript in CI: every contract below is a byte-level pin (the
+# HTML the server serves, the asset files' exact contents), cross-checked
+# by the manual browser walkthrough in the port's plan. Copy strings,
+# color values, and the DOM-id contract are BINDING.
+RSpec.describe 'spm-cache web dashboard frontend (app-shell port)' do
   let(:asset_dir) { SPMCache::Web::Assets::DEFAULT_ROOT }
   let(:index_html) { File.read(File.join(asset_dir, 'index.html')) }
   let(:styles_css) { File.read(File.join(asset_dir, 'styles.css')) }
@@ -42,25 +42,28 @@ RSpec.describe 'spm-cache web dashboard frontend (Plan 13-03)' do
       expect(res.body).to eq(File.binread(File.join(asset_dir, 'index.html')))
     end
 
-    it 'carries the page title and the three panel titles in locked DOM order' do
+    it 'carries the page title and the four surface titles in locked DOM order' do
       expect(index_html).to include('<title>spm-cache</title>')
-      expect(index_html).to include('<h2>Cache State</h2>')
-      expect(index_html).to include('<h2>Doctor</h2>')
-      expect(index_html).to include('<h2>Dependency Graph</h2>')
-      expect(index_html.index('Cache State'))
-        .to be < index_html.index('<h2>Doctor</h2>')
-      expect(index_html.index('<h2>Doctor</h2>'))
-        .to be < index_html.index('Dependency Graph')
+      expect(index_html).to include('<h2 class="surface-title">Run Log</h2>')
+      expect(index_html).to include('<h2 class="surface-title">Cache State</h2>')
+      expect(index_html).to include('<h2 class="surface-title">Doctor</h2>')
+      expect(index_html).to include('<h2 class="surface-title">Dependency Graph</h2>')
+      expect(index_html.index('Run Log')).to be < index_html.index('Cache State')
+      expect(index_html.index('Cache State')).to be < index_html.index('>Doctor<')
+      expect(index_html.index('>Doctor<')).to be < index_html.index('Dependency Graph')
     end
 
-    it 'buttons: Refresh on Cache State + Dependency Graph, Run Doctor on Doctor' do
-      expect(index_html.scan(%r{<button[^>]*>Refresh</button>}).size).to eq(2)
+    it 'build controls live in the topbar: Build/Rebuild all/Rollback, plus per-surface Refresh/Run Doctor' do
+      expect(index_html).to include('<button type="button" class="btn btn-primary" id="ctl-build">Build</button>')
+      expect(index_html).to include('<button type="button" class="btn btn-quiet" id="ctl-rebuild">Rebuild all</button>')
+      expect(index_html).to include('id="ctl-rollback">Rollback</button>')
+      expect(index_html.scan(%r{<button[^>]*>Refresh</button>}).size).to eq(2) # Cache State + Dependency Graph
       expect(index_html.scan(%r{<button[^>]*>Run Doctor</button>}).size).to eq(1)
     end
 
-    it 'each panel header has a stamp span; each panel body starts with a muted Loading… line' do
+    it 'each surface carries a stamp span (Cache State/Doctor/Graph); Doctor and Graph bodies start with a muted Loading… line' do
       expect(index_html.scan(/class="stamp"/).size).to eq(3)
-      expect(index_html.scan(%r{<p class="loading">Loading…</p>}).size).to eq(3)
+      expect(index_html.scan(%r{<p class="loading">Loading…</p>}).size).to eq(2) # doctor-body + graph-body — state-body has no cold-loading line, it starts with real (possibly empty) static chrome
     end
 
     it 'references exactly three RELATIVE assets: assets/styles.css, assets/cytoscape.min.js, assets/app.js (module)' do
@@ -79,9 +82,140 @@ RSpec.describe 'spm-cache web dashboard frontend (Plan 13-03)' do
       expect(index_html.index('cytoscape.min.js')).to be < index_html.index('app.js')
     end
 
-    it 'graph panel body carries the canvas mount and the legend element' do
+    it 'graph surface body carries the canvas mount and the legend element, ungated by hidden (decision 6)' do
       expect(index_html).to include('id="graph-legend"')
       expect(index_html).to include('id="cy-canvas"')
+      expect(index_html).to match(/<div class="graph-wrap" id="graph-wrap">/) # no `hidden` attribute — starts visible
+    end
+
+    it 'ships zero OpenDesign mockup artifacts: no data-od-id, no demo.js reference, no "Static preview" note' do
+      expect(index_html).not_to include('data-od-id')
+      expect(index_html).not_to include('demo.js')
+      expect(index_html).not_to include('Static preview')
+    end
+
+    it 'carries every id from the 42-entry DOM-id contract app.js/log.js query via getElementById' do
+      contract_ids = %w[
+        port-label conn-pill log-runs runs-slot
+        build-controls ctl-build ctl-rebuild ctl-rollback ctl-message
+        build-confirm ctl-cancel ctl-confirm
+        log-body log-card log-status log-trigger log-command log-config
+        log-started log-argv log-runid log-banner log-switch
+        log-viewport log-overlay rail-phases rail-packages
+        state-body state-stamp state-refresh sync-apply sync-message sync-revert
+        doctor-body doctor-stamp doctor-run
+        graph-body graph-stamp graph-refresh graph-wrap graph-legend cy-canvas
+      ]
+      missing = contract_ids.reject { |id| index_html.include?(%(id="#{id}")) }
+      expect(missing).to eq([])
+    end
+
+    it 'carries the app-shell IDs this port introduced: nav rail, surfaces, cold-load-honest new controls' do
+      new_ids = %w[
+        rail alert-rail surface-main surface-run surface-cache surface-doctor surface-graph
+        topbar-state runstat-cmd log-banner-text log-banner-jump log-switch-btn
+        log-filter-pill log-count log-follow-btn state-filter state-total state-empty
+        chip-n-all doctor-summary check-list rail-badge-cache rail-badge-doctor
+      ]
+      missing = new_ids.reject { |id| index_html.include?(%(id="#{id}")) }
+      expect(missing).to eq([])
+    end
+  end
+
+  describe 'app-shell layout (topbar / alert-rail / nav-rail / 4 surfaces, cold-load honesty)' do
+    it 'the shell is a topbar + alert-rail + (nav-rail, surface-main) grid; Run Log ships is-active/visible by default' do
+      expect(index_html).to include('<div class="app">')
+      expect(index_html).to include('<div class="alert-rail" id="alert-rail">')
+      expect(index_html).to include('<nav class="rail" id="rail" aria-label="Dashboard surfaces">')
+      expect(index_html).to include('<section class="surface is-active" id="surface-run" data-surface="run" aria-label="Run Log">')
+      %w[cache doctor graph].each do |name|
+        expect(index_html).to match(/<section class="surface" id="surface-#{name}" data-surface="#{name}" aria-label="[^"]+" hidden>/)
+      end
+    end
+
+    it 'nav-rail carries exactly four data-surface items in run/cache/doctor/graph order' do
+      surfaces = index_html.scan(/data-surface="(\w+)"/).flatten
+      # every rail-item AND every surface section carries data-surface —
+      # the rail's four items lead, the four <section>s follow in the same order
+      expect(surfaces.first(4)).to eq(%w[run cache doctor graph])
+      expect(surfaces.last(4)).to eq(%w[run cache doctor graph])
+    end
+
+    it 'deletes the fabricated progress meter entirely — no #meter-fill/#runstat-count/#runstat-elapsed nodes, no packages_total data to back them' do
+      %w[meter-fill runstat-count runstat-elapsed].each do |id|
+        expect(index_html).not_to include(%(id="#{id}"))
+      end
+      expect(index_html).not_to match(/class="meter"/)
+    end
+
+    it 'deletes the fabricated rail-facts block (Cache/Hit rate/Saved) — no backing data exists in the wire contract' do
+      expect(index_html).not_to include('rail-facts')
+    end
+
+    it 'cold-load: topbar state pill, command mirror, port label, and log identity card carry NO fabricated values' do
+      expect(index_html).to match(%r{<span class="state-pill state-idle" id="topbar-state"></span>})
+      expect(index_html).to match(%r{<span class="runstat-cmd mono" id="runstat-cmd"></span>})
+      expect(index_html).to match(%r{<span class="port-label" id="port-label"></span>})
+      expect(index_html).not_to include('Running</span>')
+      expect(index_html).not_to include('spm-cache build</span>')
+    end
+
+    it 'cold-load: #log-runs ships empty (real options come from refreshRuns()); no fake run history baked in' do
+      expect(index_html).to match(%r{<select class="log-runs-select" id="log-runs"></select>})
+    end
+
+    it 'cold-load: #doctor-summary starts hidden and empty; no hardcoded tallies' do
+      expect(index_html).to match(%r{<div class="doctor-summary" id="doctor-summary" hidden></div>})
+      expect(index_html).not_to match(%r{\d+</b> failed})
+    end
+
+    it 'cold-load: rail badges (#rail-badge-cache/#rail-badge-doctor) ship hidden and empty — no fabricated counts or glyphs' do
+      expect(index_html).to match(%r{<span class="rail-count" id="rail-badge-cache" hidden></span>})
+      expect(index_html).to match(%r{<span class="rail-status" id="rail-badge-doctor" hidden></span>})
+    end
+
+    it '#log-card no longer starts hidden and holds neutral cold-load placeholder text, never fabricated identity data' do
+      expect(index_html).to match(/<div class="log-card" id="log-card">/) # no `hidden` attribute
+      expect(index_html).to match(%r{<span class="log-status" id="log-status">Loading…</span>})
+      expect(index_html).to match(%r{<span class="badge badge-neutral" id="log-trigger"></span>})
+      expect(index_html).to match(%r{<span class="log-command mono" id="log-command"></span>})
+    end
+
+    it '#graph-wrap no longer starts hidden (decision 6) — the .loading placeholder covers the cold empty canvas honestly' do
+      graph_body = index_html[%r{<div class="surface-body" id="graph-body">.*?</section>}m]
+      expect(graph_body.index('class="loading"')).to be < graph_body.index('id="graph-wrap"')
+    end
+
+    it 'the log-banner/log-switch/follow-pill/filter-pill move to static markup-with-real-wiring (context decision 3)' do
+      expect(index_html).to include('<span class="log-banner-text" id="log-banner-text"></span>')
+      expect(index_html).to include('<button type="button" class="btn btn-quiet btn-sm" id="log-banner-jump">Jump to first error</button>')
+      expect(index_html).to match(%r{<button type="button" class="btn btn-quiet btn-sm log-runid-btn" id="log-switch-btn"></button>})
+      expect(index_html).to match(%r{<button type="button" class="log-pill-btn" id="log-follow-btn" hidden>↓ Resume follow</button>})
+      expect(index_html).to match(%r{<button type="button" class="log-pill-btn log-filter-pill mono" id="log-filter-pill" hidden></button>})
+    end
+
+    it 'the unsaved-changes bar (#state-sync-bar) is static show/hide with distinct honesty-sentence and feedback-message nodes (context decision 4)' do
+      bar = index_html[%r{<div class="state-sync-bar"[\s\S]*?</div>\s*</div>}]
+      expect(bar).to include('id="state-sync-bar"')
+      expect(bar).to include('hidden')
+      expect(bar).to include(
+        'Changes are saved but not applied yet. spm-cache.yml is rewritten on every change — '\
+        'hand-written comments in the file are not preserved.'
+      )
+      expect(bar).to include('id="sync-revert">Revert all</button>')
+      expect(bar).to include('id="sync-apply">Apply now</button>')
+      expect(bar).to match(%r{<span class="ctl-message" id="sync-message" aria-live="polite" hidden></span>})
+      # the honesty sentence has NO id — app.js/saySync() must never be
+      # able to clobber it via byId('sync-message'); they are separate nodes
+      expect(bar).not_to match(/state-sync-text" id=/)
+    end
+
+    it 'preserves the load-bearing [hidden] rule and the display:flex overrides it must outrank' do
+      expect(styles_css).to match(/\[hidden\]\s*\{\s*display: none !important;\s*\}/)
+      %w[.log-banner .build-confirm .state-sync-bar .log-switch].each do |sel|
+        block = styles_css[/#{Regexp.escape(sel)}[,\s][\s\S]*?\{[^}]*\}/]
+        expect(block).to match(/display: flex/)
+      end
     end
   end
 
@@ -108,7 +242,7 @@ RSpec.describe 'spm-cache web dashboard frontend (Plan 13-03)' do
       replace_at = app_js.index(/history\.replaceState\(/)
       boot_at = app_js.index(/boot\(\);/)
       expect(setitem_at).to be < replace_at
-      expect(replace_at).to be < boot_at # order pinned textually; 13-VALIDATION re-checks in a browser
+      expect(replace_at).to be < boot_at
     end
 
     it 'sends X-SPM-Token on every request' do
@@ -122,9 +256,10 @@ RSpec.describe 'spm-cache web dashboard frontend (Plan 13-03)' do
   end
 
   describe 'app.js source contract — fetch layer + 401/403' do
-    it 'renders the full-page token-invalid copy replacing all panels' do
+    it 'renders the full-page token-invalid copy, replacing the whole app shell (topbar+alert-rail+shell), not just the panels' do
       expect(app_js)
         .to include("This page's access token is no longer valid. Restart spm-cache web and open the URL it prints.")
+      expect(app_js).to include("document.querySelector('.app')")
     end
 
     it 'consumes the {status,data} envelope and throws the server message' do
@@ -133,13 +268,16 @@ RSpec.describe 'spm-cache web dashboard frontend (Plan 13-03)' do
     end
   end
 
-  describe 'app.js source contract — state table (DASH-01)' do
-    it 'pins the status→class vocabulary exactly' do
-      expect(app_js).to include("hit: 'ok', missed: 'warn', ignored: 'neutral', excluded: 'excluded', plugin: 'plugin'")
+  describe 'app.js source contract — state table + filter/chips (app-shell port)' do
+    it 'renders rows ONLY into #state-rows — the <thead>, filter/chip toolbar and sync bar are static markup untouched by JS' do
+      expect(app_js).to include("byId('state-rows')")
+      expect(app_js).not_to include('COLS')
+      expect(app_js).not_to match(/el\('thead'/)
+      expect(app_js).not_to match(/el\('th'/)
     end
 
-    it 'renders the five locked columns' do
-      expect(app_js).to include("'Package', 'Config', 'Size', 'State', 'Fidelity'")
+    it 'pins the status→class vocabulary exactly' do
+      expect(app_js).to include("hit: 'ok', missed: 'warn', ignored: 'neutral', excluded: 'excluded', plugin: 'plugin'")
     end
 
     it 'prefixes macro packages with ◆ in the name cell' do
@@ -162,17 +300,47 @@ RSpec.describe 'spm-cache web dashboard frontend (Plan 13-03)' do
       expect(app_js).to include("'not-graph-pinned': 'neutral'")
     end
 
-    it 'empty state copy verbatim, with .cmd accent spans' do
-      expect(app_js).to include("'No cached packages yet'")
-      expect(app_js).to include("'spm-cache build'")
-      expect(app_js).to include("' to populate the cache, then Refresh.'")
-      expect(app_js).to include("class: 'cmd'")
+    it 'lastPackages caches the last successful fetch — the filter/chip handlers re-render from it without a new request' do
+      expect(app_js).to include('let lastPackages = [];')
+      expect(app_js).to include('lastPackages = data.packages || [];')
+      render_rows = app_js[/const renderStateRows = \(\) => \{[\s\S]*?\n  \};/]
+      expect(render_rows).to include('lastPackages.forEach')
     end
 
-    it 'empty-state Refresh is plain text — accent .cmd is reserved for command references (review IN-02)' do
-      expect(app_js).not_to include("cmd('Refresh')")
-      expect(app_js).to include("' to populate the cache, then Refresh.'")
-      expect(app_js).to include("' to generate graph.json, then Refresh.'")
+    it 'packageVisible filters on substring name match AND the active state chip (hit/missed/other = neither hit nor missed)' do
+      pv = app_js[/const packageVisible = \(p\) => \{[\s\S]*?\n  \};/]
+      expect(pv).to include('p.name.toLowerCase().includes(stateFilterText)')
+      expect(pv).to include("stateFilterChip === 'hit'")
+      expect(pv).to include("stateFilterChip === 'missed'")
+      expect(pv).to include("p.state !== 'hit' && p.state !== 'missed'")
+    end
+
+    it '#state-empty is the FILTER-yields-zero-rows indicator only — a genuinely empty cache renders an honest empty table, no fabricated copy' do
+      render_rows = app_js[/const renderStateRows = \(\) => \{[\s\S]*?\n  \};/]
+      expect(render_rows).to include("byId('state-empty').hidden = !(lastPackages.length > 0 && shown === 0);")
+    end
+
+    it '#chip-n-all and #state-total are derived from the real lastPackages array — hit/missed counts + humanBytes total' do
+      render_rows = app_js[/const renderStateRows = \(\) => \{[\s\S]*?\n  \};/]
+      expect(render_rows).to include("byId('chip-n-all').textContent = String(lastPackages.length);")
+      expect(render_rows).to include("p.state === 'hit'")
+      expect(render_rows).to include("p.state === 'missed'")
+      expect(render_rows).to include('humanBytes(totalBytes)')
+    end
+
+    it '#state-filter input and .chip-group .chip clicks re-render rows without a new fetch' do
+      expect(app_js).to include("byId('state-filter').addEventListener('input'")
+      expect(app_js).to include("querySelectorAll('.chip-group .chip')")
+      expect(app_js).to include("chipEl.classList.add('is-on')")
+    end
+
+    it '#rail-badge-cache mirrors the real pending count — never fabricated, derived after every successful /api/state fetch' do
+      badge = app_js[/const updateCacheBadge = \(pendingCount\) => \{[\s\S]*?\n  \};/]
+      expect(badge).to include("byId('rail-badge-cache')")
+      expect(badge).to include('badge.hidden = pendingCount === 0;')
+      render_state = app_js[/const renderState = \(envelope\) => \{[\s\S]*?\n  \};/]
+      expect(render_state).to include('lastPackages.filter((p) => p.pending).length')
+      expect(render_state).to include('updateCacheBadge(pendingCount);')
     end
   end
 
@@ -236,23 +404,41 @@ RSpec.describe 'spm-cache web dashboard frontend (Plan 13-03)' do
     end
   end
 
-  describe 'app.js source contract — doctor panel (DASH-02)' do
+  describe 'app.js source contract — doctor panel (app-shell port: check-list + doctor-summary)' do
     it 'pins the marker vocabulary reused verbatim from doctor.rb' do
       expect(app_js).to include("ok: '✓', warn: '!', fail: '✗'")
     end
 
-    it 'empty state copy verbatim' do
-      expect(app_js).to include("'Doctor has not run yet'")
-      expect(app_js).to include("'Select Run Doctor to check your environment.'")
+    it 'writes check rows into #check-list and tallies into #doctor-summary — never a full-body renderEmpty (would orphan them)' do
+      expect(app_js).to include("byId('check-list')")
+      expect(app_js).to include("byId('doctor-summary')")
+      render_doctor = app_js[/const renderDoctor = \(envelope\) => \{[\s\S]*?\n  \};/]
+      expect(render_doctor).not_to include('renderEmpty(')
+    end
+
+    it 'the cold-load .loading placeholder is patched/removed in place (never full-body replaceChildren) — check-list/doctor-summary survive every transition' do
+      render_doctor = app_js[/const renderDoctor = \(envelope\) => \{[\s\S]*?\n  \};/]
+      expect(render_doctor).to include("body.querySelector('.loading')")
+      expect(render_doctor).to include('body.dataset.rendered = ')
+      expect(render_doctor).to include('loading.textContent =')
+      expect(render_doctor).to include('loading.remove();')
+    end
+
+    it 'empty state copy verbatim (has_run: false)' do
+      expect(app_js).to include('Doctor has not run yet. Select Run Doctor to check your environment.')
     end
 
     it 'cached stamp derives from the envelope generated_at (em dash, HH:MM:SS)' do
       expect(app_js).to match(/Cached — generated at \$\{fmtHMS\([^)]*\)\}/)
     end
 
-    it 'summary line mirrors the CLI vocabulary from data.summary (not recounted)' do
-      expect(app_js)
-        .to include('${summary.ok} ok · ${summary.warnings} warnings · ${summary.failures} failures')
+    it 'tallies render as three glyph+count+word spans from the real envelope.data.summary — never re-derived from the checks array' do
+      render_doctor = app_js[/const renderDoctor = \(envelope\) => \{[\s\S]*?\n  \};/]
+      expect(render_doctor).to include("['fail', '✗', summary.failures, 'failed']")
+      expect(render_doctor).to include("['warn', '!', summary.warnings, 'warnings']")
+      expect(render_doctor).to include("['ok', '✓', summary.ok, 'passed']")
+      expect(render_doctor).to include("class: \`tally tally-${key}\`")
+      expect(render_doctor).to include('data.checks.length')
     end
 
     it 'Run Doctor swaps the label to Running… and back, firing ?run=1' do
@@ -262,9 +448,19 @@ RSpec.describe 'spm-cache web dashboard frontend (Plan 13-03)' do
       expect(app_js).to include("'Run Doctor'")
     end
 
-    it 'fix hints render as a ↳ second line for non-ok checks that carry one' do
-      expect(app_js).to include('↳ ${check.fix_hint}')
-      expect(app_js).to include("check.status !== 'ok'")
+    it 'fix hints render as a labelled command block: "fix" label span + accent .cmd span with the raw hint text' do
+      render_doctor = app_js[/const renderDoctor = \(envelope\) => \{[\s\S]*?\n  \};/]
+      expect(render_doctor).to include("class: 'fix-hint-label', text: 'fix'")
+      expect(render_doctor).to include("class: 'cmd', text: check.fix_hint")
+      expect(render_doctor).to include("check.status !== 'ok' && check.fix_hint")
+    end
+
+    it '#rail-badge-doctor shows a glyph derived from real summary.failures/warnings — hidden when both are zero' do
+      badge = app_js[/const updateDoctorBadge = \(summary\) => \{[\s\S]*?\n  \};/]
+      expect(badge).to include('!summary.failures && !summary.warnings')
+      expect(badge).to include("failing ? '✗' : '!'")
+      expect(badge).to include('rail-status-fail')
+      expect(badge).to include('rail-status-warn')
     end
 
     it 'doctor is on-demand only — the ONLY timer in the file is the state poll' do
@@ -276,11 +472,16 @@ RSpec.describe 'spm-cache web dashboard frontend (Plan 13-03)' do
     end
   end
 
-  describe 'app.js source contract — graph panel (DASH-03)' do
+  describe 'app.js source contract — graph panel (DASH-03, unchanged by this port except the hidden-toggle)' do
     it 'empty state copy verbatim, naming the generating command' do
       expect(app_js).to include("'No dependency graph yet'")
       expect(app_js).to include("'spm-cache use'")
       expect(app_js).to include("' to generate graph.json, then Refresh.'")
+    end
+
+    it 'no longer unhides #graph-wrap on success — it starts visible per the ported markup (decision 6)' do
+      render_graph = app_js[/const renderGraph = \(envelope\) => \{[\s\S]*?\n  \};/]
+      expect(render_graph).not_to match(/byId\('graph-wrap'\)\.hidden = false/)
     end
 
     it 'stamp format: Updated {MMM d, HH:MM} · generated by spm-cache use (from graph_generated_at)' do
@@ -328,13 +529,40 @@ RSpec.describe 'spm-cache web dashboard frontend (Plan 13-03)' do
     end
   end
 
+  describe 'app.js source contract — nav-rail surface switching (app-shell port)' do
+    it 'showSurface toggles exactly one .surface visible and its rail-item is-active/aria-current, persisting to localStorage' do
+      show_surface = app_js[/const showSurface = \(name\) => \{[\s\S]*?\n  \};/]
+      expect(show_surface).to include("classList.toggle('is-active', on)")
+      expect(show_surface).to include("setAttribute('aria-current', 'page')")
+      expect(show_surface).to include('s.hidden = !on;')
+      expect(show_surface).to include('localStorage.setItem(SURFACE_KEY, name)')
+    end
+
+    it 'digit keys 1-4 switch surfaces, / focuses the cache filter, Escape blurs — all ignored while typing or a modifier is held' do
+      keydown = app_js[/document\.addEventListener\('keydown', \(ev\) => \{[\s\S]*?\n  \}\);/]
+      expect(keydown).to include("tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT'")
+      expect(keydown).to include('ev.metaKey || ev.ctrlKey || ev.altKey')
+      expect(keydown).to include("ev.key >= '1' && ev.key <= '4'")
+      expect(keydown).to include("ev.key === '/'")
+      expect(keydown).to include("byId('state-filter').focus()")
+      expect(keydown).to include("ev.key === 'Escape'")
+    end
+
+    it 'boot() restores the persisted surface from localStorage, defaulting to run' do
+      boot = app_js[/const boot = \(\) => \{[\s\S]*?\n  \};/]
+      expect(boot).to include('localStorage.getItem(SURFACE_KEY)')
+      expect(boot).to include("SURFACES.indexOf(savedSurface) !== -1 ? savedSurface : 'run'")
+    end
+
+    it 'SURFACES enumerates exactly run/cache/doctor/graph in that order (matches the digit-key mapping)' do
+      expect(app_js).to include("const SURFACES = ['run', 'cache', 'doctor', 'graph'];")
+    end
+  end
+
   describe 'app.js locked budget' do
-    it 'stays within the 300–440 LOC vanilla-JS budget (Phase 15 raised the 13-era 400 cap by the controls section: POST helper + row state machine + confirm bar + progress listener)' do
+    it 'stays within the vanilla-JS LOC budget (app-shell port raised the cap: nav-rail switching + cache filter/chips + doctor tallies/badges)' do
       expect(app_js.lines.length).to be >= 300
-      # Phase 16 (16-05) raised the 15-era 440 cap twice: Task 1's
-      # toggle column + poll-integrity mutation section, then Task 2's
-      # unsaved-changes bar + apply/revert click handlers.
-      expect(app_js.lines.length).to be <= 650
+      expect(app_js.lines.length).to be <= 800
     end
   end
 
@@ -363,105 +591,119 @@ RSpec.describe 'spm-cache web dashboard frontend (Plan 13-03)' do
       end
       expect(files).to include('lib/spm_cache/web/assets/cytoscape.min.js')
       expect(files).to include('lib/spm_cache/web/assets/index.html')
-      # app.js membership is pinned in Task 2, once the file exists.
       expect(files).to include('lib/spm_cache/web/assets/styles.css')
     end
   end
 
-  describe 'styles.css design tokens (13-UI-SPEC locked)' do
-    it 'declares the full spacing scale, every value a multiple of 4' do
+  describe 'styles.css design tokens (Grok/xAI monochrome palette — app-shell port)' do
+    it 'declares the spacing scale, every value a multiple of 4' do
       tokens = styles_css.scan(/--space-[a-z0-9]+:\s*(\d+)px/).flatten.map(&:to_i)
-      expect(tokens).to contain_exactly(4, 8, 16, 24, 32, 48, 64)
-      expect(tokens).to all(be_truthy)
+      expect(tokens).to contain_exactly(4, 8, 16, 24, 32)
       tokens.each { |px| expect(px % 4).to eq(0) }
     end
 
-    it 'declares every locked color token verbatim' do
+    it 'declares every locked color token verbatim (the Grok monochrome pass)' do
       {
-        '--c-bg' => '#0D1117', '--c-panel' => '#161B22', '--c-border' => '#30363D',
-        '--c-accent' => '#2196F3', '--c-fail' => '#F44336', '--c-text' => '#E6EDF3',
-        '--c-muted' => '#8B949E', '--c-ok' => '#4CAF50', '--c-warn' => '#FF9800',
-        '--c-neutral' => '#9E9E9E', '--c-excluded' => '#607D8B',
-        '--c-plugin' => '#3F51B5', '--c-macro' => '#9C27B0'
+        '--c-bg' => '#000000', '--c-panel' => '#171717', '--c-border' => '#2E2E2E',
+        '--c-accent' => '#FFFFFF', '--c-fail' => '#F44336', '--c-text' => '#F2F2F2',
+        '--c-muted' => '#8E8E93', '--c-ok' => '#4CAF50', '--c-warn' => '#FF9800',
+        '--c-neutral' => '#9E9E9E', '--c-excluded' => '#7A7A7E',
+        '--c-plugin' => '#3F51B5', '--c-macro' => '#9C27B0',
+        '--c-canvas' => '#000000', '--c-elevated' => '#313131',
+        '--c-border-muted' => '#1C1C1C', '--c-fg-gutter' => '#6B6B70', '--c-line' => '#545458'
       }.each { |token, value| expect(styles_css).to include("#{token}: #{value}") }
     end
 
-    it 'declares both font stacks: system + ui-monospace' do
-      expect(styles_css).to include('--font-system: -apple-system, BlinkMacSystemFont, sans-serif')
+    it 'never reintroduces the old GitHub-dark blue accent (#2196F3) anywhere' do
+      expect(styles_css).not_to include('#2196F3')
+    end
+
+    it 'declares both font stacks: system + ui-monospace, with tabular-nums for mono data' do
+      expect(styles_css).to include('--font-system: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif')
       expect(styles_css).to include('--font-mono: ui-monospace, SFMono-Regular, Menlo, monospace')
+      expect(styles_css).to include('font-variant-numeric: tabular-nums')
     end
 
-    it 'implements the four typography roles (20/16/14/12px, weights 400/600 only, no italics)' do
-      %w[20px 16px 14px 12px].each { |size| expect(styles_css).to include("font-size: #{size}") }
-      expect(styles_css).to include('font-weight: 400')
-      expect(styles_css).to include('font-weight: 600')
-      expect(styles_css).not_to match(/font-weight:\s*(300|500|700)/)
-      expect(styles_css).not_to include('italic')
+    it 'weights are 400/500/600/700 only; the ONE italic rule is the elision notice, never body/data text' do
+      %w[400 500 600 700].each { |w| expect(styles_css).to include("font-weight: #{w}") }
+      expect(styles_css.scan(/font-style: italic/).size).to eq(1)
+      expect(styles_css).to include('.log-elision { color: var(--c-muted); font-style: italic; }')
     end
 
-    it 'pins the layout: 48px header bar, 1280px column, 64px top margin, 8px panel radius, 480px canvas' do
-      expect(styles_css).to include('--space-2xl: 48px')
-      expect(styles_css).to include('height: var(--space-2xl)')
-      expect(styles_css).to include('max-width: 1280px')
-      expect(styles_css).to include('margin: var(--space-3xl)')
-      expect(styles_css).to include('border-radius: 8px')
-      expect(styles_css).to include('height: 480px')
+    it 'app shell: 100dvh grid, a 52px topbar row, a fixed-width nav rail' do
+      expect(styles_css).to include('--topbar-h: 52px')
+      expect(styles_css).to include('height: 100dvh')
+      expect(styles_css).to include('grid-template-rows: var(--topbar-h) auto minmax(0, 1fr)')
+      expect(styles_css).to include('--rail-w: 208px')
     end
 
-    it 'buttons: solid accent fill, AA dark foreground (W1 amendment, 15-UI-SPEC 2026-09-02), accent keyboard focus ring' do
-      expect(styles_css).to include('background: var(--c-accent)')
-      expect(styles_css).to include('color: var(--c-bg)') # #0D1117 on accent ≈6.1:1 — white measured ≈3.1:1, an AA fail
-      expect(styles_css).to include('outline: 2px solid var(--c-accent)')
+    it 'the log viewport is elastic (flex: 1 1 auto; min-height: 0), not the old fixed 480px well — this is the redesign\'s core fix' do
+      expect(styles_css).not_to match(/height: 480px/)
+      log_viewport = styles_css[/\.log-viewport\s*\{[^}]*\}/]
+      expect(log_viewport).to include('flex: 1 1 auto')
+      expect(log_viewport).to include('min-height: 0')
     end
 
-    it 'badges: colored text on a 10%-alpha fill of the same color, 4px/8px padding, 4px radius' do
-      expect(styles_css).to include('rgba(76, 175, 80, 0.1)')
-      expect(styles_css).to include('rgba(255, 152, 0, 0.1)')
-      expect(styles_css).to include('rgba(244, 67, 54, 0.1)')
-      expect(styles_css).to include('rgba(158, 158, 158, 0.1)')
-      expect(styles_css).to include('rgba(96, 125, 139, 0.1)')
-      expect(styles_css).to include('rgba(63, 81, 181, 0.1)')
-      expect(styles_css).to include('padding: var(--space-xs) var(--space-sm)')
-      expect(styles_css).to include('border-radius: 4px')
+    it 'buttons: .btn-primary/.btn-danger/.log-pill-btn keep the AA dark-foreground-on-accent-fill pattern (W1), now at ≈21:1 with white' do
+      %w[.btn-primary .btn-danger .log-pill-btn].each do |sel|
+        block = styles_css[/#{Regexp.escape(sel)}\s*\{[^}]*\}/]
+        expect(block).to include('color: var(--c-bg)')
+      end
+      expect(styles_css).not_to include('color: #FFFFFF')
+      expect(styles_css).not_to include('color: #fff')
     end
 
-    it 'table: full width, sm cell padding, 1px border row rules, ellipsized cells, no inner scroll' do
-      expect(styles_css).to include('width: 100%')
-      expect(styles_css).to include('table-layout: fixed')
-      expect(styles_css).to include('padding: var(--space-sm)')
-      expect(styles_css).to include('border-bottom: 1px solid var(--c-border)')
-      expect(styles_css).to include('text-overflow: ellipsis')
-      expect(styles_css).not_to include('max-height')
+    it 'exactly one solid accent BUTTON in the whole shell: #ctl-build (.btn-primary) — every other control is quiet/danger/warn' do
+      expect(index_html).to match(/class="btn btn-primary" id="ctl-build"/)
+      expect(index_html).not_to match(/class="btn btn-primary"[^>]*id="(?!ctl-build)/)
     end
 
-    it 'mono 12px for sizes, fidelity values, stamps, and the port label; fix hints indent 24px' do
-      expect(styles_css).to include('font-family: var(--font-mono)')
-      expect(styles_css).to include('.mono')
-      expect(styles_css).to include('.fix-hint')
-      expect(styles_css).to include('padding-left: var(--space-lg)')
-    end
-
-    it 'accent text color appears only on .cmd command references — never on table text' do
-      expect(styles_css).to include('.cmd')
-      # Phase 16: `accent-color` (the checkbox's form-control accent, a
-      # DIFFERENT property from text `color`) must not false-positive
-      # this count — the pattern requires a non-hyphen boundary.
-      expect(styles_css.scan(/(?<!-)color: var\(--c-accent\)/).size).to eq(1)
-    end
-
-    it 'check-line ellipsis actually ellipsizes: flex children allow shrinking (review IN-04)' do
-      %w[.check-name .check-message].each do |rule|
-        block = styles_css[/#{Regexp.escape(rule)}\s*\{[^}]*\}/]
-        expect(block).to include('min-width: 0')
+    it 'badges: colored text on a wash-tinted fill' do
+      %w[badge-ok badge-warn badge-fail badge-neutral badge-excluded badge-plugin].each do |cls|
+        expect(styles_css).to include(".#{cls}")
       end
     end
+
+    it 'the state table is fixed-layout with the six pinned column widths summing to 100' do
+      widths = { '.col-name' => 30, '.col-config' => 11, '.col-size' => 10,
+                 '.col-state' => 13, '.col-fidelity' => 22, '.col-cached' => 14 }
+      widths.each { |sel, pct| expect(styles_css).to include("#{sel} { width: #{pct}%; }") }
+      expect(widths.values.sum).to eq(100)
+    end
+
+    it 'mono for sizes/fidelity/stamps/port label; fix hints render as a canvas-backed command block' do
+      expect(styles_css).to include('font-family: var(--font-mono)')
+      expect(styles_css).to include('.mono {')
+      expect(styles_css).to include('.fix-hint {')
+      expect(styles_css).to include('background: var(--c-canvas)')
+    end
+
+    it 'accent text appears on cmd command references and the log-live liveness class (connected pill + running status) — one shared declaration' do
+      expect(styles_css).to match(/\.cmd,\s*\.log-live\s*\{/)
+    end
+
+    it 'the connecting pill defaults to muted (neutral) — only .log-live (connected) and .conn-pill-reconnecting override it' do
+      conn_pill = styles_css[/\.conn-pill\s*\{[^}]*\}/]
+      expect(conn_pill).to include('color: var(--c-muted)')
+    end
   end
+
+  describe 'checkbox + toggle column styling (Phase 16 — ported values)' do
+    it 'the checkbox: accent checked-state colour, disabled opacity, and a focus ring — exactly one accent-color declaration' do
+      expect(styles_css).to include('.state-table input[type="checkbox"] {')
+      expect(styles_css).to include('accent-color: var(--c-accent);')
+      expect(styles_css).to include('.state-table input[type="checkbox"]:disabled { opacity: 0.45; cursor: default; }')
+      expect(styles_css).to include('.state-table input[type="checkbox"]:focus-visible')
+      expect(styles_css.scan(/accent-color:/).size).to eq(1)
+    end
+  end
+
   # Plan 14-04 — the Run Log panel and its second ES module, pinned
   # the same way: SERVED bytes for the route rows, FILE bytes for
-  # every copy string and mechanic. The 14-UI-SPEC is BINDING and its
-  # Prohibitions section is testable here: no markup-writing APIs, no
-  # client clock, no scheme-absolute refs, no color-only status.
-  describe 'log.js + Run Log panel (Plan 14-04)' do
+  # every copy string and mechanic. The 14-UI-SPEC Prohibitions
+  # section is testable here: no markup-writing APIs, no client
+  # clock, no scheme-absolute refs, no color-only status.
+  describe 'log.js + Run Log panel (Plan 14-04, app-shell port)' do
     let(:log_js) { File.read(File.join(asset_dir, 'log.js')) }
 
     describe 'serving + module registration' do
@@ -469,10 +711,6 @@ RSpec.describe 'spm-cache web dashboard frontend (Plan 13-03)' do
         res = served('/assets/log.js')
         expect(res.code).to eq('200')
         expect(res['Content-Type']).to eq('application/javascript')
-        # G-13-1: the relative assets/<name> form resolves through the
-        # router's /assets/* arm. log.js rides after app.js and needs
-        # no ordering — the modules share only sessionStorage, never
-        # globals.
         expect(index_html).to include('<script type="module" src="assets/log.js"></script>')
         expect(index_html.index('assets/app.js')).to be < index_html.index('assets/log.js')
         files = Dir.chdir(SPMCache::ROOT) do
@@ -485,10 +723,6 @@ RSpec.describe 'spm-cache web dashboard frontend (Plan 13-03)' do
     describe 'stream wiring (14-01 contract)' do
       it 'reads the shared sessionStorage token key and connects EventSource on the query param' do
         expect(log_js).to include("'spm-cache-web-token'")
-        # 14-05 cutover: connect gained 14-03's optional ?run= param
-        # (loadRun reconnects), so the token-as-query-param posture is
-        # pinned on the composition itself — still ONE EventSource
-        # construction per page (the prohibition row counts it).
         expect(log_js).to include("'/api/events?token=' + token")
       end
 
@@ -500,14 +734,14 @@ RSpec.describe 'spm-cache web dashboard frontend (Plan 13-03)' do
     end
 
     describe 'connection states' do
-      it 'pins the three pill states; CLOSED replaces main content with the locked token-invalid page' do
+      it 'pins the three pill states; CLOSED replaces the whole .app shell with the locked token-invalid page' do
         expect(log_js).to include("'● connecting…'")
         expect(log_js).to include("'● connected'")
         expect(log_js).to include("'↻ reconnecting…'")
         expect(log_js).to include('readyState === EventSource.CLOSED')
         expect(log_js)
           .to include("This page's access token is no longer valid. Restart spm-cache web and open the URL it prints.")
-        expect(log_js).to include("querySelector('main.content')")
+        expect(log_js).to include("querySelector('.app')")
       end
     end
 
@@ -533,7 +767,7 @@ RSpec.describe 'spm-cache web dashboard frontend (Plan 13-03)' do
         expect(log_js).to include("=== 'idle'")
       end
 
-      it 'muted Loading… before the first stream byte; no card until hello' do
+      it 'muted Loading… before the first stream byte; no card unhide until hello' do
         expect(log_js).to include("'Loading…'")
         expect(log_js).to include("class: 'loading'")
         expect(log_js).to include('card.hidden = false')
@@ -556,9 +790,17 @@ RSpec.describe 'spm-cache web dashboard frontend (Plan 13-03)' do
         expect(log_js).to include('data.event !== undefined')
         expect(log_js).to include("data.event === 'run_start'")
       end
+
+      it '#log-count mirrors ringCount + evicted on every append/eviction and every run reset' do
+        expect(log_js).to include('const updateLogCount = () => {')
+        expect(log_js).to include('`${ringCount + evicted} lines`')
+        append = log_js[/const appendLine = \(node\) => \{[\s\S]*?\n  \};/]
+        expect(append).to include('updateLogCount();')
+        expect(log_js.scan(/updateLogCount\(\);/).size).to be >= 3 # appendLine + resetForRun + renderEmptyState
+      end
     end
 
-    describe 'identity card (D-06/D-11)' do
+    describe 'identity card (D-06/D-11) + topbar mirror (app-shell port)' do
       it 'rows: status · trigger badge · mono-600 command · Config · Started(+completed) · argv + run id with titles · redacted suffix' do
         expect(log_js).to include('Config ${')
         expect(log_js).to include("'—'")
@@ -582,6 +824,17 @@ RSpec.describe 'spm-cache web dashboard frontend (Plan 13-03)' do
 
       it 'statusKey maps the FULL CP14 phrase to interrupted — the server vocabulary, never running (D-14 probe catch)' do
         expect(log_js).to include("if (status === 'interrupted' || status === 'interrupted — exit unknown') return 'interrupted';")
+      end
+
+      it 'the SAME derived status/glyph additionally mirrors into #topbar-state — visible on every surface, no new data source' do
+        set_status = log_js[/const setCardStatus = \(key\) => \{[\s\S]*?\n  \};/]
+        expect(set_status).to include('topbarStateEl.textContent = `${status.glyph} ${status.word}`;')
+        expect(log_js).to include("const TOPBAR_STATE_SUFFIX = { running: 'run', success: 'ok', failed: 'fail', interrupted: 'warn' };")
+      end
+
+      it 'the SAME command mirrors into #runstat-cmd — no client clock, no new fetch, same currentHeader.command source' do
+        build_card = log_js[/const buildCard = \(header, key\) => \{[\s\S]*?\n  \};/]
+        expect(build_card).to include('runstatCmdEl.textContent = currentHeader.command')
       end
     end
 
@@ -618,33 +871,24 @@ RSpec.describe 'spm-cache web dashboard frontend (Plan 13-03)' do
     end
 
     describe 'index.html + styles.css skeleton' do
-      it 'Run Log panel FIRST with the a11y-complete skeleton' do
-        expect(index_html.index('<h2>Run Log</h2>')).to be < index_html.index('<h2>Cache State</h2>')
+      it 'Run Log surface FIRST with the a11y-complete skeleton' do
+        expect(index_html.index('id="surface-run"')).to be < index_html.index('id="surface-cache"')
         expect(index_html).to include('<div class="log-viewport" id="log-viewport" role="log" aria-live="off" aria-label="Run output" tabindex="0"></div>')
         expect(index_html).to include('>Phases</div>')
         expect(index_html).to include('>Packages</div>')
         expect(index_html).to include('id="log-overlay"')
         expect(index_html).to include('id="log-banner" role="alert"')
-        # exactly three polite live regions: the card status flip, the
-        # pill, and 15-05's controls message slot (15-UI-SPEC a11y)
-        expect(index_html.scan(/aria-live="polite"/).size).to eq(3)
       end
 
-      it 'styles: log rules on the existing sheet — fixed-height viewport, pre-wrap mono lines, ONE accent-text home' do
-        expect(styles_css.scan(/height: 480px/).size).to eq(3) # graph canvas + log viewport + anchor rail
+      it 'styles: the log stream well is a true-black canvas with pre-wrap mono lines, elastic (not fixed) height' do
         expect(styles_css).to include('.log-viewport')
         expect(styles_css).to include('white-space: pre-wrap')
-        expect(styles_css).to include('background: var(--c-bg)')
-        # A3: accent TEXT stays a single declaration; the .cmd group
-        # carries the sanctioned liveness surfaces (never verdicts) —
-        # 14-05 widens it once more for the active anchor chip (D-09's
-        # accent-badge style), preserving the eq(1) count invariant.
-        expect(styles_css.scan(/(?<!-)color: var\(--c-accent\)/).size).to eq(1)
-        expect(styles_css).to match(/\.cmd,\s*\.log-live,\s*\.log-chip-active\s*\{/)
+        log_stream_col = styles_css[/\.log-stream-col\s*\{[^}]*\}/]
+        expect(log_stream_col).to include('background: var(--c-canvas)')
       end
     end
 
-    describe 'follow/pause + banners + a11y (Plan 14-04 Task 2)' do
+    describe 'follow/pause + banners + a11y (app-shell port: static persistent nodes, not created-per-call)' do
       it 'follow pins instantly: scrollTop = scrollHeight on append, no smooth behavior, ANY upward scroll disengages' do
         expect(log_js).to include('viewport.scrollTop = viewport.scrollHeight')
         expect(log_js).not_to include('smooth')
@@ -652,13 +896,20 @@ RSpec.describe 'spm-cache web dashboard frontend (Plan 13-03)' do
         expect(log_js).to include('viewport.scrollTop < lastScrollTop')
       end
 
-      it 'the pause pill is ONE button carrying the whole label; {N} live and uncapped; activation re-engages + clears + removes' do
+      it 'the pause pill is the static #log-follow-btn node, patched (hidden + label) — never created/appended per call' do
+        pill_fn = log_js[/const renderPill = \(\) => \{[\s\S]*?\n  \};/]
+        expect(pill_fn).not_to match(/if \(!pauseBtn\)/)
+        expect(pill_fn).not_to include('overlay.append')
+        expect(pill_fn).to include('pauseBtn.hidden = false;')
+        expect(pill_fn).to include('pauseBtn.hidden = true;')
+        expect(pill_fn).to include('pauseBtn.textContent = COPY.paused(pending);')
+        expect(log_js).to include("const pauseBtn = byId('log-follow-btn');")
         expect(log_js).to include('paused: (n) => `paused — ${n} new lines · jump to live`')
-        expect(log_js).to include('if (!replaying && !follow && pending >= 1)')
-        expect(log_js).to include('pending += 1')
-        expect(log_js).to include('pending = 0')
-        expect(log_js).to include("type: 'button'")
-        expect(log_js).to include('text: COPY.paused(pending)')
+      end
+
+      it "the pause pill's click listener attaches ONCE at boot(), not per render" do
+        boot = log_js[/const boot = \(\) => \{[\s\S]*?\n  \};/]
+        expect(boot).to include('pauseBtn.addEventListener(\'click\', resumeFollow);')
       end
 
       it 'during initial replay the pill never shows; follow engages at completion (D-01/D-13)' do
@@ -667,12 +918,27 @@ RSpec.describe 'spm-cache web dashboard frontend (Plan 13-03)' do
         expect(log_js).to include('const atBottom = () =>')
       end
 
-      it 'non-zero run_end → sticky Run failed banner with the jump button, role=alert, NO dismiss control' do
+      it 'non-zero run_end → sticky Run failed banner via #log-banner-text, role=alert, NO dismiss control' do
         expect(log_js).to include('failedBanner: (status) => `Run failed — exit status ${status}`')
         expect(log_js).to include("jumpToError: 'Jump to first error'")
-        expect(log_js).to include('bannerEl.hidden = false')
+        expect(log_js).to include('bannerTextEl.textContent =')
+        expect(log_js).to include('bannerEl.hidden = false;')
         expect(log_js).not_to match(/dismiss/i)
         expect(log_js).not_to include("'Close'")
+        expect(index_html).to include('id="log-banner-jump">Jump to first error</button>')
+      end
+
+      it 'the banner glyph/class flip dynamically between fail (✗) and warn (!) on the static glyph span' do
+        show_banner = log_js[/const showBanner = \(kind, status\) => \{[\s\S]*?\n  \};/]
+        expect(show_banner).to include("querySelector('.log-banner-glyph')")
+        expect(show_banner).to include("failed ? '✗' : '!'")
+      end
+
+      it "the banner jump button's click listener attaches ONCE at boot(), not per showBanner call" do
+        boot = log_js[/const boot = \(\) => \{[\s\S]*?\n  \};/]
+        expect(boot).to include('bannerJumpBtn.addEventListener(\'click\', jumpToFirstError);')
+        show_banner = log_js[/const showBanner = \(kind, status\) => \{[\s\S]*?\n  \};/]
+        expect(show_banner).not_to include('addEventListener')
       end
 
       it 'CP14 interrupt → Run interrupted — exit unknown. banner with the same jump button' do
@@ -702,12 +968,11 @@ RSpec.describe 'spm-cache web dashboard frontend (Plan 13-03)' do
         expect(log_js).to match(/resetForRun\(data\.run, true\)/)
       end
 
-      it 'focus-visible accent rings cover pill/chip/select controls; native button only; pill name = full label' do
-        %w[.log-pill-btn .log-chip .log-runs-select].each do |rule|
+      it 'focus-visible accent rings cover pill/chip/select/filter-pill controls; native button only; pill name = full label' do
+        %w[.log-pill-btn .log-chip .log-runs-select .log-filter-pill].each do |rule|
           expect(styles_css).to include("#{rule}:focus-visible")
         end
         expect(styles_css).to include('outline: 2px solid var(--c-accent)')
-        expect(log_js.scan(/el\('button'/).size).to be >= 2 # the pause pill + the jump button — native controls only
       end
 
       it 'teardown safety: the token-invalid replacement stops every stream handler (app.js bail-out guard)' do
@@ -717,24 +982,19 @@ RSpec.describe 'spm-cache web dashboard frontend (Plan 13-03)' do
       end
     end
   end
+
   # Plan 14-05 Task 1 — the anchor rail (D-07/D-08), jump + filter
-  # dimming (D-09), the filter pill, and banner piercing (D-10). Same
-  # discipline as 14-04: FILE bytes pin every mechanic. The 14-UI-SPEC
-  # Interaction rows and assumptions A5 (dim, never hide) and A10
-  # (dedupe by name, first position) are BINDING here.
+  # dimming (D-09), the filter pill, and banner piercing (D-10).
+  # Unaffected by the app-shell port except the filter pill's DOM
+  # lifecycle (created-per-call → static-patched) and its active
+  # styling (the redesign's own accent-badge choice for the chip).
   describe 'log.js anchor rail + filter + piercing (Plan 14-05)' do
     let(:log_js) { File.read(File.join(asset_dir, 'log.js')) }
 
     it 'chips: package names verbatim + the four phase markers; duplicates dedupe by name, first position wins (A10); no chips for no-line or unknown events' do
       expect(log_js).to include("addAnchor('package', name, divider)")
       expect(log_js).to include("addAnchor('phase', name, divider)")
-      # A10: dedupe-by-name, first position wins — defensive only in the
-      # frozen Phase-12 vocabulary
       expect(log_js).to include('if (anchors.some((a) => a.kind === kind && a.name === name)) return;')
-      # addAnchor exists ONLY inside the divider branch: the 14-04 taxonomy
-      # rows already pin package_end/run_start/run_end/sh/unknown keys to
-      # no-line returns — chips render as their anchor events arrive, no
-      # placeholders (D-07)
       expect(log_js.scan(/addAnchor\(/).size).to eq(2)
       expect(log_js).to match(/data\.event === 'package_start' \|\| data\.event === 'phase'[\s\S]*?addAnchor\('package'/)
     end
@@ -755,41 +1015,41 @@ RSpec.describe 'spm-cache web dashboard frontend (Plan 13-03)' do
       expect(log_js).to include('jumpToAnchor(anchor);')
     end
 
-    it 'package filter: the package_start..package_end segment stays primary (inclusive); every other line — before the first anchor included — takes the dim class; NO line leaves the DOM (A5)' do
+    it 'package filter: the package_start..package_end segment stays primary (inclusive); every other line takes the dim class; NO line leaves the DOM (A5)' do
       expect(log_js).to include('const matches = (line) => {')
       expect(log_js).to include('seg.pkg === activeFilter.name')
       expect(log_js).to include("classList.toggle('log-dim', !matches(node));")
       apply = log_js[/const applyFilter = \(\) => \{[\s\S]*?\n  \};/]
       expect(apply).to include("classList.toggle('log-dim', !matches(line));")
-      expect(apply).not_to include('remove') # A5: dim, never hide — no DOM removal in the filter path
+      expect(apply).not_to include('remove')
     end
 
     it 'phase filter: from the marker to the line before the next phase marker OR package_start (segment rules verbatim)' do
       expect(log_js).to include('seg.phase === activeFilter.name')
       expect(log_js).to include('segPackage = name;')
-      expect(log_js).to include('segPhase = null;') # a package_start ends the phase segment
+      expect(log_js).to include('segPhase = null;')
       expect(log_js).to include('SEG.set(divider, { pkg: name, phase: null });')
       expect(log_js).to include('SEG.set(divider, { pkg: null, phase: name });')
     end
 
-    it 'filter pill: ONE button carrying filtered: {name}; activation clears the filter with the view put; 240px max-width + ellipsis + tooltip' do
+    it 'filter pill: the static #log-filter-pill node is patched (label/title/hidden) — never created per call; activation clears the filter with the view put' do
       expect(log_js).to include('filtered: (name) => `filtered: ${name}`')
-      expect(log_js).to include('if (activeFilter) {')
-      expect(log_js).to include('text: COPY.filtered(activeFilter.name),')
-      expect(log_js).to include('title: COPY.filtered(activeFilter.name),')
-      expect(log_js).to include("fp.addEventListener('click', clearFilter);")
+      pill_fn = log_js[/const renderPill = \(\) => \{[\s\S]*?\n  \};/]
+      expect(pill_fn).not_to match(/if \(!filterBtn\)/)
+      expect(pill_fn).to include('filterBtn.textContent = COPY.filtered(activeFilter.name);')
+      expect(pill_fn).to include('filterBtn.title = COPY.filtered(activeFilter.name);')
+      boot = log_js[/const boot = \(\) => \{[\s\S]*?\n  \};/]
+      expect(boot).to include('filterBtn.addEventListener(\'click\', clearFilter);')
       expect(styles_css).to match(/\.log-filter-pill\s*\{[^}]*max-width: 240px[^}]*text-overflow: ellipsis/)
+      expect(index_html).to match(%r{id="log-filter-pill" hidden></button>})
     end
 
-    it 'active chip: accent badge style (text on 10%-alpha fill) + aria-pressed=true; clicking the ACTIVE chip clears the filter with the view staying put' do
+    it 'active chip: aria-pressed=true + the redesign\'s own accent-wash badge style; clicking the ACTIVE chip clears the filter with the view staying put' do
       expect(log_js).to include("chip.setAttribute('aria-pressed', isActive ? 'true' : 'false');")
       expect(log_js).to match(%r{if \(isActive\) \{\s*clearFilter\(\); //})
       expect(styles_css).to include('.log-chip-active')
-      expect(styles_css).to include('rgba(33, 150, 243, 0.1)')
-      # A3: the active chip joins the ONE accent-text declaration's group —
-      # still exactly one accent-color declaration on the sheet
-      expect(styles_css).to match(/\.cmd,\s*\.log-live,\s*\.log-chip-active\s*\{/)
-      expect(styles_css.scan(/(?<!-)color: var\(--c-accent\)/).size).to eq(1)
+      log_chip_active = styles_css[/\.log-chip-active\s*\{[^}]*\}/]
+      expect(log_chip_active).to include('background: var(--wash-accent)')
     end
 
     it 'piercing: the banner renders regardless of filter state — its slot sits outside the filtered viewport and its render path never reads filter state (D-10)' do
@@ -799,8 +1059,6 @@ RSpec.describe 'spm-cache web dashboard frontend (Plan 13-03)' do
       expect(on_run_end).not_to include('activeFilter')
       show_banner = log_js[/const showBanner = \(kind, status\) => \{[\s\S]*?\n  \};/]
       expect(show_banner).not_to include('activeFilter')
-      # the dim walk is scoped to the viewport's own lines — the banner is
-      # not a line and can never take the dim class
       expect(log_js).to include("viewport.querySelectorAll('.log-line').forEach((line) => {")
     end
 
@@ -818,11 +1076,8 @@ RSpec.describe 'spm-cache web dashboard frontend (Plan 13-03)' do
 
   # Plan 14-05 Task 2 — auto-switch + switch notice (D-04), the
   # recent-runs dropdown (D-12), and verbatim notice/lock-wait
-  # rendering (D-05). FILE bytes pin every mechanic; the pinned rule
-  # that the notice's {run-id} comes from the client's
-  # previously-DISPLAYED run (view state), never the switch event's
-  # previous field, is cross-checked against 14-03's pinned-connection
-  # broadcasts here.
+  # rendering (D-05). Unaffected by the app-shell port except the
+  # switch notice's DOM lifecycle (created-per-call → static-patched).
   describe 'log.js auto-switch + recent runs + notices (Plan 14-05)' do
     let(:log_js) { File.read(File.join(asset_dir, 'log.js')) }
 
@@ -833,19 +1088,25 @@ RSpec.describe 'spm-cache web dashboard frontend (Plan 13-03)' do
       expect(log_js).to include('pinned = false;')
       expect(log_js).to include('source.close();')
       expect(log_js).to include('connect(storedToken());')
-      # payload validity is the ONLY guard — the view-state check is
-      # gone (D-04: unconditional, even mid-read of an older run)
       expect(log_js).not_to include('data.run === currentRun')
     end
 
-    it "switch notice: 'switched to new run — previous: {run-id}' in ONE slot (a newer switch replaces the text); the run id is an accent control wired from the PREVIOUSLY-DISPLAYED run, never the event's previous field" do
+    it "switch notice: the static #log-switch-btn is patched with the PREVIOUSLY-DISPLAYED run's id (view state, never the wire's previous field)" do
       expect(log_js).to include("switchNotice: 'switched to new run — previous: '")
-      expect(log_js).to include('renderSwitchNotice(previousRun);')
-      expect(log_js).to include('switchBar.replaceChildren(')
-      expect(log_js).to match(/el\('button', \{\s*type: 'button',\s*class: 'log-pill-btn log-runid-btn',/)
-      expect(log_js).to include('text: previousRun,')
-      expect(log_js).to include('title: previousRun,')
-      expect(log_js).not_to include('data.previous') # view state, never the wire's previous field
+      expect(index_html).to include('switched to new run — previous: ')
+      expect(log_js).to include('let switchTargetRun = null;')
+      render_notice = log_js[/const renderSwitchNotice = \(previousRun\) => \{[\s\S]*?\n  \};/]
+      expect(render_notice).to include('switchTargetRun = previousRun;')
+      expect(render_notice).to include('switchBtn.textContent = previousRun;')
+      expect(render_notice).to include('switchBtn.title = previousRun;')
+      expect(render_notice).not_to include('el(\'button\'')
+      expect(render_notice).not_to include('replaceChildren')
+      expect(log_js).not_to include('data.previous')
+    end
+
+    it "the switch button's click listener attaches ONCE at boot(), reading switchTargetRun (the old per-call closure no longer exists)" do
+      boot = log_js[/const boot = \(\) => \{[\s\S]*?\n  \};/]
+      expect(boot).to include('switchBtn.addEventListener(\'click\', () => { if (switchTargetRun) loadRun(switchTargetRun); });')
     end
 
     it 'no previously-displayed run → NO notice: the slot stays hidden (first run of a session; a switch arriving into the empty state)' do
@@ -856,7 +1117,6 @@ RSpec.describe 'spm-cache web dashboard frontend (Plan 13-03)' do
       expect(log_js).to include('const loadRun = (name) => {')
       expect(log_js).to include("'&run=' + encodeURIComponent(run)")
       expect(log_js).to include('connect(storedToken(), name);')
-      expect(log_js).to match(/control\.addEventListener\('click', \(\) => loadRun\(previousRun\)\);/)
       expect(log_js).to match(/loadRun\(runsSelect\.value\)/)
       expect(log_js.scan(/const loadRun = /).size).to eq(1)
       expect(log_js).not_to include('location.reload')
@@ -872,7 +1132,7 @@ RSpec.describe 'spm-cache web dashboard frontend (Plan 13-03)' do
       expect(log_js).to include('entry.run === currentRun ? COPY.viewingSuffix')
     end
 
-    it "entry template '{glyph} {command} · {relative}' — the glyph per derived state; 10 newest, newest first (the server's newest-first listing renders in order)" do
+    it "entry template '{glyph} {command} · {relative}' — the glyph per derived state; 10 newest, newest first" do
       expect(log_js).to include('const RUNS_GLYPH = {')
       expect(log_js).to include("running: '●',")
       expect(log_js).to include("success: '✓',")
@@ -908,56 +1168,47 @@ RSpec.describe 'spm-cache web dashboard frontend (Plan 13-03)' do
       expect(log_js).to include("class: 'log-line log-notice'")
       expect(log_js).not_to include('lines dropped')
       expect(log_js).not_to include('run log pruned')
-      # a pruned pinned run's notice precedes the unpinned reconnect —
-      # the fallback rides the switch handler's pin-drop
       expect(log_js).to include('if (pinned) {')
       events_rb = File.read(File.join(SPMCache::ROOT, 'lib/spm_cache/web/events.rb'))
       expect(events_rb).to include('lines dropped')
       expect(events_rb).to include('run log pruned while viewing; switching to newest')
     end
 
-    it "lock-wait: 'Waiting for build lock…' renders as a plain out line — no badge, no card lock state, no special-case RENDER path (A11; 15-05 A10 adds the byte-compare emission constant only)" do
-      # 15-05 A10 amendment: log.js now carries the frozen line ONCE,
-      # as the milestone emission's byte-compare constant. The RENDER
-      # contract stands — the line takes the exact plain path every out
-      # line takes: no class, no badge, no card surface, no hello field.
+    it "lock-wait: 'Waiting for build lock…' renders as a plain out line — no badge, no card lock state, no special-case RENDER path (A11)" do
       expect(log_js.scan(/Waiting for build lock…/).size).to eq(1)
       expect(log_js).not_to include('.lock')
       expect(log_js).not_to include('lock-wait')
       expect(log_js).not_to include('payload.lock')
-      expect(log_js).to include("class: isErr ? 'log-line log-err' : 'log-line',") # the exact path every out line takes
+      expect(log_js).to include("class: isErr ? 'log-line log-err' : 'log-line',")
       append = log_js[/const appendBody = \(data\) => \{[\s\S]*?\n  \};/]
-      expect(append).not_to include('Waiting for build lock') # the render path references the constant, never a literal
-      # the card path renders status only — where a lock surface would
-      # have lived, nothing lands (the hello deepening stays status-only)
+      expect(append).not_to include('Waiting for build lock')
       expect(log_js).to include('} else if (cardPending) {')
     end
   end
 
-  # Plan 15-05 — the controls surface. Same pin idiom: served HTML for
-  # structure and order, asset-file source for behavior contracts and
-  # prohibitions. The 15-UI-SPEC is BINDING: the copy table is
-  # byte-exact, the row renders unconditionally (A5), and the busy
-  # answer must be branchable from a failure at the call site.
-  describe 'build controls row (Plan 15-05 Task 1)' do
+  # Plan 15-05 — the controls surface. Now living in the topbar per the
+  # app-shell redesign (rationale section 2: "build controls moved out
+  # of the Run panel"). The copy table stays byte-exact; the row
+  # renders unconditionally (A5); the busy answer stays branchable from
+  # a failure at the call site.
+  describe 'build controls (Plan 15-05 Task 1, app-shell port: topbar not the Run Log panel)' do
     let(:log_js) { File.read(File.join(asset_dir, 'log.js')) }
 
-    it 'structure: the row is the Run Log panel body FIRST child, ahead of the identity card; three native buttons in pinned DOM order + the right-aligned message slot' do
-      body_at = index_html.index('<div class="panel-body" id="log-body">')
-      row_at = index_html.index('<div class="build-controls" id="build-controls">')
-      card_at = index_html.index('id="log-card"')
-      expect(row_at).to be > body_at
-      expect(row_at).to be < card_at
-      # A5: static markup — never data-gated, so the cold 'No runs yet'
-      # dashboard renders the enabled row (not hidden in the source).
-      expect(index_html).not_to include('build-controls" hidden')
+    it 'structure: three native buttons in pinned DOM order inside #build-controls, in the topbar-right group + the message slot' do
+      topbar_right_at = index_html.index('<div class="topbar-right">')
+      build_controls_at = index_html.index('<div class="build-controls" id="build-controls">')
+      alert_rail_at = index_html.index('<div class="alert-rail" id="alert-rail">')
+      expect(build_controls_at).to be > topbar_right_at
+      expect(index_html).not_to include('build-controls" hidden') # A5: static markup, never data-gated
       row = index_html[%r{<div class="build-controls"[\s\S]*?</div>}]
-      expect(row).to include('<button type="button" class="btn" id="ctl-build">Build</button>')
-      expect(row).to include('<button type="button" class="btn" id="ctl-rebuild">Rebuild all</button>')
-      expect(row).to include('<button type="button" class="btn btn-danger" id="ctl-rollback">Rollback</button>')
+      expect(row).to include('id="ctl-build">Build</button>')
+      expect(row).to include('id="ctl-rebuild">Rebuild all</button>')
+      expect(row).to include('id="ctl-rollback">Rollback</button>')
       expect(row.index('id="ctl-build"')).to be < row.index('id="ctl-rebuild"')
       expect(row.index('id="ctl-rebuild"')).to be < row.index('id="ctl-rollback"')
-      expect(row).to include('<span class="ctl-message" id="ctl-message" aria-live="polite" hidden></span>')
+      expect(row).to include('id="ctl-message" aria-live="polite" hidden')
+      # the confirm bar (Task 2) lives in the alert rail, a SIBLING structure — not nested in build-controls
+      expect(alert_rail_at).to be < index_html.index('<div class="shell">')
     end
 
     it 'copy: the three button labels are byte-exact against the 15-UI-SPEC copy table (Rebuild all capitalized)' do
@@ -1016,8 +1267,6 @@ RSpec.describe 'spm-cache web dashboard frontend (Plan 13-03)' do
       settle = app_js[/const settle = \(name, ans\) => \{[\s\S]*?\n  \};/]
       expect(settle.index('ans.status === 409')).to be < settle.index('!ans.ok')
       expect(settle).to include('say(CTRL.busy, true)')
-      # Phase 16 (16-UI-SPEC A4): superseded the two-verb string the
-      # moment Apply now joined the shared slot.
       expect(app_js).to include("busy: 'A build, rollback, or apply is already running — wait for it to finish.'")
       [app_js, log_js, index_html].each do |asset|
         expect(asset).not_to include('slot_busy')
@@ -1036,10 +1285,10 @@ RSpec.describe 'spm-cache web dashboard frontend (Plan 13-03)' do
     it 'prohibitions: no markup assignment and no native dialog in the new code; every asset reference in the served index resolves (G-13-1 gate)' do
       %w[innerHTML insertAdjacentHTML document.write outerHTML].each { |api| expect(app_js).not_to include(api) }
       [app_js, log_js].each { |asset| expect(asset).not_to match(/\balert\(|\bconfirm\(|\bprompt\(/) }
-      # T-15-22: envelope messages are server-authored strings — the
-      # message slot is the new DOM surface they reach, textContent only.
       expect(app_js).to include('msg.textContent = text')
-      refs = index_html.scan(/(?:href|src)="([^"]+)"/).flatten
+      # the skip-link's #surface-main is an in-page anchor, not an asset
+      # reference — every OTHER href/src in the document still resolves.
+      refs = index_html.scan(/(?:href|src)="([^"]+)"/).flatten.reject { |r| r.start_with?('#') }
       expect(refs).not_to be_empty
       refs.each do |ref|
         expect(ref).to start_with('assets/')
@@ -1056,23 +1305,26 @@ RSpec.describe 'spm-cache web dashboard frontend (Plan 13-03)' do
     end
   end
 
-  describe 'rollback confirm bar + run-progress coupling (Plan 15-05 Task 2)' do
+  describe 'rollback confirm bar + run-progress coupling (Plan 15-05 Task 2, app-shell port: alert-rail not a Run Log swap)' do
     let(:log_js) { File.read(File.join(asset_dir, 'log.js')) }
 
-    it 'confirm bar structure: grouped + labelled region with the pinned sentence, a danger Confirm and a quiet Cancel; the bar and the row are a hidden swap — exactly one visible' do
+    it 'confirm bar structure: grouped + labelled region with the pinned sentence, a danger Confirm and a quiet Cancel, in the alert rail' do
       bar = index_html[%r{<div class="build-confirm"[\s\S]*?</div>}]
       expect(bar).to include('id="build-confirm" role="group" aria-label="Confirm rollback" hidden')
       expect(bar).to include('<span class="build-confirm-text">Restore source mode — this removes proxy packages from the Xcode project</span>')
       expect(bar).to include('<button type="button" class="btn btn-danger" id="ctl-confirm">Confirm</button>')
       expect(bar).to include('<button type="button" class="btn btn-quiet" id="ctl-cancel">Cancel</button>')
-      expect(index_html).to include('<div class="build-controls" id="build-controls">') # the row container ships VISIBLE (the message slot inside it may hide)
+      expect(index_html).to include('<div class="build-controls" id="build-controls">') # the topbar row ships VISIBLE (the message slot inside it may hide)
       expect(app_js).to include('const disarmBar = () => { bar.hidden = true; row.hidden = false; };')
+      alert_rail = index_html[%r{<div class="alert-rail"[\s\S]*?</div>\s*</div>}]
+      expect(alert_rail).to include('id="build-confirm"')
     end
 
     it 'confirm bar keyboard order: Cancel precedes Confirm in the DOM — focus lands on Cancel and Tab reaches Confirm (A6; D-15 probe catch)' do
       bar = index_html[%r{<div class="build-confirm".*?</div>}m]
       expect(bar.index('id="ctl-cancel"')).to be < bar.index('id="ctl-confirm"')
     end
+
     it 'confirm copy byte-exact — sentence, Confirm label, Cancel label, em dash included' do
       expect(index_html).to include('Restore source mode — this removes proxy packages from the Xcode project')
       expect(index_html).to include('>Confirm</button>')
@@ -1104,8 +1356,6 @@ RSpec.describe 'spm-cache web dashboard frontend (Plan 13-03)' do
 
     it 'no native dialog function anywhere in the asset set (prohibition 3)' do
       [app_js, log_js, index_html].each { |asset| expect(asset).not_to match(/\balert\(|\bconfirm\(|\bprompt\(/) }
-      # the inline affordances ARE the no-dialog mechanism: the bar's
-      # own Cancel button, in-DOM, never a modal (D-08)
       bar = index_html[%r{<div class="build-confirm"[\s\S]*?</div>}]
       expect(bar).to include('id="ctl-cancel"')
       expect(bar).not_to match(/dialog|modal/i)
@@ -1118,7 +1368,6 @@ RSpec.describe 'spm-cache web dashboard frontend (Plan 13-03)' do
       append = log_js[/const appendBody = \(data\) => \{[\s\S]*?\n  \};/]
       expect(append).to include("emitProgress('waiting');")
       expect(append).to include("emitProgress('active');")
-      # no ES import statements — the modules stay independent
       %w[app.js log.js].each do |f|
         expect(File.read(File.join(asset_dir, f))).not_to match(/^\s*import\s/m)
       end
@@ -1137,16 +1386,7 @@ RSpec.describe 'spm-cache web dashboard frontend (Plan 13-03)' do
       expect(on_run_end).to include("emitProgress('ended');")
     end
 
-    it 'WR-01: emitProgress no-ops while pinned to a user-selected run — a pinned run\'s own body-line/run-end milestones must never drive the CLICK-scoped controls row' do
-      # A pinned view (loadRun) is ALWAYS an explicit user selection, live
-      # or historical, and onSwitchEvent unconditionally clears `pinned`
-      # the moment ANY new run's own switch broadcast lands -- including
-      # the run this tab's own Build/Rollback click just spawned. So by
-      # the time `currentRun` genuinely IS the click-spawned run, `pinned`
-      # is guaranteed false; suppressing emission while pinned is true
-      # therefore never withholds a milestone for the run the click
-      # actually started -- only for whatever unrelated run the viewer
-      # happens to be pinned to (replaying or not).
+    it "WR-01: emitProgress no-ops while pinned to a user-selected run — a pinned run's own body-line/run-end milestones must never drive the CLICK-scoped controls row" do
       emit = log_js[/const emitProgress = \(phase\) => \{[\s\S]*?\n  \};/]
       expect(emit).to include('if (pinned) return;')
     end
@@ -1167,41 +1407,36 @@ RSpec.describe 'spm-cache web dashboard frontend (Plan 13-03)' do
       settle = app_js[/const settle = \(name, ans\) => \{[\s\S]*?\n  \};/]
       expect(settle.index("data.lock.state === 'held'")).to be < settle.index('say(CTRL.inflight[name])')
       expect(settle).to include('say(CTRL.wait);')
-      # D-06's one-string-three-surfaces: the row message and log.js's
-      # emission constant are the SAME bytes the Installer prints.
       expect(app_js).to include("wait: 'Waiting for build lock…'")
       expect(log_js).to include("const WAIT_LINE = 'Waiting for build lock…';")
     end
 
     it 'A3: nothing in the controls code disables a button because lock data says held — disabled derives only from this tab own pending POST or in-flight run' do
       controls = app_js[%r{// -- 11\. build controls[\s\S]*?boot\(\);}]
-      # Phase 16 (16-05 Task 2, A5): Apply now joins the freeze set —
-      # `applyBtn`/`revertBtn` are the bar's own buttons, looked up
-      # fresh (never cached) because the bar's nodes are recreated by
-      # every render; Revert all is disabled only by its OWN click
-      # (A3: it is not part of the freeze set).
       expect(controls.scan(/\w+\.disabled = /).uniq.sort)
         .to eq(['applyBtn.disabled = ', 'b.disabled = ', 'barCancel.disabled = ', 'barConfirm.disabled = ',
                 'revertBtn.disabled = '])
       freeze_block = controls[/const freeze = \(on\) => \{[\s\S]*?\n  \};/]
-      expect(freeze_block).to include('b.disabled = on') # the row buttons only ever disable via freeze()
+      expect(freeze_block).to include('b.disabled = on')
       expect(controls.lines.any? { |l| l.include?('lock') && l.include?('disabled') }).to be(false)
     end
   end
 
-  describe '14-UI-REVIEW polish fold (Plan 15-05 Task 3)' do
+  describe 'app-shell polish (successor to the 14-UI-REVIEW fold, Plan 15-05 Task 3)' do
     let(:log_js) { File.read(File.join(asset_dir, 'log.js')) }
 
-    it 'W1: the shared button and pill-button rules render labels in the amended dark foreground on the accent fill (retroactive to the follow pill, filter pill, jump button and run-id control); the danger rule does the same on the fail fill' do
+    it 'W1 lives on: the shared button and pill-button rules render labels in the dark foreground on the accent/fail fill (now ≈21:1/≈6:1 under the Grok palette)' do
       btn = styles_css[/\.btn\s*\{[^}]*\}/]
-      expect(btn).to include('background: var(--c-accent)')
-      expect(btn).to include('color: var(--c-bg)') # #0D1117 on accent ≈6.1:1 (AA)
+      expect(btn).not_to be_nil
+      primary = styles_css[/\.btn-primary\s*\{[^}]*\}/]
+      expect(primary).to include('background: var(--c-accent)')
+      expect(primary).to include('color: var(--c-bg)')
       pill = styles_css[/\.log-pill-btn\s*\{[^}]*\}/]
       expect(pill).to include('background: var(--c-accent)')
       expect(pill).to include('color: var(--c-bg)')
       danger = styles_css[/\.btn-danger\s*\{[^}]*\}/]
       expect(danger).to include('background: var(--c-fail)')
-      expect(danger).to include('color: var(--c-bg)') # ≈6.0:1 on fail
+      expect(danger).to include('color: var(--c-bg)')
     end
 
     it 'W1 regression: no rule anywhere in the sheet still pairs a pure-white label with the accent or fail fill' do
@@ -1209,34 +1444,25 @@ RSpec.describe 'spm-cache web dashboard frontend (Plan 13-03)' do
       expect(styles_css).not_to include('color: #fff')
     end
 
-    it 'W5: the switch notice carries the pinned sm bottom margin — no longer flush against the stream row' do
-      sw = styles_css[/\.log-switch\s*\{[^}]*\}/]
+    it 'W5 lives on: the switch notice carries a bottom margin — no longer flush against the stream row' do
+      sw = styles_css[/\.log-banner,\s*\n\.log-switch\s*\{[^}]*\}/m]
       expect(sw).to include('margin-bottom: var(--space-sm)')
     end
 
-    it 'M1: the identity card internal row gap is the pinned sm token (14 own spacing contract)' do
-      card = styles_css[/\.log-card\s*\{[^}]*\}/]
-      expect(card).to include('gap: var(--space-sm)')
-    end
-
-    it 'W3 pills: the pause and filter controls are persistent nodes whose visibility and label are patched — the overlay is never wholesale replaced on a queued line' do
+    it 'W3 pills: the follow and filter controls are now STATIC persistent nodes from page load — never created/appended, so the overlay is never wholesale replaced' do
       pill_fn = log_js[/const renderPill = \(\) => \{[\s\S]*?\n  \};/]
       expect(pill_fn).not_to include('overlay.replaceChildren')
-      expect(pill_fn).to include('if (!pauseBtn) {')
-      expect(pill_fn).to include('pauseBtn.hidden = false;')
-      expect(pill_fn).to include('pauseBtn.hidden = true;')
+      expect(pill_fn).not_to include('overlay.append')
       expect(pill_fn).to include('pauseBtn.textContent = COPY.paused(pending);')
-      expect(pill_fn).to include('if (!filterBtn) {')
-      expect(pill_fn).to include('filterBtn.hidden = false;')
-      expect(pill_fn).to include('filterBtn.hidden = true;')
+      expect(pill_fn).to include('filterBtn.textContent = COPY.filtered(activeFilter.name);')
     end
 
     it 'W3 chips: chips reconcile against the anchor set rather than being removed and recreated — the active state is patched in place on the surviving node' do
       chips_fn = log_js[/const renderChips = \(\) => \{[\s\S]*?\n  \};/]
-      expect(chips_fn).not_to include('}).forEach((chip) => chip.remove());') # the unconditional wipe is gone
+      expect(chips_fn).not_to include('}).forEach((chip) => chip.remove());')
       expect(chips_fn).to include("chip.setAttribute('aria-pressed', isActive ? 'true' : 'false');")
       expect(chips_fn).to include("chip.classList.toggle('log-chip-active', isActive)")
-      expect(chips_fn).to include('if (!chip || !chip.isConnected) {') # append only for genuinely new anchors
+      expect(chips_fn).to include('if (!chip || !chip.isConnected) {')
     end
 
     it 'W3 focus proof: the reconciliation detaches nothing when unrelated anchors arrive — creation-append is guarded, removal fires only for chips whose anchor left the set' do
@@ -1247,36 +1473,22 @@ RSpec.describe 'spm-cache web dashboard frontend (Plan 13-03)' do
       expect(chips_fn).not_to include('railPackages.replaceChildren')
     end
 
-    it 'W4: exactly one narrow-viewport breakpoint stacks the anchor rail below the stream at full width; the overlay pill row and panel actions wrap; no fixed rail width applies below it' do
-      expect(styles_css.scan(/@media/).size).to eq(1)
-      media = styles_css[styles_css.index('@media')..]
-      expect(media).to include('@media (max-width: 800px)')
-      expect(media[/\.log-stream-row\s*\{[^}]*\}/]).to include('flex-direction: column')
-      expect(media[/\.log-rail\s*\{[^}]*\}/]).to include('width: 100%')
-      expect(media[/\.log-overlay\s*\{[^}]*\}/]).to include('flex-wrap: wrap')
-      expect(media[/\.panel-actions\s*\{[^}]*\}/]).to include('flex-wrap: wrap')
+    it 'W4 successor: the sheet carries a small number of documented breakpoints (1080px chrome-trim + 900px stack + reduced-motion) — no undocumented ones' do
+      expect(styles_css.scan(/@media/).size).to eq(3)
+      expect(styles_css).to include('@media (max-width: 1080px)')
+      expect(styles_css).to include('@media (max-width: 900px)')
+      expect(styles_css).to include('@media (prefers-reduced-motion: reduce)')
+      stack = styles_css[/@media \(max-width: 900px\) \{[\s\S]*?\n\}/]
+      expect(stack[/\.log-stream-row\s*\{[^}]*\}/]).to include('flex-direction: column')
+      expect(stack[/\.shell\s*\{[^}]*\}/]).to include('grid-template-columns: 1fr')
     end
   end
 
   # Plan 16-05 Task 1 — the sixth column: native toggle checkboxes,
   # verbatim reason chips, the pending marker, instant persist, poll
-  # integrity (A8), and the toggle-save failure line. Same idiom as
-  # every prior plan: FILE bytes pin every mechanic (16-UI-SPEC is
-  # BINDING; this repo runs no JavaScript in CI — 16-06 proves
-  # behavior in a real browser).
+  # integrity (A8), and the toggle-save failure line. Unaffected by
+  # the app-shell port beyond the ported column widths/checkbox opacity.
   describe 'the Cached column — toggles, reasons, poll integrity (Plan 16-05 Task 1)' do
-    it 'the column arrays carry a sixth Cached entry and the sheet re-partitions to the pinned six widths' do
-      expect(app_js).to include("const COLS = ['Package', 'Config', 'Size', 'State', 'Fidelity', 'Cached'];")
-      expect(app_js).to include(
-        "const COL_CLASS = ['col-name', 'col-config', 'col-size', 'col-state', 'col-fidelity', 'col-cached'];"
-      )
-      widths = { '.col-name' => 36, '.col-config' => 12, '.col-size' => 10,
-                 '.col-state' => 12, '.col-fidelity' => 18, '.col-cached' => 12 }
-      widths.each { |sel, pct| expect(styles_css).to include("#{sel} { width: #{pct}%; }") }
-      expect(widths.values.sum).to eq(100)
-      expect(styles_css).not_to include('.col-name { width: 40%; }')
-    end
-
     it 'the checkbox: checked from saved_cached, disabled from NOT toggleable, aria-label carries the RAW name' do
       row = app_js[/const stateRow = \(p\) => \{[\s\S]*?\n  \};/]
       expect(row).to include('checkbox.checked = p.saved_cached;')
@@ -1338,66 +1550,48 @@ RSpec.describe 'spm-cache web dashboard frontend (Plan 13-03)' do
       expect(show).to include("class: 'toggle-failure'")
     end
 
-    it 'the sheet: accent checked-state colour, the sheet disabled opacity, the focus ring extended to the checkbox' do
-      expect(styles_css).to include('.state-table input[type="checkbox"] {')
-      expect(styles_css).to include('accent-color: var(--c-accent);')
-      expect(styles_css).to include('.state-table input[type="checkbox"]:disabled {')
-      expect(styles_css).to include('opacity: 0.6;')
-      expect(styles_css).to include('.state-table input[type="checkbox"]:focus-visible {')
-      expect(styles_css.scan(/accent-color:/).size).to eq(1)
-    end
-
     it 'prohibition sweep: no markup-assignment API, no dialog, no new timer, no clock, no role=switch, no master checkbox, no per-row apply button' do
       %w[innerHTML insertAdjacentHTML document.write outerHTML].each { |api| expect(app_js).not_to include(api) }
       expect(app_js).not_to match(/\balert\(|\bconfirm\(|\bprompt\(/)
       expect(app_js.scan(/set(?:Timeout|Interval)|requestAnimationFrame/).size).to eq(1)
       expect(app_js).not_to include('Date.now')
       expect(app_js).not_to match(/role=["']switch["']/)
-      expect(app_js.scan(/\.type = 'checkbox'/).size).to eq(1) # exactly one construction site — no master checkbox
+      expect(app_js.scan(/\.type = 'checkbox'/).size).to eq(1)
       row = app_js[/const stateRow = \(p\) => \{[\s\S]*?\n  \};/]
-      expect(row).not_to include('Apply') # the row never gets its own apply control (D-06: bar-level only)
-    end
-
-    it 'index.html and log.js carry none of the new Phase 16 vocabulary (untouched by this plan)' do
-      expect(index_html).not_to match(/checkbox|Cached|sync-bar|Apply now|Revert all/)
-      log_js = File.read(File.join(asset_dir, 'log.js'))
-      expect(log_js).not_to match(/checkbox|state-sync|Apply now|Revert all/)
+      expect(row).not_to include('Apply')
     end
   end
 
   # Plan 16-05 Task 2 — the unsaved-changes bar: the comment-loss
   # honesty sentence, Apply now, Revert all, and the busy-string/
-  # freeze-set amendments (A4/A5). Same idiom: FILE bytes pin the
-  # copy, structure, and mechanic; 16-06 proves behavior in a browser.
-  describe 'the unsaved-changes bar (Plan 16-05 Task 2)' do
-    it 'existence: rendered as the panel body FIRST child only when >=1 row is pending; the empty-state render is unchanged' do
+  # freeze-set amendments (A4/A5). The app-shell port moved this bar
+  # from create/destroy-per-render to static show/hide (context
+  # decision 4) — buildSyncBar/barFrozen no longer exist.
+  describe 'the unsaved-changes bar (Plan 16-05 Task 2, app-shell port: static show/hide)' do
+    it 'existence: the static bar toggles hidden only when >=1 row is pending; the message slot resets blank every render (matches the old fresh-build-every-poll behavior)' do
       render = app_js[/const renderState = \(envelope\) => \{[\s\S]*?\n  \};/]
-      expect(render).to include('data.packages.some((p) => p.pending)')
-      expect(render.index('body.insertBefore(buildSyncBar(), body.firstChild);'))
-        .to be > render.index('body.replaceChildren(table);')
-      expect(render).to include('renderEmpty(body,') # the cold-table branch returns before any bar logic
+      expect(render).to include('updateSyncBar(pendingCount);')
+      sync_bar_fn = app_js[/const updateSyncBar = \(pendingCount\) => \{[\s\S]*?\n  \};/]
+      expect(sync_bar_fn).to include("byId('state-sync-bar').hidden = pendingCount === 0;")
+      expect(sync_bar_fn).to include("saySync('');")
+      expect(app_js).not_to include('const buildSyncBar')
+      expect(app_js).not_to include('barFrozen')
     end
 
-    it 'structure and DOM order: group + polite label, then text, then Revert all, then Apply now, then the hidden message slot' do
-      build = app_js[/const buildSyncBar = \(\) => \{[\s\S]*?\n  \};/]
-      expect(build).to include("bar.setAttribute('role', 'group');")
-      expect(build).to include("bar.setAttribute('aria-label', 'Unsaved changes');")
-      expect(build).to include("bar.setAttribute('aria-live', 'polite');")
-      expect(build.index("class: 'state-sync-text'")).to be < build.index("id = 'sync-revert'")
-      expect(build.index("id = 'sync-revert'")).to be < build.index("id = 'sync-apply'")
-      expect(build.index("id = 'sync-apply'")).to be < build.index("id = 'sync-message'")
-      expect(build).to include('bar.append(revertBtn, applyBtn, message);')
+    it 'structure and DOM order (static markup): the honesty sentence, then Revert all, then Apply now, then the hidden message slot' do
+      bar = index_html[%r{<div class="state-sync-bar"[\s\S]*?</div>\s*</div>}]
+      expect(bar.index('state-sync-text')).to be < bar.index('id="sync-revert"')
+      expect(bar.index('id="sync-revert"')).to be < bar.index('id="sync-apply"')
+      expect(bar.index('id="sync-apply"')).to be < bar.index('id="sync-message"')
     end
 
     it 'copy: the honesty sentence, both button labels, both in-flight messages and both failure templates are pinned byte-exact' do
-      expect(app_js).to include(
-        "'Changes are saved but not applied yet. spm-cache.yml is rewritten on '"
+      expect(index_html).to include(
+        'Changes are saved but not applied yet. spm-cache.yml is rewritten on every change — '\
+        'hand-written comments in the file are not preserved.'
       )
-      expect(app_js).to include(
-        "'every change — hand-written comments in the file are not preserved.';"
-      )
-      expect(app_js).to include("revertBtn.textContent = 'Revert all';")
-      expect(app_js).to include("applyBtn.textContent = 'Apply now';")
+      expect(index_html).to include('id="sync-revert">Revert all</button>')
+      expect(index_html).to include('id="sync-apply">Apply now</button>')
       expect(app_js).to include("apply: 'Applying…', revert: 'Reverting…',")
       expect(app_js).to include(
         "revertFailure: (message) => `Couldn't revert the changes: ${message}. " \
@@ -1405,9 +1599,9 @@ RSpec.describe 'spm-cache web dashboard frontend (Plan 13-03)' do
       )
     end
 
-    it 'exactly one Apply now and no per-row apply or master checkbox exists anywhere' do
-      expect(app_js.scan(/'Apply now'/).size).to eq(1)
-      expect(app_js.scan(/const buildSyncBar = /).size).to eq(1)
+    it 'no per-row apply or master checkbox exists anywhere; #sync-apply/#sync-revert are the only Apply/Revert controls in the static markup' do
+      expect(index_html.scan(/id="sync-apply"/).size).to eq(1)
+      expect(index_html.scan(/id="sync-revert"/).size).to eq(1)
       expect(app_js.scan(/\.type = 'checkbox'/).size).to eq(1)
     end
 
@@ -1419,13 +1613,15 @@ RSpec.describe 'spm-cache web dashboard frontend (Plan 13-03)' do
       end
     end
 
-    it 'the freeze set: the three static controls freeze Apply now too, remembered so a bar recreated mid-run comes up already disabled' do
+    it 'the freeze set: the three topbar controls freeze Apply now too — #sync-apply is a static node, so freeze() is the ONLY writer of its disabled state (no re-apply needed on show)' do
       freeze_fn = app_js[/const freeze = \(on\) => \{[\s\S]*?\n  \};/]
-      expect(freeze_fn).to include('barFrozen = on;')
       expect(freeze_fn).to include("byId('sync-apply')")
       expect(freeze_fn).to include('applyBtn.disabled = on;')
-      build = app_js[/const buildSyncBar = \(\) => \{[\s\S]*?\n  \};/]
-      expect(build).to include('applyBtn.disabled = barFrozen;')
+    end
+
+    it 'the click handlers bind ONCE to the static nodes at module top level (not rebuilt per render)' do
+      expect(app_js).to include("byId('sync-revert').addEventListener('click', clickRevert);")
+      expect(app_js).to include("byId('sync-apply').addEventListener('click', clickApply);")
     end
 
     it 'apply behavior: disables both buttons before the POST; success shows Applying… and freezes; busy/failure re-enable with the right templates' do
@@ -1446,7 +1642,7 @@ RSpec.describe 'spm-cache web dashboard frontend (Plan 13-03)' do
       expect(click).to include('saySync(CTRL.revertFailure(data.message || `HTTP ${ans.status}`), true);')
       expect(click).to include("saySync('');")
       expect(click).not_to match(/bar\.(hidden|remove)/)
-      expect(click).not_to match(/\.pending\b|['"]pending['"]/) # no pending-marker manipulation — only a poll may clear one
+      expect(click).not_to match(/\.pending\b|['"]pending['"]/)
     end
 
     it 'the exit: the run-progress ended milestone clears the bar message; the bar itself disappears only via a subsequent render seeing no pending rows' do
@@ -1454,15 +1650,11 @@ RSpec.describe 'spm-cache web dashboard frontend (Plan 13-03)' do
       expect(listener).to include("if (phase === 'ended') { freeze(false); verb = null; say(''); saySync(''); return; }")
     end
 
-    it 'the sheet: mirrors the confirm-bar geometry with the warn 10%-alpha fill, no new colour value; the message slot reuses the existing classes' do
+    it 'the sheet: mirrors the confirm/alert-bar geometry with the warn wash fill' do
       bar = styles_css[/\.state-sync-bar\s*\{[^}]*\}/]
       expect(bar).to include('display: flex')
-      expect(bar).to include('flex-wrap: wrap')
-      expect(bar).to include('gap: var(--space-sm)')
-      expect(bar).to include('padding: var(--space-xs) var(--space-sm)')
-      expect(bar).to include('border-radius: 4px')
-      expect(bar).to include('background: rgba(255, 152, 0, 0.1)')
-      expect(app_js).to include("const message = el('span', { class: 'ctl-message' });")
+      expect(bar).to include('background: var(--wash-warn)')
+      expect(app_js).to include('const saySync = (text, error) => {')
     end
   end
 end

@@ -31,7 +31,7 @@
         <button type="button" class="btn btn-quiet" id="ctl-rebuild">Rebuild all</button>
         <button type="button" class="btn btn-quiet btn-quiet-danger" id="ctl-rollback">Rollback</button>
       </div>
-      <span class="conn-pill" id="conn-pill" aria-live="polite"><span class="conn-dot" aria-hidden="true"></span>connecting…</span>
+      <span class="conn-pill" id="conn-pill" aria-live="polite"></span>
       <span class="port-label" id="port-label"></span>
     </div>
   </header>
@@ -121,7 +121,7 @@
           </div>
 
           <div class="log-switch" id="log-switch" hidden>
-            <span class="log-switch-text">You are viewing an earlier run — the live tail is paused.</span>
+            <span class="log-switch-text">switched to new run — previous: </span>
             <button type="button" class="btn btn-quiet btn-sm log-runid-btn" id="log-switch-btn"></button>
           </div>
 
