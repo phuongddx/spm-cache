@@ -163,11 +163,12 @@
         </div>
 
         <div class="surface-body" id="state-body">
-          <div class="state-sync-bar" id="state-sync-bar" hidden>
+          <div class="state-sync-bar" id="state-sync-bar" role="group" aria-label="Unsaved changes" aria-live="polite" hidden>
             <span class="alert-glyph" aria-hidden="true">!</span>
-            <span class="state-sync-text" id="sync-message"></span>
+            <span class="state-sync-text">Changes are saved but not applied yet. spm-cache.yml is rewritten on every change — hand-written comments in the file are not preserved.</span>
             <button type="button" class="btn btn-quiet btn-sm" id="sync-revert">Revert all</button>
             <button type="button" class="btn btn-warn btn-sm" id="sync-apply">Apply now</button>
+            <span class="ctl-message" id="sync-message" aria-live="polite" hidden></span>
           </div>
 
           <div class="state-tools">
