@@ -1,7 +1,7 @@
 ---
 phase: 12-run-log-capture-foundation
 verified: 2026-09-01T00:00:00Z
-status: human_needed
+status: passed
 score: 28/28 must-have truths verified
 behavior_unverified: 0 # No PRESENT_BEHAVIOR_UNVERIFIED truths — every behavior-dependent truth has a passing named spec in the suite run below
 overrides_applied: 1 # CR-02 --log-dir two-token deviation ACCEPTED by user 2026-09-01 (in-session; see human_verification item 3 resolution below)
@@ -13,6 +13,7 @@ re_verification:
   regressions: []
   note: "Initial verification — no prior VERIFICATION.md existed (Step 0 confirmed empty)."
 human_verification:
+
   - test: "Real-TTY terminal byte-parity (SC3 manual-only item from 12-VALIDATION.md): run `spm-cache use` (or a failing `spm-cache build`) on the reference project with and without `--no-run-log` and diff the terminal transcripts and exit codes."
     expected: "Transcripts and exit codes identical. Hermetic StringIO byte-parity and exit-shape specs are green, and TeeIO delegates tty?/isatty/sync/flush write-through — but a real TTY's buffering/isatty interplay is the one surface no automated spec exercises (12-VALIDATION.md lists it manual-only)."
     why_human: "Visual byte-parity across a real TTY is not automatable hermetically; specs capture via StringIO."
@@ -181,6 +182,7 @@ Carried review INFO items (documented, deliberately out of fix scope per the rev
 
 ```yaml
 overrides:
+
   - must_have: "D-01: --log-dir (both --log-dir=X and --log-dir X forms) overrides the run dir, pre-scanned from raw argv before CLAide parses"
     reason: "CLAide rejects the two-token --log-dir X form in every position (live-verified: 'Unknown option: --log-dir'), so routing it would orphan logs for invocations that never run; the = form routes in any position (D-01 intent fully met)"
     accepted_by: "{name}"

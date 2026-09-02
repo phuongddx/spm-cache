@@ -3,19 +3,19 @@ gsd_state_version: 1.0
 milestone: v0.5.0
 milestone_name: Web Interface
 current_phase: 16
-current_phase_name: Package Toggles + Panel Completion
-status: completed
+status: Awaiting next milestone
 stopped_at: Phase 16 complete — all phases complete
-last_updated: "2026-09-02T00:49:20.158Z"
+last_updated: "2026-09-02T01:15:22.870Z"
 last_activity: 2026-09-02
-last_activity_desc: Phase 16 complete
-state_head: a3015198a82c024095de3484c15a3cb54174adf4
+last_activity_desc: Milestone v0.5.0 completed and archived
+state_head: 383fd2c2da0bec3921d0b7e28dea5b2687ff45fc
 progress:
   total_phases: 5
   completed_phases: 5
   total_plans: 27
   completed_plans: 27
   percent: 100
+current_phase_name: Package Toggles + Panel Completion
 ---
 
 # Project State: spm-cache
@@ -36,12 +36,10 @@ v0.4.0 shipped and released 2026-08-31 (first fully-green tap publish in project
 
 ## Current Position
 
-Phase: 14 (Live Log Streaming + Terminal/Watch Relay) — PLANNED, ready to execute
-Plan: Not started
-Status: All phases complete
-Last activity: 2026-09-02 — Phase 16 complete
-
-Progress: [████████░░] 80%
+Phase: Milestone v0.5.0 complete
+Plan: —
+Status: Awaiting next milestone
+Last activity: 2026-09-02 — Milestone v0.5.0 completed and archived
 
 ## v0.5.0 Phase Status
 
@@ -134,3 +132,7 @@ Items acknowledged and deferred at milestone close, most recent first:
 Last session: 2026-09-01T23:02:17.451Z
 Stopped at: Phase 16 complete — all phases complete
 Resume file: None
+
+## Operator Next Steps
+
+- Start the next milestone with /gsd-new-milestone

@@ -8,29 +8,42 @@
 
 Reduce Xcode clean build times by serving prebuilt SPM dependency binaries transparently, with automatic fallback to source compilation on cache miss — so a cache hit never breaks a build.
 
-## Current State: v0.4.0 shipped (2026-08-31)
+## Current State: v0.5.0 shipped (2026-09-02)
+
+The Web Interface milestone is complete and audited (19/19 requirements, 5/5 phases
+verified, 5/5 E2E flows wired, nyquist-compliant): `spm-cache web` serves a
+localhost-only dashboard behind Host/Origin + per-launch-token middleware — a state
+panel, doctor health, a nodes-only dependency graph, and a live Run Log panel streaming
+every CLI run (terminal, watch, and UI-triggered) over SSE with byte-exact replay,
+Last-Event-ID resume, anchor/filter mechanics, and failure banners. Build/Rebuild-all/
+Rollback controls spawn the real CLI (own pgroup, single shared slot, lock-derived
+waiting), and per-package cache toggles persist through the same locked atomic mutator
+`spm-cache off` uses, with saved-vs-applied honesty and five WHY-not reasons. Suite
+grew 787 → 1095 hermetic examples; three recorded agent-browser probe nets (22 manual
+rows) caught four real defects that green suites missed. Known honest edges recorded in
+the audit: apply-now convergence depends on a full graph regen (backlog candidate),
+rollback leaves a dangling proxy ref (pre-existing semantics), the watcher's pbxproj
+glob can pick a nested duplicate project.
+
+<details>
+<summary>v0.4.0 (2026-08-31) — build fidelity closed end-to-end</summary>
 
 Build fidelity closed end-to-end: cached builds are compiled, verified, and invalidated
 against the host app's resolved dependency graph (canonical locator → host-graph seeding →
 drift read-back + provenance sidecars → provenance-gated cache hits), pinned by hermetic
 regression specs (441 examples). Release automation repaired and live-proven: rewritten
 `update-tap.yml` (every failure loud, deploy-key auth, byte-stable asset pinning, first real
-tap push landed 2026-08-31), `--version` intercept working. Remaining operator step: the
-v0.4.0 release cut itself (bump VERSION → tag → attach tarball asset → watch first fully-green
-verify-publish).
+tap push landed 2026-08-31), `--version` intercept working.
 
-## Current Milestone: v0.5.0 Web Interface
+</details>
 
-**Goal:** Give spm-cache a local web dashboard — live-streaming build logs, per-package
-cache control, and cache/health visibility for the current project.
+## Next Milestone Goals
 
-**Target features:**
-- `spm-cache web` subcommand: localhost server + browser open, dashboard for the current project
-- Live streaming build logs in the browser — from UI-triggered builds (Build/Rebuild button) AND from terminal/`watch`-initiated runs relayed to the server
-- Per-package cache on/off toggles persisted in config, honored by build/use/rollback (same source of truth as `spm-cache off`)
-- Cache state table: per-package sizes, cached/source state, fidelity status
-- Embedded cachemap dependency graph (today's HTML viz as a dashboard view)
-- Doctor health panel reusing the 7-check registry
+Not yet defined — start with `/gsd-new-milestone`. Backlog candidates recorded during
+v0.5.0: force graph regen when the ignore set diverges (apply-now self-convergence),
+watcher pbxproj-glob fix for nested duplicate projects, rollback de-integration of the
+dangling proxy ref, WEB2-02 run cancellation (pgroup mechanics already landed), RubyGems
+publication of the gem.
 
 ## Requirements
 
