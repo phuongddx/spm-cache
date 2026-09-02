@@ -127,7 +127,7 @@ Single page, no routing, FOUR panels in the 14 order — Run Log, Cache State, D
 The Run Log panel body, top to bottom:
 
 1. **Controls row** (`#build-controls`) — full width, first child of the panel body, above the identity card. Flex row, `sm` gaps, wraps on narrow viewports: `Build` · `Rebuild all` · `Rollback` left; the inline status message slot right-aligned (`margin-left: auto`), muted, Label size, wrapping to two lines max. `sm` margin below (the banner's spacing rhythm).
-2. **Confirm bar** (`#build-confirm`) — occupies the row's place when the rollback confirm is armed (the two containers swap via `hidden`, the card/banner/switch pattern). Flex row, warn 10%-alpha fill, `xs`/`sm` padding, 4px radius, `sm` gaps, wraps: bar text (Body size, primary) · `Confirm` (danger) · `Cancel` (quiet). `sm` margin below.
+2. **Confirm bar** (`#build-confirm`) — occupies the row's place when the rollback confirm is armed (the two containers swap via `hidden`, the card/banner/switch pattern). Flex row, warn 10%-alpha fill, `xs`/`sm` padding, 4px radius, `sm` gaps, wraps: bar text (Body size, primary) · `Cancel` (quiet) · `Confirm` (danger) — Cancel precedes Confirm in DOM order (probe catch 0962522, amended 2026-09-02: focus lands on the safe default and Tab reaches Confirm). `sm` margin below.
 3. The 14 stack unchanged beneath: identity card → `xl` break → stream group (banner · switch notice · stream row) → overlay pills.
 
 Panel header unchanged: `Run Log` title, connection pill, `Recent runs` dropdown. The controls row renders unconditionally — including over the cold `No runs yet` state, where triggering the first build is its purpose.
@@ -149,7 +149,7 @@ All POSTs ride the SAME per-launch token via the `X-SPM-Token` header (D-04 — 
 
 ### Accessibility contract
 
-- Every control is a native `<button>` — DOM-order tabbing (Build → Rebuild all → Rollback; Confirm → Cancel in the bar), Enter/Space activation, no roving tabindex, no ARIA-reinvented widgets.
+- Every control is a native `<button>` — DOM-order tabbing (Build → Rebuild all → Rollback; Cancel → Confirm in the bar — probe-amended 2026-09-02, 0962522), Enter/Space activation, no roving tabindex, no ARIA-reinvented widgets.
 - `:focus-visible` renders the 2px outline ring on every control (existing `.btn:focus-visible` pattern, extended to `.btn-danger` with the fail color and `.btn-quiet` with accent).
 - The confirm swap moves focus to `Cancel` and announces context via the bar's `role="group"` + `aria-label="Confirm rollback"`; cancelling returns focus to `Rollback`. No focus trap — the bar is inline content, not a dialog.
 - The message slot is `aria-live="polite"` — busy/waiting/error state changes announce; `display`-swapped via `hidden` so silent initial state never announces.

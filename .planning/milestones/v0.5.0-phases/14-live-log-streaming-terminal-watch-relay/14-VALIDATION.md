@@ -80,7 +80,7 @@ created: "2026-09-01"
 | ✅ Failure surfacing (2026-09-01, agent-browser) | LOGS-05, D-03 | Visual judgment vs UI contract | PASS — ✗ card, sticky "Run failed — exit status 1" banner, jump landed on first retained err line under ring eviction. Evidence: § Row 4 |
 | ✅ Filter/banner interaction (2026-09-01, agent-browser) | D-09, D-10 | Interaction semantics | PASS — GoodGit filter: pill + aria-pressed, 357/500 dimmed, ZERO removals; ZBrokenGit failure banner still visible; jump cleared filter first. Evidence: § Row 5 |
 | ✅ Watch-cycle relay + auto-switch (2026-09-01, agent-browser) | LOGS-04, D-04 | Two-source live behavior | PASS — dropdown-pinned cycle 1 received the switch broadcast for cycle 3: pin dropped, unpinned reconnect, notice named the PINNED run (strict {run-id} divergence case). Evidence: § Row 6 |
-| ✅ Lock-wait attribution (2026-09-01, agent-browser) | D-05, CP10 | Cross-process contention | PASS — "Waiting for build lock…" rendered verbatim as a plain out line while a thread held the lock; hello lock.state=held. Evidence: § Row 7 |
+| ✅ Lock-wait attribution (2026-09-01, agent-browser) | D-05, CP10 | Cross-process contention | PASS — "Waiting for build lock…" rendered verbatim as a plain out line while a thread held the lock. (Held-lock hello state was not captured on the wire this session — the rendered in-stream line alone is the D-05/A11 evidence.) Evidence: § Row 7 |
 
 ---
 

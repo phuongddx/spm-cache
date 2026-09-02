@@ -241,6 +241,7 @@ RSpec.describe SPMCache::Core::RunLog do
       fast.join
       release << true
       slow.join
+      log.finish(0)
       entries = File.read(log.path).lines.map { |line| JSON.parse(line) }
       texts = entries.select { |entry| entry.key?('text') }.map { |body| body['text'] }
       expect(texts).to contain_exactly("fast-partial-tail\n", "slow-partial-tail\n")

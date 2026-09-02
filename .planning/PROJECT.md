@@ -43,7 +43,12 @@ Not yet defined — start with `/gsd-new-milestone`. Backlog candidates recorded
 v0.5.0: force graph regen when the ignore set diverges (apply-now self-convergence),
 watcher pbxproj-glob fix for nested duplicate projects, rollback de-integration of the
 dangling proxy ref, WEB2-02 run cancellation (pgroup mechanics already landed), RubyGems
-publication of the gem.
+publication of the gem, 14-UI-REVIEW W2 (cold-load of a live run longer than the viewport
+never engages follow — D-13 divergence), Events.pop_with_timeout Timeout-race review (the
+async raise can land between Queue#pop dequeue and return, silently dropping one SSE entry
+on a healthy connection — Mutex+CondVar or poll-loop replacement), WR-01 follow-up (the
+pinned-suppression guard can leave the controls row disabled if a run is pinned for its
+whole lifetime — consider keying suppression to the spawned run id).
 
 ## Requirements
 

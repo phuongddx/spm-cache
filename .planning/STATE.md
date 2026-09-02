@@ -21,16 +21,16 @@ current_phase_name: Package Toggles + Panel Completion
 # Project State: spm-cache
 
 **Initialized:** 2026-08-10
-**Current Phase:** 16
+**Current Phase:** — (v0.5.0 archived; awaiting next milestone)
 **Project Mode:** Horizontal Layers
-**Direction:** v0.5.0 Web Interface — localhost dashboard, live log streaming, per-package toggles
+**Direction:** v0.5.0 Web Interface shipped 2026-09-02 — next milestone not yet defined
 
 ## Project Reference
 
 See: .planning/PROJECT.md (updated 2026-09-01)
 
 **Core value:** Reduce Xcode clean build times by serving prebuilt SPM dependency binaries transparently, with automatic fallback to source on cache miss — so a cache hit never breaks a build.
-**Current focus:** Phase 14 — Live Log Streaming + Terminal/Watch Relay
+**Current focus:** none — v0.5.0 complete and archived (see .planning/milestones/v0.5.0-*)
 
 v0.4.0 shipped and released 2026-08-31 (first fully-green tap publish in project history). Full milestone history: `.planning/MILESTONES.md`.
 
