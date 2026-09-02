@@ -434,6 +434,16 @@ RSpec.describe SPMCache::Web::ReadModels::State do
       expect(row['toggleable']).to eq(true)
     end
 
+    it 'answers honestly when spm-cache.lock is corrupted JSON (WR-01: total, not just permission errors)' do
+      write_framework('debug', 'CorruptLockPkg')
+      File.write(config.lockfile_path, '{"MyApp": {"packages": [')
+
+      expect { state }.not_to raise_error
+      row = state['packages'].first
+      expect(row['reason']).to be_nil
+      expect(row['toggleable']).to eq(true)
+    end
+
     it 'answers honestly with no graph.json: no applied signal, never pending' do
       write_framework('debug', 'NoGraphPkg')
 

@@ -135,14 +135,18 @@ module SPMCache
         # concept of an xcodeproj basename, so it asks every project
         # key rather than guess one (a project tracks exactly one in
         # practice). Absent lockfile -> no projects -> empty Set;
-        # unreadable (permission) errors degrade the same way -- the
-        # binary-target reason simply never fires rather than raising.
+        # unreadable (permission) AND corrupted (malformed JSON --
+        # WR-01: a truncated spm-cache.lock is a real possibility,
+        # not contrived, since Lockfile#save is a plain File.write,
+        # not the atomic tmp+rename pattern Config#save uses) errors
+        # both degrade the same way -- the binary-target reason
+        # simply never fires rather than raising.
         def self.lockfile_binary_names(config)
           lockfile = Core::Lockfile.new(config.lockfile_path)
           lockfile.projects.keys.each_with_object(Set.new) do |project_name, names|
             names.merge(lockfile.binary_backed_names(project_name))
           end
-        rescue SystemCallError
+        rescue SystemCallError, JSON::ParserError
           Set.new
         end
         private_class_method :lockfile_binary_names
