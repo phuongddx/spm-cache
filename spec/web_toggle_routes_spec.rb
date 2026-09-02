@@ -285,6 +285,37 @@ RSpec.describe 'SPMCache::Web mutation routes (/api/toggle, /api/revert, /api/ap
     end
   end
 
+  describe 'read-model failure (CR-01 -- the same guard GET /api/state already has)' do
+    it 'answers 500 for /api/toggle when graph.json is malformed (an object instead of an array), never a raise' do
+      write_framework('debug', 'Plain')
+      graph_path = File.join(@project_dir, 'spm-cache', 'packages', 'proxy', 'graph.json')
+      FileUtils.mkdir_p(File.dirname(graph_path))
+      File.write(graph_path, JSON.generate('foo' => 'bar'))
+      with_server do
+        res = post('/api/toggle', auth, toggle_body('Plain', false))
+        expect(res.code).to eq('500')
+        envelope = JSON.parse(res.body)
+        expect(envelope['status']).to eq('error')
+        expect(envelope['data']['message']).to be_a(String)
+        expect(disk_ignore).to eq([])
+      end
+    end
+
+    it 'answers 500 for /api/revert when graph.json is truncated JSON, never a raise' do
+      write_framework('debug', 'Plain')
+      graph_path = File.join(@project_dir, 'spm-cache', 'packages', 'proxy', 'graph.json')
+      FileUtils.mkdir_p(File.dirname(graph_path))
+      File.write(graph_path, '[{"module": "Plain", "status": "hit"')
+      with_server do
+        res = post('/api/revert', auth)
+        expect(res.code).to eq('500')
+        envelope = JSON.parse(res.body)
+        expect(envelope['status']).to eq('error')
+        expect(envelope['data']['message']).to be_a(String)
+      end
+    end
+  end
+
   describe 'write failure (T-13-03 -- an envelope, never a raise into the terminal)' do
     it 'answers 500 config_write_failed when the mutator raises, and nothing is printed' do
       write_framework('debug', 'Plain')

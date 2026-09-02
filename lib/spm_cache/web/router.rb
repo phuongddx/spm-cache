@@ -312,6 +312,26 @@ module SPMCache
                                            'lock' => @read_models[:runs].lock_state(config: @config)))
       end
 
+      # (CR-01) The exact rescue set api_read uses for the state read
+      # model (JSON::JSONError -- ParserError from a corrupted
+      # spm-cache.lock, GeneratorError from a hostile string reaching
+      # JSON.generate; TypeError -- shape-malformed JSON, e.g.
+      # graph.json holding an object), shared by api_toggle/api_revert
+      # below: both call this IDENTICAL State.call to derive
+      # `toggleable`/`pending` and, before this fix, did so unguarded
+      # -- a malformed project file crashed the request past this
+      # file's own T-13-03 invariant into WEBrick's error log and its
+      # default HTML 500 page instead of the JSON envelope every other
+      # rejection here honors. Answers the package rows on success; on
+      # failure it writes the 500 envelope itself and answers nil so
+      # the caller bails with a bare `return`.
+      def read_state_packages(res)
+        @read_models[:state].call(config: @config)['packages']
+      rescue JSON::JSONError, TypeError => e
+        respond_json(res, 500, error_envelope(e.message))
+        nil
+      end
+
       # POST /api/toggle (D-08, 16-04: the completed matrix -- 16-01
       # landed the tracer shape this extends): the instant config
       # write through the shared Config mutator. Mirrors api_mutate's
@@ -321,15 +341,16 @@ module SPMCache
       # true or false with no truthy coercion (V5) -- then the SAME
       # read model the dashboard renders decides permission,
       # re-derived from disk on EVERY request (the stale-DOM defense:
-      # a client-side disabled attribute is never trusted): a package
-      # absent from the row set is 404 `unknown_package` (the row set
-      # IS the universe -- a typo can never plant a phantom entry);
-      # a row the model marks non-toggleable is 400 `not_toggleable`.
-      # Only then does the mutator run, its raise rescued into 500
-      # `config_write_failed` -- nothing escapes to WEBrick's error
-      # log (T-13-03). NEVER references @jobs: the slot governs
-      # Apply-now only, so a toggle stays live while a run holds the
-      # slot (D-08).
+      # a client-side disabled attribute is never trusted) through the
+      # CR-01-guarded read_state_packages above (a malformed project
+      # file is the 500 envelope, never a raise): a package absent
+      # from the row set is 404 `unknown_package` (the row set IS the
+      # universe -- a typo can never plant a phantom entry); a row the
+      # model marks non-toggleable is 400 `not_toggleable`. Only then
+      # does the mutator run, its raise rescued into 500 `config_write_failed`
+      # -- nothing escapes to WEBrick's error log (T-13-03). NEVER
+      # references @jobs: the slot governs Apply-now only, so a toggle
+      # stays live while a run holds the slot (D-08).
       def api_toggle(req, res, supplied)
         unless Middleware.valid_token?(token: supplied, expected_token: @token)
           return reject(res, 401, 'missing or invalid token')
@@ -351,7 +372,10 @@ module SPMCache
           return respond_json(res, 400, error_envelope('cached must be true or false', reason: 'bad_cached'))
         end
 
-        row = @read_models[:state].call(config: @config)['packages'].find { |r| r['name'] == package }
+        packages = read_state_packages(res)
+        return if packages.nil?
+
+        row = packages.find { |r| r['name'] == package }
         return respond_json(res, 404, error_envelope('unknown package', reason: 'unknown_package')) unless row
         unless row['toggleable']
           return respond_json(res, 400, error_envelope('package is not toggleable', reason: 'not_toggleable'))
@@ -375,7 +399,9 @@ module SPMCache
       # shape and any parseable body is otherwise ignored (there is
       # no scope to read). Never slot-gated -- never references
       # @jobs. A selection of zero pending rows is a successful
-      # no-op: the mutator is never even called.
+      # no-op: the mutator is never even called. The state read goes
+      # through the same CR-01-guarded read_state_packages api_toggle
+      # uses -- a malformed project file is the 500 envelope here too.
       def api_revert(req, res, supplied)
         unless Middleware.valid_token?(token: supplied, expected_token: @token)
           return reject(res, 401, 'missing or invalid token')
@@ -389,7 +415,10 @@ module SPMCache
           return respond_json(res, 400, error_envelope('malformed request body', reason: 'bad_body'))
         end
 
-        pending = @read_models[:state].call(config: @config)['packages'].select { |row| row['pending'] }
+        packages = read_state_packages(res)
+        return if packages.nil?
+
+        pending = packages.select { |row| row['pending'] }
         changes = pending.each_with_object({}) { |row, acc| acc[row['name']] = !row['applied_cached'] }
 
         begin
