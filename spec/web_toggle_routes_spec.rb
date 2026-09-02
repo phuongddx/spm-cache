@@ -285,6 +285,40 @@ RSpec.describe 'SPMCache::Web mutation routes (/api/toggle, /api/revert, /api/ap
     end
   end
 
+  describe 'exact-entry-under-glob toggle-on (WR-02 -- must not silently no-op)' do
+    it 'answers 400 still_pattern_ignored and writes nothing when a broader pattern would still match after the exact entry is removed' do
+      write_framework('debug', 'GlobExact')
+      write_config_yaml("ignore:\n  - 'Glob*'\n  - GlobExact\n")
+      with_server do
+        res = post('/api/toggle', auth, toggle_body('GlobExact', true))
+        expect(res.code).to eq('400')
+        envelope = JSON.parse(res.body)
+        expect(envelope['data']['reason']).to eq('still_pattern_ignored')
+        expect(disk_ignore).to eq(['Glob*', 'GlobExact']) # untouched -- no partial write
+      end
+    end
+
+    it 'still allows turning off (cached: false) an exact-and-pattern-matched package -- only the ON direction is guarded' do
+      write_framework('debug', 'GlobExact')
+      write_config_yaml("ignore:\n  - 'Glob*'\n  - GlobExact\n")
+      with_server do
+        res = post('/api/toggle', auth, toggle_body('GlobExact', false))
+        expect(res.code).to eq('200')
+        expect(disk_ignore).to match_array(%w[Glob* GlobExact])
+      end
+    end
+
+    it 'answers 200 and actually re-enables caching for an exact entry with no surviving pattern' do
+      write_framework('debug', 'PlainExact')
+      write_config_yaml("ignore:\n  - PlainExact\n")
+      with_server do
+        res = post('/api/toggle', auth, toggle_body('PlainExact', true))
+        expect(res.code).to eq('200')
+        expect(disk_ignore).to eq([])
+      end
+    end
+  end
+
   describe 'read-model failure (CR-01 -- the same guard GET /api/state already has)' do
     it 'answers 500 for /api/toggle when graph.json is malformed (an object instead of an array), never a raise' do
       write_framework('debug', 'Plain')

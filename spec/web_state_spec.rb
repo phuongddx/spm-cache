@@ -344,6 +344,14 @@ RSpec.describe SPMCache::Web::ReadModels::State do
       expect(only['reason']).to eq('pattern-managed')
     end
 
+    it 'would_remain_pattern_ignored? is true only when a DIFFERENT pattern would still match once the exact entry is gone (WR-02)' do
+      File.write(config.config_path, "ignore:\n  - 'Glob*'\n  - GlobExact\n  - PlainExact\n")
+
+      expect(described_class.would_remain_pattern_ignored?('GlobExact', config)).to eq(true)
+      expect(described_class.would_remain_pattern_ignored?('PlainExact', config)).to eq(false)
+      expect(described_class.would_remain_pattern_ignored?('NeverListed', config)).to eq(false)
+    end
+
     it 'applied truth is the last-sync graph verdict: ignored means not cached, hit and missed mean cached' do
       write_graph([
                     { 'module' => 'AppliedIgnored', 'status' => 'ignored' },

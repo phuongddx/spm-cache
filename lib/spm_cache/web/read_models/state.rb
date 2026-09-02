@@ -178,6 +178,24 @@ module SPMCache
           !saved_ignored.include?(name) && saved_ignored.any? { |pattern| File.fnmatch(pattern, name) }
         end
         private_class_method :pattern_managed?
+
+        # (WR-02) True when PACKAGE carries its own exact ignore entry
+        # AND a DIFFERENT, broader pattern in the SAME on-disk list
+        # would still match it once that exact entry is gone -- the
+        # toggle-on dead end: without this check, /api/toggle would
+        # remove the exact entry, answer 200, and leave the package
+        # ignored in reality (Config#should_ignore? still matches the
+        # surviving pattern) with nothing telling the user -- Pitfall
+        # 5's mirror image. PUBLIC (not private_class_method) --
+        # api_toggle calls this directly before running the mutator.
+        # Reads the SAME fresh-from-disk ignore list saved_ignore_list
+        # already uses (CP1) -- never the config singleton's
+        # boot-time @raw, so a config edited after server boot is
+        # judged correctly on the very next request.
+        def self.would_remain_pattern_ignored?(package, config)
+          remaining = saved_ignore_list(config) - [package]
+          remaining.any? { |pattern| File.fnmatch(pattern, package) }
+        end
       end
     end
   end

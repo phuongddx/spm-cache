@@ -346,8 +346,14 @@ module SPMCache
       # file is the 500 envelope, never a raise): a package absent
       # from the row set is 404 `unknown_package` (the row set IS the
       # universe -- a typo can never plant a phantom entry); a row the
-      # model marks non-toggleable is 400 `not_toggleable`. Only then
-      # does the mutator run, its raise rescued into 500 `config_write_failed`
+      # model marks non-toggleable is 400 `not_toggleable`. Turning ON
+      # an exact-override row (WR-02) is additionally checked against
+      # what the fresh on-disk ignore list would look like with that
+      # exact entry gone -- if a DIFFERENT, broader pattern would still
+      # match, the write is refused with 400 `still_pattern_ignored`
+      # rather than silently succeeding while the package stays
+      # ignored in reality (Pitfall 5's mirror image). Only then does
+      # the mutator run, its raise rescued into 500 `config_write_failed`
       # -- nothing escapes to WEBrick's error log (T-13-03). NEVER
       # references @jobs: the slot governs Apply-now only, so a toggle
       # stays live while a run holds the slot (D-08).
@@ -379,6 +385,12 @@ module SPMCache
         return respond_json(res, 404, error_envelope('unknown package', reason: 'unknown_package')) unless row
         unless row['toggleable']
           return respond_json(res, 400, error_envelope('package is not toggleable', reason: 'not_toggleable'))
+        end
+
+        if cached && Web::ReadModels::State.would_remain_pattern_ignored?(package, @config)
+          message = "#{package} has its own ignore entry, but a broader pattern in " \
+                     'spm-cache.yml still matches it -- narrow or remove that pattern to re-enable caching'
+          return respond_json(res, 400, error_envelope(message, reason: 'still_pattern_ignored'))
         end
 
         begin
