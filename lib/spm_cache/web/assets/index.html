@@ -7,114 +7,246 @@
   <link rel="stylesheet" href="assets/styles.css">
 </head>
 <body>
+<a class="skip-link" href="#surface-main">Skip to content</a>
+<div class="app">
+
   <header class="topbar">
-    <h1>spm-cache</h1>
-    <span class="port-label" id="port-label"></span>
+    <div class="brand">
+      <svg class="brand-mark" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+        <rect x="2.5" y="2.5" width="19" height="19" rx="5.5"></rect>
+        <path d="M7 9.5h10M7 14.5h6"></path>
+      </svg>
+      <span class="brand-name">spm-cache</span>
+    </div>
+
+    <div class="runstat" id="runstat" aria-live="polite">
+      <span class="state-pill state-idle" id="topbar-state"></span>
+      <span class="runstat-cmd mono" id="runstat-cmd"></span>
+    </div>
+
+    <div class="topbar-right">
+      <div class="build-controls" id="build-controls">
+        <span class="ctl-message" id="ctl-message" aria-live="polite" hidden></span>
+        <button type="button" class="btn btn-primary" id="ctl-build">Build</button>
+        <button type="button" class="btn btn-quiet" id="ctl-rebuild">Rebuild all</button>
+        <button type="button" class="btn btn-quiet btn-quiet-danger" id="ctl-rollback">Rollback</button>
+      </div>
+      <span class="conn-pill" id="conn-pill" aria-live="polite"><span class="conn-dot" aria-hidden="true"></span>connecting…</span>
+      <span class="port-label" id="port-label"></span>
+    </div>
   </header>
-  <main class="content">
-    <!-- Run Log FIRST (14-UI-SPEC A1): the live tail is the phase's
-         purpose and D-13 guarantees it is never empty-or-embarrassing
-         on cold load. The connection pill is the panel's liveness
-         marker — no Refresh button, no timestamp stamp. -->
-    <section class="panel">
-      <div class="panel-header">
-        <h2>Run Log</h2>
-        <div class="panel-actions">
-          <span class="conn-pill" id="conn-pill" aria-live="polite">● connecting…</span>
-          <div class="log-runs-wrap" id="runs-slot">
-            <label class="log-runs-label" for="log-runs">Recent runs</label>
-            <select class="log-runs-select" id="log-runs"></select>
-          </div>
-        </div>
-      <div class="panel-body" id="log-body">
-        <!-- Controls row (15-UI-SPEC layout contract): the panel
-             body's FIRST child, above the identity card — static
-             markup, rendered unconditionally including over the cold
-             empty state (A5). The confirm bar below is its hidden
-             swap (the card/banner pattern). -->
-        <div class="build-controls" id="build-controls">
-          <button type="button" class="btn" id="ctl-build">Build</button>
-          <button type="button" class="btn" id="ctl-rebuild">Rebuild all</button>
-          <button type="button" class="btn btn-danger" id="ctl-rollback">Rollback</button>
-          <span class="ctl-message" id="ctl-message" aria-live="polite" hidden></span>
-        </div>
-        <div class="build-confirm" id="build-confirm" role="group" aria-label="Confirm rollback" hidden>
-          <span class="build-confirm-text">Restore source mode — this removes proxy packages from the Xcode project</span>
-          <button type="button" class="btn btn-quiet" id="ctl-cancel">Cancel</button>
-          <button type="button" class="btn btn-danger" id="ctl-confirm">Confirm</button>
-        </div>
-        <div class="log-card" id="log-card" hidden>
-          <div class="log-card-main">
-            <span class="log-status" id="log-status" aria-live="polite"></span>
-            <span class="badge badge-neutral" id="log-trigger"></span>
-            <span class="log-command" id="log-command"></span>
-            <span class="mono log-config" id="log-config"></span>
-          </div>
-          <div class="log-card-meta" id="log-started"></div>
-          <div class="log-card-meta" id="log-argv"></div>
-          <div class="log-card-meta" id="log-runid"></div>
-        </div>
-        <div class="log-banner" id="log-banner" role="alert" hidden></div>
-        <div class="log-switch" id="log-switch" hidden></div>
-        <div class="log-stream-row">
-          <div class="log-stream-col">
-            <div class="log-viewport" id="log-viewport" role="log" aria-live="off" aria-label="Run output" tabindex="0"></div>
-            <div class="log-overlay" id="log-overlay"></div>
-          </div>
-          <div class="log-rail" id="log-rail">
-            <div class="log-rail-group" id="rail-phases">
-              <div class="log-rail-label">Phases</div>
+
+  <!-- Alert rail: collapses to zero height when nothing is armed — the
+       rollback confirm bar is its only occupant this port wires. -->
+  <div class="alert-rail" id="alert-rail">
+    <div class="build-confirm" id="build-confirm" role="group" aria-label="Confirm rollback" hidden>
+      <span class="alert-glyph" aria-hidden="true">!</span>
+      <span class="build-confirm-text">Restore source mode — this removes proxy packages from the Xcode project</span>
+      <button type="button" class="btn btn-quiet" id="ctl-cancel">Cancel</button>
+      <button type="button" class="btn btn-danger" id="ctl-confirm">Confirm</button>
+    </div>
+  </div>
+
+  <div class="shell">
+
+    <nav class="rail" id="rail" aria-label="Dashboard surfaces">
+      <p class="rail-label">Surfaces</p>
+      <ul class="rail-list">
+        <li>
+          <button type="button" class="rail-item is-active" data-surface="run" aria-current="page">
+            <svg class="rail-icon" viewBox="0 0 20 20" aria-hidden="true" focusable="false"><path d="M3 4.5h14M3 10h9M3 15.5h11"></path></svg>
+            <span class="rail-text">Run Log</span>
+          </button>
+        </li>
+        <li>
+          <button type="button" class="rail-item" data-surface="cache">
+            <svg class="rail-icon" viewBox="0 0 20 20" aria-hidden="true" focusable="false"><path d="M10 2.5 17.5 6 10 9.5 2.5 6z"></path><path d="M2.5 10 10 13.5 17.5 10"></path><path d="M2.5 14 10 17.5 17.5 14"></path></svg>
+            <span class="rail-text">Cache State</span>
+            <span class="rail-count" id="rail-badge-cache" hidden></span>
+          </button>
+        </li>
+        <li>
+          <button type="button" class="rail-item" data-surface="doctor">
+            <svg class="rail-icon" viewBox="0 0 20 20" aria-hidden="true" focusable="false"><path d="M2 10h3.6l2-5 3 10 2.4-5H18"></path></svg>
+            <span class="rail-text">Doctor</span>
+            <span class="rail-status" id="rail-badge-doctor" hidden></span>
+          </button>
+        </li>
+        <li>
+          <button type="button" class="rail-item" data-surface="graph">
+            <svg class="rail-icon" viewBox="0 0 20 20" aria-hidden="true" focusable="false"><circle cx="4" cy="10" r="2.2"></circle><circle cx="15" cy="4.5" r="2.2"></circle><circle cx="15" cy="15.5" r="2.2"></circle><path d="M6 9 13 5.6M6 11l7 3.4"></path></svg>
+            <span class="rail-text">Graph</span>
+          </button>
+        </li>
+      </ul>
+
+      <div class="rail-foot">
+        <p class="rail-hint"><span><kbd>1</kbd>–<kbd>4</kbd> switch</span><span><kbd>/</kbd> filter</span></p>
+      </div>
+    </nav>
+
+    <main class="surface-main" id="surface-main">
+
+      <!-- ============================= RUN LOG ============================= -->
+      <section class="surface is-active" id="surface-run" data-surface="run" aria-label="Run Log">
+        <div class="surface-head">
+          <h2 class="surface-title">Run Log</h2>
+          <div class="surface-actions">
+            <div class="log-runs-wrap" id="runs-slot">
+              <label class="log-runs-label" for="log-runs">Recent runs</label>
+              <select class="log-runs-select" id="log-runs"></select>
             </div>
-            <div class="log-rail-group" id="rail-packages">
-              <div class="log-rail-label">Packages</div>
-            </div>
           </div>
         </div>
-      </div>
-    </section>
-    <section class="panel">
-      <div class="panel-header">
-        <h2>Cache State</h2>
-        <div class="panel-actions">
-          <span class="stamp" id="state-stamp"></span>
-          <button type="button" class="btn" id="state-refresh">Refresh</button>
+
+        <div class="surface-body" id="log-body">
+          <div class="log-card" id="log-card">
+            <div class="log-card-main">
+              <span class="log-status" id="log-status">Loading…</span>
+              <span class="badge badge-neutral" id="log-trigger"></span>
+              <span class="log-command mono" id="log-command"></span>
+              <span class="mono log-config" id="log-config"></span>
+            </div>
+            <div class="log-card-metarow">
+              <span class="log-card-meta" id="log-started"></span>
+              <span class="log-card-meta" id="log-argv"></span>
+              <span class="log-card-meta" id="log-runid"></span>
+            </div>
+          </div>
+
+          <div class="log-banner" id="log-banner" role="alert" hidden>
+            <span class="log-banner-glyph" aria-hidden="true">✗</span>
+            <span class="log-banner-text" id="log-banner-text"></span>
+            <button type="button" class="btn btn-quiet btn-sm" id="log-banner-jump">Jump to first error</button>
+          </div>
+
+          <div class="log-switch" id="log-switch" hidden>
+            <span class="log-switch-text">You are viewing an earlier run — the live tail is paused.</span>
+            <button type="button" class="btn btn-quiet btn-sm log-runid-btn" id="log-switch-btn"></button>
+          </div>
+
+          <div class="log-stream-row">
+            <div class="log-stream-col">
+              <div class="log-toolbar">
+                <span class="log-toolbar-label">Output</span>
+                <button type="button" class="log-pill-btn log-filter-pill mono" id="log-filter-pill" hidden></button>
+                <span class="log-toolbar-spacer"></span>
+                <span class="log-count mono" id="log-count">0 lines</span>
+              </div>
+              <div class="log-viewport" id="log-viewport" role="log" aria-live="off" aria-label="Run output" tabindex="0"></div>
+              <div class="log-overlay" id="log-overlay">
+                <button type="button" class="log-pill-btn" id="log-follow-btn" hidden>↓ Resume follow</button>
+              </div>
+            </div>
+
+            <!-- Right-hand index rail: phase + package anchors. -->
+            <aside class="log-rail" id="log-rail" aria-label="Jump to phase or package">
+              <div class="log-rail-group" id="rail-phases">
+                <div class="log-rail-label">Phases</div>
+              </div>
+              <div class="log-rail-group" id="rail-packages">
+                <div class="log-rail-label">Packages</div>
+              </div>
+            </aside>
+          </div>
         </div>
-      </div>
-      <div class="panel-body" id="state-body">
-        <p class="loading">Loading…</p>
-      </div>
-    </section>
-    <section class="panel">
-      <div class="panel-header">
-        <h2>Doctor</h2>
-        <div class="panel-actions">
-          <span class="stamp" id="doctor-stamp"></span>
-          <button type="button" class="btn" id="doctor-run">Run Doctor</button>
+      </section>
+
+      <!-- ============================ CACHE STATE ========================== -->
+      <section class="surface" id="surface-cache" data-surface="cache" aria-label="Cache State" hidden>
+        <div class="surface-head">
+          <h2 class="surface-title">Cache State</h2>
+          <div class="surface-actions">
+            <span class="stamp" id="state-stamp"></span>
+            <button type="button" class="btn btn-quiet btn-sm" id="state-refresh">Refresh</button>
+          </div>
         </div>
-      </div>
-      <div class="panel-body" id="doctor-body">
-        <p class="loading">Loading…</p>
-      </div>
-    </section>
-    <section class="panel">
-      <div class="panel-header">
-        <h2>Dependency Graph</h2>
-        <div class="panel-actions">
-          <span class="stamp" id="graph-stamp"></span>
-          <button type="button" class="btn" id="graph-refresh">Refresh</button>
+
+        <div class="surface-body" id="state-body">
+          <div class="state-sync-bar" id="state-sync-bar" hidden>
+            <span class="alert-glyph" aria-hidden="true">!</span>
+            <span class="state-sync-text" id="sync-message"></span>
+            <button type="button" class="btn btn-quiet btn-sm" id="sync-revert">Revert all</button>
+            <button type="button" class="btn btn-warn btn-sm" id="sync-apply">Apply now</button>
+          </div>
+
+          <div class="state-tools">
+            <label class="field">
+              <span class="field-icon" aria-hidden="true">
+                <svg viewBox="0 0 16 16" focusable="false"><circle cx="7" cy="7" r="4.5"></circle><path d="M10.4 10.4 14 14"></path></svg>
+              </span>
+              <input type="search" id="state-filter" class="field-input mono" placeholder="Filter packages…  ( / )" aria-label="Filter packages">
+            </label>
+            <div class="chip-group" role="group" aria-label="Filter by state">
+              <button type="button" class="chip is-on" data-state="all">All <span class="chip-n mono" id="chip-n-all"></span></button>
+              <button type="button" class="chip" data-state="hit">Hit</button>
+              <button type="button" class="chip" data-state="missed">Missed</button>
+              <button type="button" class="chip" data-state="other">Excluded / ignored</button>
+            </div>
+            <span class="state-total mono" id="state-total"></span>
+          </div>
+
+          <div class="table-wrap">
+            <table class="state-table">
+              <thead>
+                <tr>
+                  <th class="col-name" scope="col">Package</th>
+                  <th class="col-config" scope="col">Config</th>
+                  <th class="col-size" scope="col">Size</th>
+                  <th class="col-state" scope="col">State</th>
+                  <th class="col-fidelity" scope="col">Fidelity</th>
+                  <th class="col-cached" scope="col">Cached</th>
+                </tr>
+              </thead>
+              <tbody id="state-rows"></tbody>
+            </table>
+            <p class="state-empty" id="state-empty" hidden>No package matches that filter.</p>
+          </div>
         </div>
-      </div>
-      <div class="panel-body" id="graph-body">
-        <p class="loading">Loading…</p>
-        <div class="graph-wrap" id="graph-wrap" hidden>
-          <div class="legend" id="graph-legend"></div>
-          <div class="cy-canvas" id="cy-canvas"></div>
+      </section>
+
+      <!-- ============================== DOCTOR ============================= -->
+      <section class="surface" id="surface-doctor" data-surface="doctor" aria-label="Doctor" hidden>
+        <div class="surface-head">
+          <h2 class="surface-title">Doctor</h2>
+          <div class="surface-actions">
+            <span class="stamp" id="doctor-stamp"></span>
+            <button type="button" class="btn btn-quiet btn-sm" id="doctor-run">Run Doctor</button>
+          </div>
         </div>
-      </div>
-    </section>
-  </main>
-  <script src="assets/cytoscape.min.js"></script>
-  <script type="module" src="assets/app.js"></script>
-  <script type="module" src="assets/log.js"></script>
+
+        <div class="surface-body" id="doctor-body">
+          <p class="loading">Loading…</p>
+          <div class="doctor-summary" id="doctor-summary" hidden></div>
+          <ul class="check-list" id="check-list"></ul>
+        </div>
+      </section>
+
+      <!-- =========================== DEPENDENCY GRAPH ====================== -->
+      <section class="surface" id="surface-graph" data-surface="graph" aria-label="Dependency Graph" hidden>
+        <div class="surface-head">
+          <h2 class="surface-title">Dependency Graph</h2>
+          <div class="surface-actions">
+            <span class="stamp" id="graph-stamp"></span>
+            <button type="button" class="btn btn-quiet btn-sm" id="graph-refresh">Refresh</button>
+          </div>
+        </div>
+
+        <div class="surface-body" id="graph-body">
+          <p class="loading">Loading…</p>
+          <div class="graph-wrap" id="graph-wrap">
+            <div class="cy-canvas" id="cy-canvas"></div>
+            <div class="legend" id="graph-legend"></div>
+          </div>
+        </div>
+      </section>
+
+    </main>
+  </div>
+</div>
+
+<script src="assets/cytoscape.min.js"></script>
+<script type="module" src="assets/app.js"></script>
+<script type="module" src="assets/log.js"></script>
 </body>
 </html>
