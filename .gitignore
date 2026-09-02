@@ -38,3 +38,9 @@ spm-cache.yml.lock
 .idea/
 .vscode/
 *.xcodeproj/xcuserdata/
+
+# machine-local GSD tool state (never tracked)
+.planning/graphs/
+.planning/intel/
+.planning/state.json
+.planning/.gsd/
