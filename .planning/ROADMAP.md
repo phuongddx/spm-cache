@@ -47,7 +47,7 @@ Full phase detail: `milestones/v0.4.0-ROADMAP.md` · Audit: `v0.4.0-MILESTONE-AU
 - [x] **Phase 13: Server Skeleton + Read-Only Dashboard** - `spm-cache web`: hardened localhost server serving the cache-state, doctor, and graph panels, fully offline (completed 2026-09-01)
 - [x] **Phase 14: Live Log Streaming + Terminal/Watch Relay** - One SSE stream of the shared run log — UI-triggered, terminal, and `watch` builds all appear live in the browser (completed 2026-09-01)
 - [x] **Phase 15: UI Build Controls** - Build/Rebuild/Rollback buttons that spawn the real CLI with lock-derived busy state and failure surfacing (completed 2026-09-02)
-- [ ] **Phase 16: Package Toggles + Panel Completion** - Per-package cache on/off toggles through the shared config mutators, with saved-vs-applied semantics and WHY-not reasons
+- [x] **Phase 16: Package Toggles + Panel Completion** - Per-package cache on/off toggles through the shared config mutators, with saved-vs-applied semantics and WHY-not reasons (completed 2026-09-02)
 
 ## Phase Details — v0.5.0 Web Interface
 
@@ -182,9 +182,9 @@ Plans:
 - [x] 16-01-PLAN.md — TRACER: the shared config mutator (sidecar flock, in-lock reload, atomic save) behind POST /api/toggle, with `spm-cache off` refactored onto it and pinned byte-identical
 - [x] 16-02-PLAN.md — the binary-target fact: one derived flag recorded by lockfile enrichment, plus the binary-backed name-set reader
 - [x] 16-03-PLAN.md — the one server-side derivation: toggleable, the five-word reason vocabulary, and saved vs applied per row
-- [ ] 16-04-PLAN.md — the mutation surface: the full toggle matrix, batched /api/revert, and Apply-now as the route-fixed `use` scope
-- [ ] 16-05-PLAN.md — the panel completed: the Cached checkbox column, reason and pending chips, and the unsaved-changes bar
-- [ ] 16-06-PLAN.md — phase weld: the recorded agent-browser probe over the eight manual rows
+- [x] 16-04-PLAN.md — the mutation surface: the full toggle matrix, batched /api/revert, and Apply-now as the route-fixed `use` scope
+- [x] 16-05-PLAN.md — the panel completed: the Cached checkbox column, reason and pending chips, and the unsaved-changes bar
+- [x] 16-06-PLAN.md — phase weld: the recorded agent-browser probe over the eight manual rows
 
 **UI hint**: yes
 
@@ -212,7 +212,7 @@ Pitfall-to-phase mapping (full set in `research/PITFALLS.md`): CP3 → P12; CP7/
 | 13. Server Skeleton + Read-Only Dashboard | v0.5.0 | 5/5 | Complete    | 2026-09-01 |
 | 14. Live Log Streaming + Terminal/Watch Relay | v0.5.0 | 5/5 | Complete    | 2026-09-01 |
 | 15. UI Build Controls | v0.5.0 | 6/6 | Complete    | 2026-09-02 |
-| 16. Package Toggles + Panel Completion | v0.5.0 | 3/6 | In Progress|  |
+| 16. Package Toggles + Panel Completion | v0.5.0 | 6/6 | Complete    | 2026-09-02 |
 
 ## Coverage
 

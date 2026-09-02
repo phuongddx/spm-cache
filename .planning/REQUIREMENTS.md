@@ -38,9 +38,9 @@ Requirements for milestone v0.5.0. Each maps to roadmap phases (traceability bel
 
 ### Package toggles
 
-- [ ] **TOGL-01**: Per-package cache on/off toggles persist to the same config ignore list `spm-cache off` writes — one source of truth, `off` refactored onto shared mutators, atomic save
-- [ ] **TOGL-02**: Toggle UI shows saved-vs-applied state with an explicit Apply-now (re-sync) action
-- [ ] **TOGL-03**: Non-toggleable packages show WHY (pattern-managed / plugin / binary-target / excluded / fidelity)
+- [x] **TOGL-01**: Per-package cache on/off toggles persist to the same config ignore list `spm-cache off` writes — one source of truth, `off` refactored onto shared mutators, atomic save
+- [x] **TOGL-02**: Toggle UI shows saved-vs-applied state with an explicit Apply-now (re-sync) action
+- [x] **TOGL-03**: Non-toggleable packages show WHY (pattern-managed / plugin / binary-target / excluded / fidelity)
 
 ## v2 Requirements
 
@@ -98,9 +98,9 @@ Which phases cover which requirements. Updated during roadmap creation.
 | BLD-02 | Phase 15 | Complete |
 | BLD-03 | Phase 15 | Complete |
 | BLD-04 | Phase 15 | Complete |
-| TOGL-01 | Phase 16 | Pending |
-| TOGL-02 | Phase 16 | Pending |
-| TOGL-03 | Phase 16 | Pending |
+| TOGL-01 | Phase 16 | Complete |
+| TOGL-02 | Phase 16 | Complete |
+| TOGL-03 | Phase 16 | Complete |
 
 **Coverage:**
 
