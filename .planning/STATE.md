@@ -39,7 +39,7 @@ v0.4.0 shipped and released 2026-08-31 (first fully-green tap publish in project
 Phase: Milestone v0.5.0 complete
 Plan: —
 Status: Awaiting next milestone
-Last activity: 2026-09-02 — Milestone v0.5.0 completed and archived
+Last activity: 2026-09-02 - Completed quick task 260902-vcm: port the Grok-palette app-shell redesign into lib/spm_cache/web/assets/, rewiring app.js/log.js to the new container IDs per the OD rationale doc's rewiring notes
 
 ## v0.5.0 Phase Status
 
@@ -126,6 +126,12 @@ Items acknowledged and deferred at milestone close, most recent first:
 | uat_gaps | 06/06-UAT.md | partial (0 pending; remainder skipped by 2026-08-27 override) | 2026-08-31 | v0.4.0 |
 | uat_gaps | 07/07-UAT.md | testing (1 pending; superseded by canonical verification 5/5) | 2026-08-31 | v0.4.0 |
 | deferred_items | 11/deferred-items.md: tap formula Ruby ≥3.4 boot crash | RESOLVED same day (tap@5fd0f0d, live-proven run 33350215267) — acknowledged to quiet the scanner | 2026-08-31 | v0.4.0 |
+
+## Quick Tasks Completed
+
+| # | Description | Date | Commit | Directory |
+|---|-------------|------|--------|-----------|
+| 260902-vcm | port the Grok-palette app-shell redesign into lib/spm_cache/web/assets/, rewiring app.js/log.js to the new container IDs per the OD rationale doc's rewiring notes | 2026-09-02 | aed6ed9 | [260902-vcm-port-the-grok-palette-app-shell-redesign](./quick/260902-vcm-port-the-grok-palette-app-shell-redesign/) |
 
 ## Session Continuity
 
