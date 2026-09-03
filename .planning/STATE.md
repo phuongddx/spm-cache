@@ -1,20 +1,19 @@
 ---
 gsd_state_version: 1.0
 milestone: v0.5.0
-milestone_name: Web Interface
 current_phase: 16
-status: Awaiting next milestone
+status: "Milestone v0.5.0 shipped — PR #14"
 stopped_at: Phase 16 complete — all phases complete
-last_updated: "2026-09-02T01:15:22.870Z"
-last_activity: 2026-09-02
-last_activity_desc: Milestone v0.5.0 completed and archived
-state_head: 383fd2c2da0bec3921d0b7e28dea5b2687ff45fc
+last_updated: "2026-09-03T05:45:25.354Z"
+last_activity: 2026-09-03
+state_head: cb5ceb4d5636a9c23c2210a972926752f0a3a9af
 progress:
   total_phases: 5
   completed_phases: 5
   total_plans: 27
   completed_plans: 27
   percent: 100
+milestone_name: Web Interface
 current_phase_name: Package Toggles + Panel Completion
 ---
 
@@ -38,8 +37,8 @@ v0.4.0 shipped and released 2026-08-31 (first fully-green tap publish in project
 
 Phase: Milestone v0.5.0 complete
 Plan: —
-Status: Awaiting next milestone
-Last activity: 2026-09-02 - Completed quick task 260902-vcm: port the Grok-palette app-shell redesign into lib/spm_cache/web/assets/, rewiring app.js/log.js to the new container IDs per the OD rationale doc's rewiring notes
+Status: Milestone v0.5.0 shipped — PR #14
+Last activity: 2026-09-03
 
 ## v0.5.0 Phase Status
 
