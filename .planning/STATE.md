@@ -37,8 +37,8 @@ v0.4.0 shipped and released 2026-08-31 (first fully-green tap publish in project
 
 Phase: Milestone v0.5.0 complete
 Plan: —
-Status: Milestone v0.5.0 shipped — PR #14
-Last activity: 2026-09-03
+Status: v0.5.0 released — PR #14 merged, tag v0.5.0, tap publish fully green (run 33721181839, tap fe450ff)
+Last activity: 2026-09-03 — v0.5.0 release cut: squash-merge to main, signed tag, byte-stable tarball asset, brew verify asserted spm-cache --version = 0.5.0
 
 ## v0.5.0 Phase Status
 
