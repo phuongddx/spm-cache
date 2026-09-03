@@ -267,11 +267,73 @@ RSpec.describe SPMCache::Installer::Use, '#perform_install fast path' do
 
     saved = Xcodeproj::Project.open(project_path)
     remote_urls = saved.root_object.package_references
-                        .grep(Xcodeproj::Project::Object::XCRemoteSwiftPackageReference)
-                        .map(&:repositoryURL)
+                       .grep(Xcodeproj::Project::Object::XCRemoteSwiftPackageReference)
+                       .map(&:repositoryURL)
     expect(remote_urls).to include(swiftgen_url)
 
     saved_target = saved.targets.first
     expect(saved_target.package_product_dependencies.map(&:product_name)).to include('SwiftGenPlugin')
+  end
+
+  # D-04/LOGS-01: phase markers (detect/integrate) land in the active run log
+  # from the existing perform_install boundaries. With RunLog.current nil
+  # (every other example here) the marker calls are no-ops.
+  describe 'run-log phase markers (D-04)' do
+    let(:marker_runs_dir) { File.join(tmpdir, 'runs') }
+
+    def with_current_run_log
+      log = SPMCache::Core::RunLog.open(runs_dir: marker_runs_dir, command: 'use')
+      yield log
+    ensure
+      log&.finish(0)
+    end
+
+    def phase_names(log)
+      File.read(log.path).lines.map { |line| JSON.parse(line) }
+                               .select { |event| event['event'] == 'phase' }.map { |event| event['name'] }
+    end
+
+    it 'emits detect then integrate exactly once on the fast path' do
+      build_project
+      write_lockfile([
+                       { 'repositoryURL' => 'https://github.com/Alamofire/Alamofire.git', 'name' => 'Alamofire', 'version' => '5.0.0' }
+                     ])
+      write_package_resolved([
+                               { identity: 'Alamofire', url: 'https://github.com/Alamofire/Alamofire.git', version: '5.0.0' }
+                             ])
+      materialize_proxy
+
+      installer = described_class.new(project: project_path)
+      with_current_run_log do |log|
+        installer.perform_install
+        expect(phase_names(log)).to eq(%w[detect integrate])
+      end
+      expect(installer.diff).to be_empty
+    end
+
+    it 'emits exactly one integrate marker on the full regeneration branch too (single site, no duplication)' do
+      build_project
+      write_lockfile([
+                       { 'repositoryURL' => 'https://github.com/Alamofire/Alamofire.git', 'name' => 'Alamofire', 'version' => '5.0.0' }
+                     ], version: 'v0.3.0-stub')
+      write_package_resolved([
+                               { identity: 'Alamofire', url: 'https://github.com/Alamofire/Alamofire.git', version: '5.0.0' }
+                             ])
+      materialize_proxy
+
+      installer = described_class.new(project: project_path)
+      allow(installer).to receive(:recreate_dirs)
+      allow(installer).to receive(:ensure_config_file)
+      allow(installer).to receive(:sync_lockfile)
+      allow(installer).to receive(:prepare_proxy)
+      allow(installer).to receive(:gen_supporting_files)
+      allow(installer).to receive(:integrate_proxy_into_project)
+      allow(installer).to receive(:gen_cachemap_viz)
+
+      with_current_run_log do |log|
+        installer.perform_install
+        expect(phase_names(log)).to eq(%w[detect integrate])
+      end
+    end
   end
 end

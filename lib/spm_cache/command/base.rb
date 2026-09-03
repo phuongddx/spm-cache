@@ -3,9 +3,10 @@
 module SPMCache
   class Command
     module Options
-      SDK = "iphonesimulator"
-      CONFIG = "debug"
+      SDK = 'iphonesimulator'
+      CONFIG = 'debug'
       LOG_DIR = nil
+      RUN_LOG = true
       MERGE_SLICES = true
       LIBRARY_EVOLUTION = true
     end
@@ -21,6 +22,10 @@ module SPMCache
 
       def log_dir
         @log_dir || Options::LOG_DIR
+      end
+
+      def run_log?
+        @run_log.nil? ? Options::RUN_LOG : @run_log
       end
 
       def merge_slices?

@@ -1,10 +1,10 @@
 ---
 schema_version: 1
-open_count: 3
+open_count: 4
 waived_count: 5
 fixed_count: 0
-total_count: 8
-last_updated: 2026-08-30T01:10:46.904Z
+total_count: 9
+last_updated: 2026-09-01T08:24:16.626Z
 ---
 
 # Broken Windows Ledger
@@ -23,6 +23,7 @@ last_updated: 2026-08-30T01:10:46.904Z
 | 6 | 06 | deviation | lib/spm_cache/core/diagnostics.rb |  | lock_graph_fidelity guards cfg.respond_to?(:lockfile_path) because a verifying instance_double raises MockExpectationError (not a StandardError) and escapes run_check's capture | open |  | 2026-08-27T08:24:12.828Z |  |
 | 7 | 10 | deviation | lib/spm_cache/spm/xcframework/slice.rb | 31 | FrameworkSlice unwired dead code: copy_resource_bundles unreachable (private resource_paths defeats respond_to? guard, bare-Sh NameError, template binding mismatch) — TEST-03 class 6/8 drives the real copy via send; logged in deferred-items.md | open |  | 2026-08-29T16:38:32.821Z |  |
 | 8 | 11 | deviation | spec/main_version_spec.rb |  | RED manifests as SystemExit run-termination (exit 1, no version output) instead of '2 reported failures' — stubbing forbidden by plan; GREEN unaffected | open |  | 2026-08-30T01:10:46.904Z |  |
+| 9 | 13 | deviation | spec/web_integration_spec.rb |  | Plan-literal URI.join('/', ref) unrunnable in Ruby (BadURIError: both URI are relative) — repaired to URI.join against the document origin root (8fdd2df); browser semantics preserved, no test-side rewriting | open |  | 2026-09-01T08:24:16.626Z |  |
 
 ````json
 [
@@ -120,6 +121,18 @@ last_updated: 2026-08-30T01:10:46.904Z
     "status": "open",
     "reason": "",
     "recorded_at": "2026-08-30T01:10:46.904Z",
+    "resolved_at": null
+  },
+  {
+    "id": 9,
+    "kind": "deviation",
+    "phase": "13",
+    "file": "spec/web_integration_spec.rb",
+    "line": null,
+    "description": "Plan-literal URI.join('/', ref) unrunnable in Ruby (BadURIError: both URI are relative) — repaired to URI.join against the document origin root (8fdd2df); browser semantics preserved, no test-side rewriting",
+    "status": "open",
+    "reason": "",
+    "recorded_at": "2026-09-01T08:24:16.626Z",
     "resolved_at": null
   }
 ]

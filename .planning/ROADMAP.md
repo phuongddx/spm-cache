@@ -4,17 +4,7 @@
 
 - ✅ **v0.3.0 Mixed Cycle** — Phases 1–5 (shipped 2026-08-24)
 - ✅ **v0.4.0 Build Fidelity & Release Automation** — Phases 6–11 (shipped 2026-08-31)
-
-## Overview
-
-v0.4.0 closed the only known correctness failure (cached builds compiled against transitive
-dependency versions the host never resolved) and repaired the Homebrew release path end-to-end.
-All 21 requirements satisfied; 6/6 phases verified; publish path live-proven including a real
-tap push. The v0.4.0 git release cut (VERSION bump → tag → asset upload → green verify) is the
-remaining operator step.
-
-No next milestone defined yet — run `/gsd-new-milestone` when ready (v0.5 candidates on record:
-`~/.spm-cache` partitioning + content-addressed keys, RubyGems publication).
+- ✅ **v0.5.0 Web Interface** — Phases 12–16 (shipped 2026-09-02)
 
 <details>
 <summary>✅ v0.3.0 Mixed Cycle (Phases 1–5) — SHIPPED 2026-08-24</summary>
@@ -40,5 +30,18 @@ Full phase detail: `milestones/v0.3.0-ROADMAP.md` · Audit: `milestones/v0.3.0-M
 - [x] Phase 11: Homebrew Release Automation (3 plans) — completed 2026-08-31
 
 Full phase detail: `milestones/v0.4.0-ROADMAP.md` · Audit: `v0.4.0-MILESTONE-AUDIT.md`
+
+</details>
+
+<details>
+<summary>✅ v0.5.0 Web Interface (Phases 12–16) — SHIPPED 2026-09-02</summary>
+
+- [x] Phase 12: Run-Log Capture Foundation (5/5 plans) — completed 2026-09-01
+- [x] Phase 13: Server Skeleton + Read-Only Dashboard (5 plans, incl. 1 gap closure) — completed 2026-09-01
+- [x] Phase 14: Live Log Streaming + Terminal/Watch Relay (5 plans) — completed 2026-09-01
+- [x] Phase 15: UI Build Controls (6/6 plans) — completed 2026-09-02
+- [x] Phase 16: Package Toggles + Panel Completion (6/6 plans) — completed 2026-09-02
+
+Full phase detail: `milestones/v0.5.0-ROADMAP.md` · Audit: `milestones/v0.5.0-MILESTONE-AUDIT.md`
 
 </details>

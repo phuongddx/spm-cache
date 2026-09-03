@@ -18,6 +18,16 @@ module SPMCache
           verify_projects!
           detect_diff
 
+          # D-04/LOGS-01: detect phase marker immediately after diff
+          # detection. Nil-guarded via the process-wide seam -- every
+          # caller/spec path without an active run log is a no-op.
+          Core::RunLog.current&.event('phase', name: 'detect')
+
+          # D-04/LOGS-01: integrate phase marker emitted ONCE, immediately
+          # before the branch -- both the fast and full paths integrate, so
+          # a single site here records exactly one marker per run.
+          Core::RunLog.current&.event('phase', name: 'integrate')
+
           if fast_path?
             Core::UI.info 'No changes detected. Proxy package up to date.'
             with_build_lock do
@@ -62,7 +72,16 @@ module SPMCache
         FileUtils.mkdir_p(File.dirname(path))
         lock = File.open(path, File::CREAT | File::RDWR)
         begin
-          lock.flock(File::LOCK_EX)
+          # D-05: probe -> announce -> block -- the identical three-step
+          # shape as Installer::Build#acquire_build_lock. LOCK_NB returns
+          # false under contention (never raises); the free path stays
+          # byte-identical. UI.info rides $stdout, so the Phase 12 tee
+          # captures the line into THIS run's JSONL. Pinned wording, two
+          # surfaces, frozen (BLD-02).
+          unless lock.flock(File::LOCK_EX | File::LOCK_NB)
+            Core::UI.info 'Waiting for build lock…'
+            lock.flock(File::LOCK_EX)
+          end
           yield
         ensure
           lock.flock(File::LOCK_UN)

@@ -1,7 +1,7 @@
 # frozen_string_literal: true
 
-require "open3"
-require "fileutils"
+require 'open3'
+require 'fileutils'
 
 module SPMCache
   module Core
@@ -9,33 +9,77 @@ module SPMCache
       class << self
         def run(cmd, opts = {})
           live_log = opts[:live_log]
+          # Per-stream sinks (Pitfall 4): a single live_log object cannot
+          # attribute stdout vs stderr -- each reader thread gets its own
+          # sink, falling back to the legacy single object for both streams.
+          out_sink = opts[:live_log_out] || live_log
+          err_sink = opts[:live_log_err] || live_log
           cwd = opts[:cwd]
           env = opts[:env] || {}
-
-          output_lines = []
 
           spawn_opts = {}
           spawn_opts[:chdir] = cwd if cwd
 
-          if live_log
+          if out_sink || err_sink
+            # Full per-stream accumulation restores failure_detail on THIS
+            # path -- the capture3 branch below has always had it, but the
+            # popen3 branch used to raise detail-free, discarding every
+            # captured line (SC2 discarded-capture gap). The sink still
+            # receives the FULL stream (D-05); only the raised message is
+            # bounded to the last FAILURE_DETAIL_LINES per stream, never the
+            # run-log file. The return value honors the capture3 contract
+            # (WR-03): full streams + the real exitstatus -- never a tailed
+            # preview masquerading as output, never a literal status.
+            out_buf = +''
+            err_buf = +''
+            exit_status = 0
             Open3.popen3(env, cmd, **spawn_opts) do |stdin, stdout, stderr, wait_thr|
               stdin.close
               threads = [
-                Thread.new { stdout.each_line { |l| live_log.output(l) } },
-                Thread.new { stderr.each_line { |l| live_log.output(l) } },
+                Thread.new do
+                  stdout.each_line do |l|
+                    out_sink&.output(l)
+                    out_buf << l
+                  end
+                end,
+                Thread.new do
+                  stderr.each_line do |l|
+                    err_sink&.output(l)
+                    err_buf << l
+                  end
+                end
               ]
               threads.each(&:join)
-              status = wait_thr.value
-              unless status.success?
-                raise GeneralError.new("Command failed (exit #{status.exitstatus}): #{cmd}")
+              exit_status = wait_thr.value.exitstatus
+              unless wait_thr.value.success?
+                error = GeneralError.new("Command failed (exit #{exit_status}): #{cmd}\n#{failure_detail(out_buf,
+                                                                                                         err_buf)}")
+                # WR-04: the message is tail-bounded for display; recovery
+                # callers match the complete streamed content instead.
+                error.full_output = out_buf + err_buf
+                raise error
               end
             end
-            { output: "", status: 0 }
+            { output: out_buf, error: err_buf, status: exit_status }
           else
             stdout_str, stderr_str, status = Open3.capture3(env, cmd, **spawn_opts)
+            # Structured sh event per completed capture3 call (Pitfall 5 /
+            # LOGS-01, A2): value-returning captures are consumed as values
+            # and never printed today -- cmd + status (never output text)
+            # makes swift-package-describe / xcodebuild -list visible in
+            # offline reconstruction without spamming. Recorded on success
+            # AND failure, before the raise; RunLog's safe_append
+            # degradation already guarantees a logging failure can never
+            # mask the capture's own result (no second guard layer here).
+            RunLog.current&.event('sh', cmd: cmd, status: status.exitstatus)
             unless status.success?
-              msg = "Command failed (exit #{status.exitstatus}): #{cmd}\n#{failure_detail(stdout_str, stderr_str)}"
-              raise GeneralError.new(msg)
+              error = GeneralError.new("Command failed (exit #{status.exitstatus}): #{cmd}\n#{failure_detail(
+                stdout_str, stderr_str
+              )}")
+              # WR-04 parity with the popen3 branch: full streams stay
+              # matchable even though the message carries only the tail.
+              error.full_output = stdout_str + stderr_str
+              raise error
             end
             { output: stdout_str, error: stderr_str, status: status.exitstatus }
           end

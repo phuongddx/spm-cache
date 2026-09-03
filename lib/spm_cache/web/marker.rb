@@ -1,0 +1,99 @@
+# frozen_string_literal: true
+
+require 'json'
+require 'tempfile'
+require 'time'
+require 'fileutils'
+
+module SPMCache
+  module Web
+    # Single-instance marker at <project>/.spm-cache/web/server.json
+    # (WEB-02): {pid, port, token, started_at}. Written 0600 -- it carries
+    # the per-launch token (T-13-03) -- and atomically, so a concurrent
+    # `spm-cache web` never observes a half-written marker.
+    class Marker
+      FILENAME = 'server.json'
+
+      class << self
+        def default_path
+          File.join(Core::Config.instance.web_dir, FILENAME)
+        end
+
+        # Absent, unreadable, malformed, or symlinked-at markers read as
+        # nil. The lstat symlink check (T-13-05) defends against a
+        # pre-planted symlink a hostile local user swapped in: reading
+        # through it would trust THEIR content.
+        def read(path: default_path)
+          stat = File.lstat(path)
+          return nil if stat.symlink?
+
+          JSON.parse(File.read(path))
+        rescue JSON::ParserError, SystemCallError
+          nil
+        end
+
+        def write(pid:, port:, token:, path: default_path)
+          dir = File.dirname(path)
+          FileUtils.mkdir_p(dir)
+          # Tempfile in the marker dir + File.rename: rename replaces the
+          # directory entry itself, never writing through a pre-planted
+          # symlink (T-13-05; provenance-sidecar pattern, build_pipeline).
+          # chmod lands on the tempfile BEFORE the rename so the file is
+          # never observable world-readable at the final path.
+          tmp = Tempfile.new(['server', '.json'], dir)
+          begin
+            tmp.write(JSON.generate(
+                        'pid' => pid,
+                        'port' => port,
+                        'token' => token,
+                        'started_at' => Time.now.utc.iso8601
+                      ))
+            tmp.close
+            File.chmod(0o600, tmp.path)
+            File.rename(tmp.path, path)
+          ensure
+            tmp.close unless tmp.closed?
+            File.unlink(tmp.path) if File.exist?(tmp.path)
+          end
+          path
+        end
+
+        # Clears only the caller's own record when pid: is given
+        # (review WR-02): a launch whose marker was overwritten by a
+        # newer server must never delete the NEWER server's liveness
+        # record on its way out. pid: nil -- Command::Web's heal path
+        # -- clears unconditionally.
+        def clear(pid: nil, path: default_path)
+          return if pid && (entry = read(path: path)) && entry['pid'] != pid
+
+          # Bare unlink + ENOENT rescue (review WR-03): the old
+          # exist?-then-unlink raced a concurrent clearer and could
+          # raise FROM Command::Web's shutdown ensure -- breaking
+          # WEB-03's exit-0 contract after a successful stop.
+          File.unlink(path)
+        rescue Errno::ENOENT
+          nil
+        end
+
+        # True only when the pid parses and Process.kill(0, pid) succeeds
+        # -- Errno::ESRCH means dead, any other error (e.g. EPERM) means
+        # the pid exists (run_log.rb:391-399 precedent, cited per plan).
+        # An unparseable pid protects nothing, same posture as
+        # RunLog#protected_run?.
+        def live?(entry)
+          return false unless entry.is_a?(Hash)
+
+          pid = entry['pid']
+          return false unless pid.is_a?(Integer)
+
+          Process.kill(0, pid)
+          true
+        rescue Errno::ESRCH
+          false
+        rescue StandardError
+          true
+        end
+      end
+    end
+  end
+end

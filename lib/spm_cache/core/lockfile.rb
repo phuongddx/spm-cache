@@ -1,6 +1,7 @@
 # frozen_string_literal: true
 
 require "json"
+require "set"
 
 require "spm_cache/core/syntax/json"
 require "spm_cache/core/log"
@@ -144,6 +145,33 @@ module SPMCache
       def platforms_for_project(project_name)
         data = @raw[project_name] || {}
         data["platforms"] || {}
+      end
+
+      # The set of names a binary-backed package is reachable by -- its
+      # package identity, each of its products[] names, and each of those
+      # products' target names -- because a cache-state row's `name` can be
+      # spelled any of those three ways (the same reachability question
+      # checkout_map answers the same way when it indexes checkouts by
+      # identity and every product name). The web tier asks this once per
+      # state read and membership-tests every row against it, so the answer
+      # is a Set: one cheap lookup per row rather than a scan per row.
+      #
+      # Total by construction -- missing keys, absent packages, unknown
+      # projects, and unflagged legacy entries all fall through to nothing
+      # -- because the web tier calls this on every state poll and a raise
+      # here would take out the whole panel.
+      def binary_backed_names(project_name)
+        data = @raw[project_name] || {}
+        data.fetch("packages", []).each_with_object(Set.new) do |pkg, names|
+          next unless pkg["binary_target"]
+
+          identity = pkg["name"] || File.basename(pkg["repositoryURL"] || pkg["path_from_root"] || "", ".git")
+          names << identity unless identity.empty?
+          (pkg["products"] || []).each do |product|
+            names << product["name"] if product["name"]
+            (product["targets"] || []).each { |t| names << t if t }
+          end
+        end
       end
 
       def empty?

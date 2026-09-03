@@ -8,21 +8,47 @@
 
 Reduce Xcode clean build times by serving prebuilt SPM dependency binaries transparently, with automatic fallback to source compilation on cache miss — so a cache hit never breaks a build.
 
-## Current State: v0.4.0 shipped (2026-08-31)
+## Current State: v0.5.0 shipped (2026-09-02)
+
+The Web Interface milestone is complete and audited (19/19 requirements, 5/5 phases
+verified, 5/5 E2E flows wired, nyquist-compliant): `spm-cache web` serves a
+localhost-only dashboard behind Host/Origin + per-launch-token middleware — a state
+panel, doctor health, a nodes-only dependency graph, and a live Run Log panel streaming
+every CLI run (terminal, watch, and UI-triggered) over SSE with byte-exact replay,
+Last-Event-ID resume, anchor/filter mechanics, and failure banners. Build/Rebuild-all/
+Rollback controls spawn the real CLI (own pgroup, single shared slot, lock-derived
+waiting), and per-package cache toggles persist through the same locked atomic mutator
+`spm-cache off` uses, with saved-vs-applied honesty and five WHY-not reasons. Suite
+grew 787 → 1095 hermetic examples; three recorded agent-browser probe nets (22 manual
+rows) caught four real defects that green suites missed. Known honest edges recorded in
+the audit: apply-now convergence depends on a full graph regen (backlog candidate),
+rollback leaves a dangling proxy ref (pre-existing semantics), the watcher's pbxproj
+glob can pick a nested duplicate project.
+
+<details>
+<summary>v0.4.0 (2026-08-31) — build fidelity closed end-to-end</summary>
 
 Build fidelity closed end-to-end: cached builds are compiled, verified, and invalidated
 against the host app's resolved dependency graph (canonical locator → host-graph seeding →
 drift read-back + provenance sidecars → provenance-gated cache hits), pinned by hermetic
 regression specs (441 examples). Release automation repaired and live-proven: rewritten
 `update-tap.yml` (every failure loud, deploy-key auth, byte-stable asset pinning, first real
-tap push landed 2026-08-31), `--version` intercept working. Remaining operator step: the
-v0.4.0 release cut itself (bump VERSION → tag → attach tarball asset → watch first fully-green
-verify-publish).
+tap push landed 2026-08-31), `--version` intercept working.
 
-## Next Milestone Goals (not yet defined — run /gsd-new-milestone)
+</details>
 
-Candidates on record: `~/.spm-cache` partitioning + content-addressed keys (v0.5 carry-over),
-RubyGems publication (+ GitHub Action viability it unlocks), tap-repo automation hardening.
+## Next Milestone Goals
+
+Not yet defined — start with `/gsd-new-milestone`. Backlog candidates recorded during
+v0.5.0: force graph regen when the ignore set diverges (apply-now self-convergence),
+watcher pbxproj-glob fix for nested duplicate projects, rollback de-integration of the
+dangling proxy ref, WEB2-02 run cancellation (pgroup mechanics already landed), RubyGems
+publication of the gem, 14-UI-REVIEW W2 (cold-load of a live run longer than the viewport
+never engages follow — D-13 divergence), Events.pop_with_timeout Timeout-race review (the
+async raise can land between Queue#pop dequeue and return, silently dropping one SSE entry
+on a healthy connection — Mutex+CondVar or poll-loop replacement), WR-01 follow-up (the
+pinned-suppression guard can leave the controls row disabled if a run is pinned for its
+whole lifetime — consider keying suppression to the spawned run id).
 
 ## Requirements
 
@@ -50,10 +76,18 @@ RubyGems publication (+ GitHub Action viability it unlocks), tap-repo automation
 - ✓ The fidelity contract is pinned by hermetic specs (drift regression, six-bucket partition coverage, 8-class v0.2.x edge matrix — 416 examples green on the Ruby 3.1–3.3 CI matrix, no network, no real xcodebuild) — Phase 10 (v0.4.0)
 - ✓ Release automation end-to-end: `update-tap.yml` publishes the Homebrew formula unattended via a scoped write deploy key (`TAP_DEPLOY_KEY`), every failure mode loud, integrity-gated byte-stable tarball pinning, idempotent re-runs, and a brew verify job whose version assertion demonstrably has teeth — live-proven including a real tap push (2026-08-31) — Phase 11 (v0.4.0)
 - ✓ `spm-cache --version` prints the gem version and exits 0 (pre-CLAide intercept) — Phase 11 (v0.4.0)
+- ✓ Run-log capture foundation — every CLI run (except `web`/`watch` verbs and `--no-run-log`) leaves a complete queryable JSONL run log: credential-redacted argv header, full-fidelity stream body, structured `run_start`/`phase`/`package_*`/`sh`/`run_end` event vocabulary, and hybrid count+size retention (50 runs / 500 MB) — Phase 12 (v0.5.0)
+- ✓ `spm-cache web` read-only dashboard — hardened localhost WEBrick server (Host/Origin/token middleware, 25-cell route×auth matrix), fully-offline 4-asset frontend (vendored cytoscape), three read-model panels (state/doctor/graph) sharing the CLI's exact read paths; live-browser-verified after the G-13-1 asset-path gap closure — Phase 13 (v0.5.0)
 
 ### Active
 
-(none — next milestone not yet defined)
+
+- [ ] Web dashboard served locally for the current project (`spm-cache web`)
+- [ ] Live streaming build logs from UI-triggered and terminal/`watch` builds
+- [ ] Per-package cache on/off toggles persisted and honored end-to-end
+- [ ] Cache state table with sizes and fidelity status
+- [ ] Cachemap dependency graph embedded in the dashboard
+- [ ] Doctor health panel in the browser
 
 ### Out of Scope
 
@@ -80,6 +114,7 @@ Known state after v0.3.0: test CI runs the full suite on every PR/push (was: non
 - **Architecture**: proxy-package swap at the SPM manifest level; lockfile (`spm-cache.lock`) + config (`spm-cache.yml`) as the state surface
 - **Compatibility**: no new runtime gem dependencies without justification (watch uses stdlib mtime polling to avoid `listen`)
 - **GitHub Action**: must live in a separate repo per `uses:` resolution rules
+- **Web UI**: localhost-only binding, no remote exposure; server stack must justify any new runtime gem dependency (research question)
 
 ## Key Decisions
 
@@ -87,6 +122,8 @@ Known state after v0.3.0: test CI runs the full suite on every PR/push (was: non
 |----------|-----------|---------|
 | v0.3.0 direction = Mixed (features + hardening) | User chose balanced cycle — moat + adoption + reliability | ✓ Shipped — 5/5 phases verified 2026-08-24 |
 | `watch` uses stdlib mtime+size polling, not `listen` gem | zero native binding, portable, avoids new dependency; binding design superseded 2026-08-24 (05-CONTEXT) | ✓ Shipped Phase 5 — stdlib polling (amended 2026-08-24) |
+| Run logs live in `.spm-cache/runs/` as file-tail JSONL; header redacts credentials, body stays verbatim | Relay transport for Phase 14 streaming chosen over UDS at research; full-fidelity body is the offline-reconstruction contract (D-05), retention is the disk-fill bound (T-12-04) | ✓ Shipped Phase 12 — 5/5 plans, verification passed, UAT 2/2, threats_open 0 |
+| Dashboard asset refs are relative `assets/…` and every integration assertion resolves scanned refs with browser semantics (URI.join vs document origin) | Test-side `/assets/#{ref}` re-prefixing hid a ship-blocking 404 (all three assets) from 119 green examples; the first real-browser exercise caught it in minutes — no JS runtime in CI means served-bytes pins must include "the HTML points there" | ✓ Shipped Phase 13 — 5/5 plans + G-13-1 gap closure; verification 23/23; UAT 6/6 (one on user-accepted evidence); SECURITY SECURED 23/23 |
 | `watch` watches only Package.resolved + project.pbxproj | Whole .xcodeproj bundle is too noisy (Xcode rewrites many files) | ✓ Shipped Phase 5 |
 | `init` re-runs are idempotent diff-merge | Mirrors `use` diff philosophy; prevents data loss | ✓ Shipped Phase 3 — byte-stable double-run proven |
 | init seeds spm-cache.lock in canonical consumer shape | Pins byte-copy crashed `use` (TypeError, diff_detector.rb:103); canonical shape reuses installer mapping | ✓ Phase 3 — DiffDetector consumes seeded lock: "No changes detected" |
@@ -124,4 +161,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-08-31 at v0.4.0 milestone close*
+*Last updated: 2026-09-01 after Phase 12 (Run-Log Capture Foundation)*

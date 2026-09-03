@@ -144,7 +144,7 @@ The manifest-sync burden is Scipio's #1 friction point: every dependency change 
 | Command | Description |
 |---|---|
 | `spm-cache` / `spm-cache use` | Integrate cache (default command) |
-| `spm-cache build [TARGETS]` | Build targets into xcframeworks |
+| `spm-cache build [TARGETS] [--rebuild]` | Build targets into xcframeworks (`--rebuild` also rebuilds cache hits) |
 | `spm-cache off [TARGETS]` | Force source mode for targets |
 | `spm-cache rollback` | Restore original project state |
 | `spm-cache cache list` | List cached packages |

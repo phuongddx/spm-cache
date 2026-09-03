@@ -57,7 +57,13 @@ RSpec.describe SPMCache::Command::Init do
     lock = File.read(lock_path)
     expect(lock).to include('Alamofire')
 
-    expect(File.read(gitignore_path)).to include('spm-cache/')
+    # D-02/LOGS-01: the sandbox entry AND the run-logs entry, each under its
+    # own labeled comment.
+    gitignore_lines = File.read(gitignore_path).lines.map(&:chomp)
+    expect(gitignore_lines).to include('spm-cache/')
+    expect(gitignore_lines).to include('.spm-cache/')
+    expect(gitignore_lines).to include('# spm-cache sandbox')
+    expect(gitignore_lines).to include('# spm-cache run logs')
   end
 
   it 'seeds spm-cache.lock in the canonical shape consumable by DiffDetector' do
@@ -130,9 +136,9 @@ RSpec.describe SPMCache::Command::Init do
       # Init completes (exit-0 equivalent): warns on stderr, takes the same
       # seeding-skipped message path as a missing Package.resolved, and the
       # run reaches ensure_gitignore instead of aborting mid-run.
-      expect {
+      expect do
         expect { cmd.run }.to output(/Created empty spm-cache\.lock/).to_stdout
-      }.to output(/\[warn\] Package\.resolved at .* is unreadable/).to_stderr
+      end.to output(/\[warn\] Package\.resolved at .* is unreadable/).to_stderr
 
       lock_path = File.join(bad_tmpdir, 'spm-cache.lock')
       data = JSON.parse(File.read(lock_path))
@@ -140,6 +146,36 @@ RSpec.describe SPMCache::Command::Init do
       expect(File.read(File.join(bad_tmpdir, '.gitignore'))).to include('spm-cache/')
     ensure
       FileUtils.remove_entry(bad_tmpdir)
+    end
+  end
+
+  # WR-05: a VALID-JSON Package.resolved whose pins array contains
+  # non-objects ("pins": ["Alamofire"]) used to raise TypeError/NoMethodError
+  # in seed_lockfile AFTER the yml was written but BEFORE the lockfile and
+  # .gitignore -- exactly the mid-run abort the guard comment promises never
+  # happens. Malformed pins are dropped with a warning, not fatal.
+  it 'seeds from the object pins and keeps init alive when Package.resolved pins contain non-objects (WR-05)' do
+    pins_tmpdir = Dir.mktmpdir
+    begin
+      pins_project = File.join(pins_tmpdir, project_name)
+      FileUtils.mkdir_p(File.join(pins_project, 'project.xcworkspace', 'xcshareddata', 'swiftpm'))
+      File.write(File.join(pins_project, 'project.xcworkspace', 'xcshareddata', 'swiftpm', 'Package.resolved'),
+                 '{"pins":["Alamofire",{"identity":"Moya","kind":"remoteSourceControl","location":"https://github.com/Moya/Moya.git","state":{"revision":"beef","version":"7.0.0"}}],"version":1}')
+
+      cmd = parse_init(["--project=#{pins_project}", '--platform=ios', '--default-config=debug'])
+      SPMCache::Core::Config.instance.reset!
+
+      expect do
+        expect { cmd.run }.to output(/Seeded spm-cache\.lock/).to_stdout
+      end.to output(/\[warn\] Package\.resolved at .* dropped 1 malformed pin/).to_stderr
+
+      lock_path = File.join(pins_tmpdir, 'spm-cache.lock')
+      data = JSON.parse(File.read(lock_path))
+      expect(data[project_name]['packages'].length).to eq(1) # the object pin survived
+      expect(data[project_name]['packages'].first).to include('name' => 'Moya', 'version' => '7.0.0')
+      expect(File.read(File.join(pins_tmpdir, '.gitignore'))).to include('spm-cache/') # init reached the end
+    ensure
+      FileUtils.remove_entry(pins_tmpdir)
     end
   end
 
@@ -162,9 +198,25 @@ RSpec.describe SPMCache::Command::Init do
     expect(reparsed['custom_key']).to eq('keep-me') # preserved
     expect(reparsed['default_config']).to eq('release') # updated
 
-    # .gitignore should contain the entry exactly once.
+    # .gitignore: each entry exactly once. '.spm-cache/' contains
+    # 'spm-cache/' as a substring, so scan() would double-count — assert
+    # per-line with anchored regexes instead (D-02).
     gitignore = File.read(File.join(tmpdir, '.gitignore'))
-    expect(gitignore.scan('spm-cache/').length).to eq(1)
+    expect(gitignore.lines.map(&:chomp).grep(%r{\A\.spm-cache/\z}).length).to eq(1)
+    expect(gitignore.lines.map(&:chomp).grep(%r{\Aspm-cache/\z}).length).to eq(1)
+  end
+
+  it 'appends .spm-cache/ to an existing .gitignore after a blank line with its own comment (D-02)' do
+    gitignore_path = File.join(tmpdir, '.gitignore')
+    File.write(gitignore_path, "node_modules/\n")
+
+    cmd = parse_init(["--project=#{project_path}", '--platform=ios', '--default-config=debug'])
+    SPMCache::Core::Config.instance.reset!
+    cmd.run
+
+    expect(File.read(gitignore_path).lines.map(&:chomp)).to eq(
+      ['node_modules/', '', '# spm-cache sandbox', 'spm-cache/', '', '# spm-cache run logs', '.spm-cache/']
+    )
   end
 
   it 'configures a git remote backend' do

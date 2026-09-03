@@ -157,19 +157,7 @@ module SPMCache
         # skeleton, mirroring write_config's rescue posture for corrupt yml.
         pins = []
         seeded = false
-        if resolved && File.exist?(resolved)
-          begin
-            data = JSON.parse(File.read(resolved))
-            if data.is_a?(Hash)
-              pins = data['pins'] || []
-              seeded = true
-            else
-              Core::UI.warn "Package.resolved at #{resolved} is not a JSON object; seeding an empty lock."
-            end
-          rescue JSON::ParserError, TypeError
-            Core::UI.warn "Package.resolved at #{resolved} is unreadable; seeding an empty lock."
-          end
-        end
+        pins, seeded = read_resolved_pins(resolved) if resolved && File.exist?(resolved)
         lockfile_data = {
           File.basename(project_path) => {
             'packages' => pins.map do |pin|
@@ -193,19 +181,52 @@ module SPMCache
         end
       end
 
+      # WR-05: a valid-JSON Package.resolved with non-object pins entries
+      # ("pins": ["Alamofire"]) used to raise in the pins mapping, aborting
+      # init AFTER the yml was written but BEFORE the lockfile and
+      # .gitignore -- exactly the mid-run abort the guard above promises
+      # never happens. Malformed entries are dropped with a warning instead;
+      # the seed stays partial-but-consumable. Returns [pins, seeded].
+      def read_resolved_pins(resolved)
+        data = JSON.parse(File.read(resolved))
+        return [[], false] unless data.is_a?(Hash)
+
+        unless data['pins'].is_a?(Array)
+          Core::UI.warn "Package.resolved at #{resolved} has no pins array; seeding an empty lock."
+          return [[], true]
+        end
+
+        raw_pins = data['pins']
+        pins = raw_pins.select { |entry| entry.is_a?(Hash) }
+        dropped = raw_pins.length - pins.length
+        Core::UI.warn "Package.resolved at #{resolved} dropped #{dropped} malformed pin(s)." if dropped.positive?
+        [pins, true]
+      rescue JSON::ParserError, TypeError
+        Core::UI.warn "Package.resolved at #{resolved} is unreadable; seeding an empty lock."
+        [[], false]
+      end
+
       def find_package_resolved(project_path)
         Core::PackageResolved.locate(project_path)
       end
 
+      # Append-once gitignore entries, one per concern (the existing shape):
+      # 'spm-cache/' for the build sandbox, '.spm-cache/' for run logs
+      # (D-02 — run logs live outside the sandbox and never enter VCS,
+      # T-12-05). Each entry is independently idempotent.
       def ensure_gitignore(project_path)
         gitignore = File.join(File.dirname(project_path), '.gitignore')
-        entry = 'spm-cache/'
+        append_gitignore_entry(gitignore, 'spm-cache/', '# spm-cache sandbox')
+        append_gitignore_entry(gitignore, '.spm-cache/', '# spm-cache run logs')
+      end
+
+      def append_gitignore_entry(gitignore, entry, comment)
         lines = File.exist?(gitignore) ? File.readlines(gitignore).map(&:chomp) : []
         return if lines.include?(entry)
 
         File.open(gitignore, 'a') do |f|
           f.puts unless lines.empty?
-          f.puts '# spm-cache sandbox'
+          f.puts comment
           f.puts entry
         end
       end

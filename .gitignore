@@ -26,6 +26,10 @@ tools/spm-cache-proxy/Package.resolved
 /spm-cache/
 spm-cache.lock
 spm-cache.yml
+spm-cache.yml.lock
+
+# spm-cache web marker + run logs
+.spm-cache/
 
 # macOS
 .DS_Store
@@ -34,3 +38,9 @@ spm-cache.yml
 .idea/
 .vscode/
 *.xcodeproj/xcuserdata/
+
+# machine-local GSD tool state (never tracked)
+.planning/graphs/
+.planning/intel/
+.planning/state.json
+.planning/.gsd/

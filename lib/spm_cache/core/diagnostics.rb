@@ -44,6 +44,25 @@ module SPMCache
           registry.map { |check| run_check(check, config: config) }
         end
 
+        # The shared doctor JSON shape (13-02): ONE payload method
+        # consumed by both the CLI's --json output
+        # (Command::Doctor#print_json) and the web doctor read model
+        # (Web::ReadModels::Doctor) -- one shape, two consumers, so the
+        # terminal and the dashboard can never disagree (13-CONTEXT
+        # "reuses the CLI's own read path").
+        def payload(results)
+          {
+            checks: results.map do |r|
+              { name: r.name, status: r.status.to_s, message: r.message, fix_hint: r.fix_hint }
+            end,
+            summary: {
+              ok: results.count(&:ok?),
+              warnings: results.count(&:warn?),
+              failures: results.count(&:fail?)
+            }
+          }
+        end
+
         private
 
         def run_check(check, config:)
@@ -75,13 +94,19 @@ module SPMCache
           end
 
           project_path = Dir.glob(File.join(cfg.project_dir, '*.xcodeproj')).sort.first
-          return [:ok, 'No .xcodeproj in this directory — no host graph to compare the lock against'] unless project_path
+          unless project_path
+            return [:ok,
+                    'No .xcodeproj in this directory — no host graph to compare the lock against']
+          end
 
           # The same locator the reconciler uses: a parallel lookup here would
           # let `doctor` report agreement on one file while `use` reconciles
           # against another.
           resolved_path = PackageResolved.locate(project_path)
-          return [:ok, 'Host Package.resolved could not be located — nothing to compare the lock against'] unless resolved_path
+          unless resolved_path
+            return [:ok,
+                    'Host Package.resolved could not be located — nothing to compare the lock against']
+          end
 
           host_pins = PackageResolved.pins_or_nil(resolved_path)
           return [:ok, "Host #{resolved_path} is unreadable — cannot compare"] if host_pins.nil?
@@ -128,7 +153,7 @@ module SPMCache
           # A pre-v2 (`object.pins`) resolved file parses to zero pins, which
           # would otherwise read as 100% drift.
           if host.empty? && !locked.empty?
-            return [:warn, "Host Package.resolved parsed to zero pins while spm-cache.lock holds " \
+            return [:warn, 'Host Package.resolved parsed to zero pins while spm-cache.lock holds ' \
                            "#{locked.size} remote package(s) — suspected Package.resolved schema mismatch, not drift"]
           end
 

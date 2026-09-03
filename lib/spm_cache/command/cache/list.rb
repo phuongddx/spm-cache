@@ -1,40 +1,28 @@
 # frozen_string_literal: true
 
-require "json"
-require "spm_cache/command/cache"
+require 'spm_cache/command/cache'
 
 module SPMCache
   class Command
     class Cache
       class List < Cache
-        self.summary = "List cached packages"
+        self.summary = 'List cached packages'
 
         def run
           config = Core::Config.instance
-          ["debug", "release"].each do |cfg|
-            cache_dir = config.cache_dir(cfg)
-            next unless File.directory?(cache_dir)
+          # The scan lives in Cache::Inventory -- the same source of
+          # truth the web state read model reads (13-02). Printed
+          # output is unchanged: headers per existing config dir, rows
+          # per cached artifact with its sidecar fidelity.
+          entries = SPMCache::Cache::Inventory.scan(config: config)
+          %w[debug release].each do |cfg|
+            next unless File.directory?(config.cache_dir(cfg))
 
             puts "\n#{cfg.capitalize}:"
-            Dir.glob(File.join(cache_dir, "*.xcframework")).sort.each do |fw_path|
-              name = File.basename(fw_path, ".xcframework")
-              status = fidelity_status_for("#{fw_path}.provenance.json")
-              puts "  #{name} (#{status})"
+            entries.select { |entry| entry.config == cfg }.each do |entry|
+              puts "  #{entry.name} (#{entry.fidelity})"
             end
           end
-        end
-
-        private
-
-        def fidelity_status_for(sidecar_path)
-          return "not-graph-pinned" unless File.exist?(sidecar_path)
-
-          parsed = JSON.parse(File.read(sidecar_path))
-          return "not-graph-pinned" unless parsed.is_a?(Hash)
-
-          parsed["fidelity_status"] || "not-graph-pinned"
-        rescue JSON::ParserError, SystemCallError
-          "not-graph-pinned"
         end
       end
     end

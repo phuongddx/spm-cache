@@ -50,6 +50,43 @@ RSpec.describe SPMCache::Core::Diagnostics do
       described_class.instance_variable_set(:@registry, saved)
     end
   end
+
+  describe '.payload' do
+    # The shared JSON shape (13-02): Command::Doctor#print_json and the
+    # web doctor read model both derive from this one method so the CLI
+    # and the dashboard can never disagree.
+    def result(name, status, message = 'msg', fix_hint: 'hint')
+      described_class::Result.new(name: name, status: status, message: message, fix_hint: fix_hint)
+    end
+
+    it 'maps Results to {name, status, message, fix_hint} checks with String statuses' do
+      payload = described_class.payload([result('a', :ok), result('b', :warn, 'w'), result('c', :fail, 'f')])
+
+      expect(payload[:checks]).to eq([
+                                       { name: 'a', status: 'ok', message: 'msg', fix_hint: 'hint' },
+                                       { name: 'b', status: 'warn', message: 'w', fix_hint: 'hint' },
+                                       { name: 'c', status: 'fail', message: 'f', fix_hint: 'hint' }
+                                     ])
+      expect(payload[:checks].map { |c| c[:status] }).to all(be_a(String))
+    end
+
+    it 'counts the summary by verdict' do
+      payload = described_class.payload(
+        [result('a', :ok), result('b', :ok), result('c', :warn), result('d', :fail)]
+      )
+
+      expect(payload[:summary]).to eq(ok: 2, warnings: 1, failures: 1)
+    end
+
+    it 'serializes to exactly the doctor --json document shape' do
+      payload = described_class.payload([result('a', :ok)])
+
+      expect(JSON.parse(JSON.pretty_generate(payload))).to eq(
+        'checks' => [{ 'name' => 'a', 'status' => 'ok', 'message' => 'msg', 'fix_hint' => 'hint' }],
+        'summary' => { 'ok' => 1, 'warnings' => 0, 'failures' => 0 }
+      )
+    end
+  end
 end
 
 RSpec.describe SPMCache::Core::Diagnostics, 'hermetic per-check paths (injected shell collectors)' do
@@ -230,15 +267,15 @@ RSpec.describe 'spm-cache doctor with a drifted lock' do
                                         'state' => { 'version' => '2.0.0' } }]
                          ))
     File.write(File.join(tmpdir, 'spm-cache.lock'), JSON.generate(
-                                                     'Drifted.xcodeproj' => {
-                                                       'packages' => [{
-                                                         'name' => 'stale',
-                                                         'repositoryURL' => 'https://github.com/example/stale.git',
-                                                         'version' => '1.0.0'
-                                                       }],
-                                                       'dependencies' => {}, 'platforms' => {}
-                                                     }
-                                                   ))
+                                                      'Drifted.xcodeproj' => {
+                                                        'packages' => [{
+                                                          'name' => 'stale',
+                                                          'repositoryURL' => 'https://github.com/example/stale.git',
+                                                          'version' => '1.0.0'
+                                                        }],
+                                                        'dependencies' => {}, 'platforms' => {}
+                                                      }
+                                                    ))
     out = StringIO.new
     original_stdout = $stdout
     $stdout = out
