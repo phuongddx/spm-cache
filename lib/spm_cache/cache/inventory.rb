@@ -29,7 +29,9 @@ module SPMCache
           dir = config_dir(config, cfg, cache_root)
           next [] unless File.directory?(dir)
 
-          unique_framework_paths(dir).map { |path| entry_for(path, cfg) }
+          unique_framework_paths(dir).filter_map do |link_path, fw_path|
+            entry_for(link_path, fw_path, cfg)
+          end
         end
       end
 
@@ -43,16 +45,17 @@ module SPMCache
       def self.unique_framework_paths(dir)
         paths_by_realpath = Dir.glob(File.join(dir, '*.xcframework')).sort
                                .each_with_object({}) do |path, map|
-          realpath = File.realpath(path)
-          map[realpath] = path if File.symlink?(path)
-          map[realpath] ||= path
+          realpath = safe_realpath(path)
+          next if realpath.nil?
+
+          map[realpath] = [path, realpath] if File.symlink?(path)
+          map[realpath] ||= [path, path]
         end
-        paths_by_realpath.values.sort
+        paths_by_realpath.values.sort_by { |link_path, _fw_path| File.basename(link_path) }
       end
       private_class_method :unique_framework_paths
 
-      def self.entry_for(link_path, cfg)
-        fw_path = File.symlink?(link_path) ? File.realpath(link_path) : link_path
+      def self.entry_for(link_path, fw_path, cfg)
         fields = sidecar_fields_for("#{fw_path}.provenance.json")
         Entry.new(
           name: File.basename(link_path, '.xcframework'), config: cfg, size_bytes: dir_size(fw_path),
@@ -61,6 +64,15 @@ module SPMCache
         )
       end
       private_class_method :entry_for
+
+      # Dangling pointers are not listing errors; GC owns their cleanup
+      # and the read models must keep serving the healthy cache.
+      def self.safe_realpath(path)
+        File.realpath(path)
+      rescue SystemCallError # Includes Errno::ENOENT.
+        nil
+      end
+      private_class_method :safe_realpath
 
       # Recursive lstat sum: symlinked entries count at their link size
       # and are never followed (cache dirs may contain symlinked
@@ -94,6 +106,8 @@ module SPMCache
       private_class_method :sidecar_fields_for
 
       def self.hash8_for(fw_path)
+        return nil if File.basename(fw_path).start_with?('legacy-')
+
         File.basename(fw_path).match(/-([0-9a-f]{8})\.xcframework\z/)&.[](1)
       end
       private_class_method :hash8_for
