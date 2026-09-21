@@ -1,6 +1,7 @@
 # frozen_string_literal: true
 
 require 'fileutils'
+require 'json'
 
 require 'spm_cache/installer'
 require 'spm_cache/spm/build_pipeline'
@@ -69,8 +70,15 @@ module SPMCache
           FileUtils.mkdir_p(cache_out)
 
           Core::UI.info "Building #{missed.size} target(s): #{missed.join(', ')}..."
+          fingerprint_context = Cache::Fingerprint.context(config: fingerprint_config)
+          graph_entries = load_graph_entries
           missed.each do |target_name|
-            build_single_target(target_name, checkouts, destinations, cache_out, resolved_pins_file, @config.clones_dir)
+            build_single_target(
+              target_name, checkouts, destinations, cache_out, resolved_pins_file,
+              @config.clones_dir,
+              graph_entries: graph_entries,
+              fingerprint_context: fingerprint_context
+            )
           end
         ensure
           release_build_lock(lock)
@@ -185,7 +193,9 @@ module SPMCache
         requested.flat_map { |t| identity_to_products[t] || [t] }.uniq
       end
 
-      def build_single_target(target_name, checkouts, destinations, cache_out, resolved_pins_file, clones_dir = nil)
+      # rubocop:disable Metrics/ParameterLists
+      def build_single_target(target_name, checkouts, destinations, cache_out, resolved_pins_file, clones_dir = nil,
+                              graph_entries: [], fingerprint_context: nil)
         pkg_dir = checkouts[target_name]
         unless pkg_dir && File.directory?(pkg_dir)
           Core::UI.warn "checkout not found for '#{target_name}'; skipping"
@@ -206,7 +216,9 @@ module SPMCache
             # D-04/LOGS-01: thread the active run log (nil when no run log is
             # open) so the pipeline brackets this package and activates the
             # xcodebuild live sinks.
-            run_log: Core::RunLog.current
+            run_log: Core::RunLog.current,
+            graph_entries: graph_entries,
+            fingerprint_context: fingerprint_context
           )
           Core::UI.info "  Cached: #{result}"
         rescue StandardError => e
@@ -215,10 +227,31 @@ module SPMCache
           Core::UI.warn "  #{target_name} build failed (continuing): #{e.message}"
         end
       end
+      # rubocop:enable Metrics/ParameterLists
 
       def resolve_destinations
         sdk = @config.default_sdk
         sdk == 'all' ? SPM::Package::DEFAULT_DESTINATIONS : [sdk]
+      end
+
+      # Bridge Core::Config to Fingerprint's run-scope contract until Task 3
+      # promotes those accessors. Builder always emits library evolution, and
+      # "all" already means both slices in the existing destination resolver.
+      def fingerprint_config
+        Struct.new(:run_sdk, :run_config, :run_merge_slices, :run_library_evolution).new(
+          @config.default_sdk, @config_name, @config.default_sdk == 'all', true
+        )
+      end
+
+      # Reads the same proxy graph consumed by gen_cachemap_viz/Cachemap.
+      # Identity fingerprinting is best-effort, so absent or malformed input
+      # means "no dependency edges" rather than a build failure.
+      def load_graph_entries
+        path = File.join(@config.proxy_dir, 'graph.json')
+        entries = JSON.parse(File.read(path))
+        entries.is_a?(Array) ? entries : []
+      rescue SystemCallError, JSON::ParserError
+        []
       end
     end
   end
