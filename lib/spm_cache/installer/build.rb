@@ -87,6 +87,20 @@ module SPMCache
               pins_override: pins_override
             )
           end
+
+          return unless @config.cache_auto_evict?
+
+          begin
+            budget = @config.cache_max_size_gb * 1024 * 1024 * 1024
+            plan = Cache::GC.watermark_plan(cache_dir: cache_out, budget_bytes: budget,
+                                            protect: (@written_cache_keys || {}).values)
+            if plan.entries.any?
+              Cache::GC.execute!(plan)
+              Core::UI.info "Auto-evicted #{plan.entries.size} artifact(s), reclaimed #{plan.reclaimed_bytes} bytes"
+            end
+          rescue StandardError => e
+            Core::UI.warn "auto-evict failed (ignored): #{e.message}"
+          end
         ensure
           release_build_lock(lock)
         end
@@ -228,6 +242,7 @@ module SPMCache
             fingerprint_context: fingerprint_context,
             pins_override: pins_override
           )
+          record_written_cache_key(target_name, result)
           Core::UI.info "  Cached: #{result}"
         rescue StandardError => e
           raise unless @config.ignore_build_errors?
@@ -236,6 +251,13 @@ module SPMCache
         end
       end
       # rubocop:enable Metrics/ParameterLists
+
+      def record_written_cache_key(target_name, result)
+        hash8 = File.basename(result.to_s)[/-([0-9a-f]{8})\.xcframework\z/, 1]
+        return unless hash8
+
+        (@written_cache_keys ||= {})[target_name] = hash8
+      end
 
       def resolve_destinations
         sdk = @config.default_sdk
