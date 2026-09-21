@@ -59,5 +59,18 @@ RSpec.describe SPMCache::SPM::BuildPipeline do
     expect(result).to eq(File.join(out_dir, 'Broken.xcframework'))
     expect(File.directory?(File.join(out_dir, 'Broken.xcframework'))).to be(true)
   end
+
+  it 'skips fingerprinting and keeps the plain name without a context' do
+    stub_plain_build('Legacy')
+    allow(SPMCache::Cache::Fingerprint).to receive(:map_for)
+
+    result = pipeline.run(name: 'Legacy', pkg_dir: dir, destinations: ['iphonesimulator'],
+                          out_dir: out_dir, config: 'debug',
+                          graph_entries: [{ 'module' => 'Legacy', 'dependencies' => [] }],
+                          fingerprint_context: nil, pins_override: nil)
+
+    expect(result).to eq(File.join(out_dir, 'Legacy.xcframework'))
+    expect(SPMCache::Cache::Fingerprint).not_to have_received(:map_for)
+  end
 end
 # rubocop:enable Metrics/BlockLength

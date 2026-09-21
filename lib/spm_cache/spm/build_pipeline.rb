@@ -244,8 +244,10 @@ module SPMCache
         end
         # rubocop:enable Metrics/ParameterLists
 
-        # Returns the raw pin for `name` when a legacy caller did not inject
-        # the graph pin map. Missing metadata fails open to an empty pin.
+        # Fallback/test-seam lookup only: Package.resolved has no product
+        # metadata, so this can only match identity-keyed pins. Production
+        # passes Installer::Build's product-aware module map instead. Missing
+        # metadata fails open to an empty pin.
         def pin_for_target(resolved_pins_file, name)
           pins = Core::PackageResolved.pins_or_nil(resolved_pins_file) || []
           pins.find { |pin| pin["identity"] == name } || {}

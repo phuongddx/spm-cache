@@ -70,14 +70,21 @@ module SPMCache
           FileUtils.mkdir_p(cache_out)
 
           Core::UI.info "Building #{missed.size} target(s): #{missed.join(', ')}..."
-          fingerprint_context = Cache::Fingerprint.context(config: fingerprint_config)
+          begin
+            fingerprint_context = Cache::Fingerprint.context(config: fingerprint_config)
+          rescue StandardError => e
+            Core::UI.warn "  fingerprint context unavailable: #{e.message}; storing unhashed"
+            fingerprint_context = nil
+          end
           graph_entries = load_graph_entries
+          pins_override = module_pin_map(@lockfile)
           missed.each do |target_name|
             build_single_target(
               target_name, checkouts, destinations, cache_out, resolved_pins_file,
               @config.clones_dir,
               graph_entries: graph_entries,
-              fingerprint_context: fingerprint_context
+              fingerprint_context: fingerprint_context,
+              pins_override: pins_override
             )
           end
         ensure
@@ -195,7 +202,7 @@ module SPMCache
 
       # rubocop:disable Metrics/ParameterLists
       def build_single_target(target_name, checkouts, destinations, cache_out, resolved_pins_file, clones_dir = nil,
-                              graph_entries: [], fingerprint_context: nil)
+                              graph_entries: [], fingerprint_context: nil, pins_override: nil)
         pkg_dir = checkouts[target_name]
         unless pkg_dir && File.directory?(pkg_dir)
           Core::UI.warn "checkout not found for '#{target_name}'; skipping"
@@ -218,7 +225,8 @@ module SPMCache
             # xcodebuild live sinks.
             run_log: Core::RunLog.current,
             graph_entries: graph_entries,
-            fingerprint_context: fingerprint_context
+            fingerprint_context: fingerprint_context,
+            pins_override: pins_override
           )
           Core::UI.info "  Cached: #{result}"
         rescue StandardError => e
@@ -241,6 +249,34 @@ module SPMCache
         Struct.new(:run_sdk, :run_config, :run_merge_slices, :run_library_evolution).new(
           @config.default_sdk, @config_name, @config.default_sdk == 'all', true
         )
+      end
+
+      # Lockfile packages are identity-keyed, while graph/build names are
+      # usually product (or module) names. Index once per run by every name a
+      # package can be reached by so fingerprinting receives the real pin.
+      def module_pin_map(lockfile)
+        return {} unless lockfile
+
+        lockfile.projects.each_value.each_with_object({}) do |project_data, map|
+          (project_data['packages'] || []).each do |package_data|
+            pkg = Core::Lockfile::Pkg.new(package_data)
+            pin = lockfile_pin(pkg)
+            names = [pin['identity']] +
+                    pkg.products.filter_map { |product| product['name'] if product.is_a?(Hash) }
+            names.compact.each { |name| map[name] = pin unless name.empty? }
+          end
+        end
+      end
+
+      def lockfile_pin(pkg)
+        {
+          'identity' => pkg.raw['identity'] || pkg.raw['name'] || pkg.name,
+          'state' => {
+            'version' => pkg.version,
+            'revision' => pkg.revision,
+            'branch' => pkg.branch
+          }
+        }
       end
 
       # Reads the same proxy graph consumed by gen_cachemap_viz/Cachemap.
