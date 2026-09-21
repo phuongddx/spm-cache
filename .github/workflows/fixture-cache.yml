@@ -40,6 +40,10 @@ jobs:
       - name: Generate fixture project
         run: bundle exec ruby script/generate-fixture-app.rb
 
+      - name: Integrate cache (first use resolves the SPM graph)
+        working-directory: spec/fixtures/fixture-app
+        run: bundle exec ../../../bin/spm-cache
+
       - name: Build Logging cache
         working-directory: spec/fixtures/fixture-app
         run: bundle exec ../../../bin/spm-cache build Logging
