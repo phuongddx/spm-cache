@@ -35,6 +35,7 @@ module SPMCache
         git.fetch("origin", @branch, shallow: true)
         git.checkout("FETCH_HEAD")
         git.clean(force: true)
+        Core::UI.info("Pointers refresh on next spm-cache use")
         Core::UI.info("Pulled cache from #{@remote_url}/#{@branch}")
       end
 
@@ -50,6 +51,10 @@ module SPMCache
           git.ensure_remote("origin", @remote_url)
         end
 
+        # Pointers are local derived state: never commit them. Next `use`
+        # recreates them from lockfile + fingerprints.
+        removed = Cache::Pointer.clear_all!(@cache_dir)
+        Core::UI.info("Stripped #{removed} local pointer(s) before push") if removed.positive?
         git.add(".")
         begin
           git.commit("Update cache")

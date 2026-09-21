@@ -28,7 +28,7 @@ module SPMCache
 
         validate_awscli!
         env = aws_env
-        Core::Sh.run("aws s3 sync #{@uri}/ #{@cache_dir}/ --exact-timestamps", env: env)
+        Core::Sh.run("aws s3 sync #{@uri}/ #{@cache_dir}/ --exact-timestamps --no-follow-symlinks", env: env)
         Core::UI.info("Pulled cache from #{@uri}")
       end
 
@@ -40,7 +40,7 @@ module SPMCache
 
         validate_awscli!
         env = aws_env
-        Core::Sh.run("aws s3 sync #{@cache_dir}/ #{@uri}/ --delete", env: env)
+        Core::Sh.run("aws s3 sync #{@cache_dir}/ #{@uri}/ --delete --no-follow-symlinks", env: env)
         Core::UI.info("Pushed cache to #{@uri}")
       end
 
