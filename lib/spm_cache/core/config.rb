@@ -28,7 +28,10 @@ module SPMCache
         'runs_max_mb' => 500,
         # Dashboard state-table auto-poll interval in seconds
         # (13-UI-SPEC "server-configurable" auto-refresh, default 5s).
-        'web_poll_seconds' => 5
+        'web_poll_seconds' => 5,
+        # Per-config-dir GC budget and opt-in eviction after successful
+        # stores; `spm-cache cache gc` remains always available.
+        'cache' => { 'max_size_gb' => 20, 'auto_evict' => false }
       }.freeze
 
       SANDBOX_DIR = 'spm-cache'
@@ -294,6 +297,19 @@ module SPMCache
         Integer(raw['web_poll_seconds'] || DEFAULT_CONFIG['web_poll_seconds'])
       rescue ArgumentError, TypeError
         DEFAULT_CONFIG['web_poll_seconds']
+      end
+
+      # Cache GC budget and opt-in auto-eviction. Integer()-coerced with
+      # rescue-to-default, runs_keep posture: spm-cache.yml is user-authored,
+      # not adversarial -- a typo falls back to the 20 GB default.
+      def cache_max_size_gb
+        Integer(raw.dig('cache', 'max_size_gb') || DEFAULT_CONFIG.fetch('cache').fetch('max_size_gb'))
+      rescue ArgumentError, TypeError
+        DEFAULT_CONFIG.fetch('cache').fetch('max_size_gb')
+      end
+
+      def cache_auto_evict?
+        raw.dig('cache', 'auto_evict') == true
       end
 
       def should_ignore?(package_name)
