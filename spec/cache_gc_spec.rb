@@ -51,6 +51,22 @@ RSpec.describe SPMCache::Cache::GC do
     described_class.plan(cache_dirs: [dir], max_size_bytes: 1_000_000).usage_bytes * 0.9
   end
 
+  def plan_usage
+    described_class.plan(cache_dirs: [dir], max_size_bytes: 1_000_000).usage_bytes
+  end
+
+  def pin_dir_usage(desired, mutable_path)
+    current = plan_usage
+    payload = File.join(mutable_path, 'payload.bin')
+    File.write(payload, 'x' * (File.size(payload) + desired - current))
+  end
+
+  def pin_artifact_bytes(path, desired)
+    payload = File.join(path, 'payload.bin')
+    current = File.lstat(path).size + File.size("#{path}.provenance.json")
+    File.write(payload, 'x' * (File.size(payload) + desired - current))
+  end
+
   it 'plans every structural cleanup class' do
     build_fixture
     plan = described_class.plan(cache_dirs: [dir], max_size_bytes: 1_000_000)
@@ -71,6 +87,7 @@ RSpec.describe SPMCache::Cache::GC do
     plan = described_class.plan(cache_dirs: [dir], max_size_bytes: over_budget)
 
     expect(plan.entries.map { |entry| entry[:path] }.uniq.size).to eq(plan.entries.size)
+    expect(plan.entries.map(&:keys)).to all(contain_exactly(:path, :bytes, :reason))
     expect(reasons(plan)).to include(over_budget_lru: 3)
   end
 
@@ -85,6 +102,65 @@ RSpec.describe SPMCache::Cache::GC do
       ['Alpha-11111111.xcframework', 'Beta-22222222.xcframework']
     )
     expect(plan.entries.map { |entry| entry[:reason] }).to all eq(:over_budget_lru)
+  end
+
+  it 'returns an empty plan at exact 85% and evicts one byte over' do
+    path = write_artifact('Boundary-aaaaaaaa', last_used: 1)
+    pin_dir_usage(850, path)
+
+    expect(described_class.watermark_plan(cache_dir: dir, budget_bytes: 1_000).entries).to be_empty
+
+    File.write(File.join(path, 'payload.bin'), 'x' * (File.size(File.join(path, 'payload.bin')) + 1))
+    plan = described_class.watermark_plan(cache_dir: dir, budget_bytes: 1_000)
+
+    expect(plan.entries.map { |entry| entry[:path] }).to eq([path])
+  end
+
+  it 'selects only the oldest artifact when eviction reaches the exact 70% target' do
+    oldest = write_artifact('Alpha-11111111', last_used: 1)
+    pin_artifact_bytes(oldest, 300)
+    newer = write_artifact('Beta-22222222', last_used: 2)
+    pin_dir_usage(1_000, newer)
+
+    plan = described_class.watermark_plan(cache_dir: dir, budget_bytes: 1_000)
+
+    expect(plan.entries.map { |entry| entry[:path] }).to eq([oldest])
+  end
+
+  it 'evicts the complete LRU order under a very tight budget' do
+    write_artifact('Alpha-11111111', last_used: 1)
+    write_artifact('Beta-22222222', last_used: 2)
+    write_artifact('Gamma-33333333', last_used: 3)
+
+    plan = described_class.watermark_plan(cache_dir: dir, budget_bytes: plan_usage / 3)
+
+    expect(plan.entries.map { |entry| File.basename(entry[:path]) }).to eq(
+      ['Alpha-11111111.xcframework', 'Beta-22222222.xcframework', 'Gamma-33333333.xcframework']
+    )
+  end
+
+  it 'evicts corrupt and unreadable sidecars before a readable sidecar' do
+    corrupt = write_artifact('Corrupt-11111111')
+    File.write("#{corrupt}.provenance.json", '{invalid')
+    unreadable = write_artifact('Unreadable-22222222')
+    FileUtils.mkdir("#{unreadable}.provenance.json")
+    write_artifact('Fresh-33333333', last_used: 10)
+
+    plan = described_class.watermark_plan(cache_dir: dir, budget_bytes: plan_usage / 3)
+
+    expect(plan.entries.map { |entry| File.basename(entry[:path]) }).to eq(
+      ['Corrupt-11111111.xcframework', 'Unreadable-22222222.xcframework', 'Fresh-33333333.xcframework']
+    )
+  end
+
+  it 'evicts a valid non-Hash sidecar before a readable sidecar' do
+    non_hash = write_artifact('NonHash-11111111')
+    File.write("#{non_hash}.provenance.json", JSON.generate([]))
+    write_artifact('Fresh-22222222', last_used: 10)
+
+    plan = described_class.watermark_plan(cache_dir: dir, budget_bytes: plan_usage / 3)
+
+    expect(plan.entries.first[:path]).to eq(non_hash)
   end
 
   it 'returns an empty watermark plan at or below the high watermark' do

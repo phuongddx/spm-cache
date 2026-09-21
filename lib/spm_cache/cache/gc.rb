@@ -120,7 +120,7 @@ module SPMCache
           candidates.each do |candidate|
             break if usage - picked.sum { |picked_entry| picked_entry[:bytes] } <= target
 
-            picked << candidate.merge(reason: :over_budget_lru)
+            picked << candidate.slice(:path, :bytes).merge(reason: :over_budget_lru)
           end
           picked
         end
@@ -135,7 +135,7 @@ module SPMCache
 
         def last_used(path)
           JSON.parse(File.read("#{path}.provenance.json"))['last_used_at'] || 0
-        rescue JSON::ParserError, SystemCallError
+        rescue JSON::ParserError, SystemCallError, TypeError, NoMethodError
           0 # unreadable sidecar = evicted first
         end
 
