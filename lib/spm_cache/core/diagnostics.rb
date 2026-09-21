@@ -138,14 +138,14 @@ module SPMCache
             graph_entries: graph_entries, pins: pins, config: cfg, toolchain: toolchain
           )
 
-          missing_keys = missing_cache_key_names(cfg)
+          invalid_keys = missing_cache_key_names(cfg)
           if first_map != second_map
-            detail = missing_keys.empty? ? '' : "; missing cache keys: #{missing_keys.join(', ')}"
+            detail = invalid_keys.empty? ? '' : "; invalid cache keys: #{invalid_keys.join(', ')}"
             return [:fail, "Cache fingerprint changed between computations#{detail}"]
           end
 
-          if missing_keys.any?
-            [:warn, "Cache artifacts missing sidecar cache_key: #{missing_keys.join(', ')}"]
+          if invalid_keys.any?
+            [:warn, "Cache artifacts missing or invalid sidecar cache_key: #{invalid_keys.join(', ')}"]
           else
             [:ok, "Cache fingerprint map is deterministic (#{first_map.size} package(s))"]
           end
@@ -176,8 +176,19 @@ module SPMCache
 
         def missing_cache_key_names(cfg)
           Cache::Inventory.scan(config: cfg).filter_map do |entry|
-            entry.name if entry.hash8.nil? && !entry.name.start_with?('legacy-')
+            next entry.name if entry.hash8.nil? && !entry.name.start_with?('legacy-')
+            next entry.name if entry.hash8 && !valid_cache_key_sidecar?(cfg, entry)
           end
+        end
+
+        def valid_cache_key_sidecar?(cfg, entry)
+          sidecar = File.join(cfg.cache_dir(entry.config), "#{entry.name}.xcframework.provenance.json")
+          return false unless File.exist?(sidecar)
+
+          parsed = JSON.parse(File.read(sidecar))
+          parsed.is_a?(Hash) && parsed['cache_key'] == entry.hash8
+        rescue JSON::ParserError, SystemCallError
+          false
         end
 
         # Entries with no repositoryURL are excluded: SwiftPM never lists a

@@ -60,6 +60,13 @@ RSpec.describe 'fingerprint fast-path regression' do
     expect(File.symlink?(File.join(cache_dir, 'Alamofire.xcframework'))).to be(true)
     expect { SPMCache::Installer::Use.new(project: project_path).perform_install }
       .not_to(change { proxy_reference_project.root_object.package_references.size })
+    saved_project = proxy_reference_project
+    proxy_ref = saved_project.root_object.package_references
+                             .grep(Xcodeproj::Project::Object::XCLocalSwiftPackageReference).first
+    dependency = saved_project.targets.first.package_product_dependencies
+                              .find { |item| item.product_name == 'Alamofire' }
+    expect(proxy_ref.relative_path).to eq('spm-cache/packages/proxy')
+    expect(dependency.package).to eq(proxy_ref)
     expect(pipeline_runs.size).to eq(1)
   end
 

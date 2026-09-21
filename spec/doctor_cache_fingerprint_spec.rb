@@ -64,7 +64,15 @@ RSpec.describe SPMCache::Core::Diagnostics, 'cache_fingerprint' do
   def make_artifact(name, sidecar: {})
     path = File.join(cache_dir, "#{name}.xcframework")
     FileUtils.mkdir_p(path)
+    return path if sidecar.nil?
+
     File.write("#{path}.provenance.json", JSON.generate(sidecar))
+  end
+
+  def make_malformed_sidecar(name)
+    path = File.join(cache_dir, "#{name}.xcframework")
+    FileUtils.mkdir_p(path)
+    File.write("#{path}.provenance.json", '{"cache_key":')
   end
 
   def result
@@ -87,11 +95,32 @@ RSpec.describe SPMCache::Core::Diagnostics, 'cache_fingerprint' do
     end
   end
 
-  it 'is ok when the fingerprint map is deterministic and scanned artifacts have cache keys' do
+  it 'is ok when hash-named artifacts have a matching sidecar cache_key' do
     write_fixture
     make_artifact('Alamofire-a1b2c3d4', sidecar: { 'cache_key' => 'a1b2c3d4' })
 
     expect(result).to have_attributes(status: :ok, message: include('deterministic'))
+  end
+
+  it 'warns when a hash-named artifact has no sidecar' do
+    write_fixture
+    make_artifact('Alamofire-a1b2c3d4', sidecar: nil)
+
+    expect(result).to have_attributes(status: :warn, message: include('Alamofire-a1b2c3d4'))
+  end
+
+  it 'warns when a hash-named artifact sidecar is malformed' do
+    write_fixture
+    make_malformed_sidecar('Alamofire-a1b2c3d4')
+
+    expect(result).to have_attributes(status: :warn, message: include('Alamofire-a1b2c3d4'))
+  end
+
+  it 'warns when a sidecar cache_key differs from the filename hash' do
+    write_fixture
+    make_artifact('Alamofire-a1b2c3d4', sidecar: { 'cache_key' => 'ffffffff' })
+
+    expect(result).to have_attributes(status: :warn, message: include('Alamofire-a1b2c3d4'))
   end
 
   it 'warns and names a non-legacy artifact whose sidecar has no cache_key' do
