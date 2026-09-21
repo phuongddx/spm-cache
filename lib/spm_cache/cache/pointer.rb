@@ -50,6 +50,9 @@ module SPMCache
           Dir.glob(File.join(cache_dir, '*.xcframework')).sum do |path|
             next 0 unless File.symlink?(path)
 
+            base = File.basename(path, '.xcframework')
+            next 0 if base.match?(/-[0-9a-f]{8}\z/)
+
             FileUtils.rm_f(path)
             FileUtils.rm_f("#{path}.provenance.json")
             FileUtils.rm_f("#{path}.shims.json")
@@ -127,7 +130,8 @@ module SPMCache
           return {} unless lockfile_path && File.exist?(lockfile_path)
 
           data = JSON.parse(File.read(lockfile_path))
-          data.fetch('projects', {}).each_value.flat_map { |project| project_pins(project) }.to_h
+          projects = data['projects'] || data
+          projects.each_value.flat_map { |project| project_pins(project) }.to_h
         rescue JSON::ParserError, SystemCallError
           {}
         end

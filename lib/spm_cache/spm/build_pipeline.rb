@@ -26,8 +26,9 @@ module SPMCache
       class << self
         include Core::Log
 
-        # Build `name` from `pkg_dir` into a multi-slice xcframework located at
-        # `out_dir/<name>.xcframework`. Returns the output path on success.
+        # Build `name` from `pkg_dir` into a multi-slice xcframework. Return
+        # the durable hash-suffixed path when a fingerprint is available, or
+        # the legacy plain-name output path otherwise.
         #
         # @param name [String] scheme / product name to build
         # @param pkg_dir [String] package checkout directory containing Package.swift

@@ -233,7 +233,11 @@ module SPMCache
       end
 
       def proxy_graph_path
-        File.join(proxy_dir, 'graph.json')
+        live_path = File.join(proxy_dir, 'graph.json')
+        return live_path if File.exist?(live_path)
+
+        snapshot_path = "#{live_path}.last"
+        File.exist?(snapshot_path) ? snapshot_path : nil
       end
 
       def remote_config(config)

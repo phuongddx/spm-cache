@@ -275,6 +275,8 @@ module SPMCache
       # means "no dependency edges" rather than a build failure.
       def load_graph_entries
         path = @config.proxy_graph_path
+        return [] unless path
+
         entries = JSON.parse(File.read(path))
         entries.is_a?(Array) ? entries : []
       rescue SystemCallError, JSON::ParserError

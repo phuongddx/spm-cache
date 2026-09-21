@@ -77,6 +77,16 @@ RSpec.describe SPMCache::Cache::Pointer do
     end
   end
 
+  describe '.clear_all! hash-named symlinks' do
+    it 'leaves hash-suffixed symlinks alone' do
+      make_artifact('Keep-99999999.xcframework')
+      File.symlink('Keep-99999999.xcframework', File.join(dir, 'Hashed-a1b2c3d4.xcframework'))
+
+      expect(described_class.clear_all!(dir)).to eq(0)
+      expect(File.symlink?(File.join(dir, 'Hashed-a1b2c3d4.xcframework'))).to be(true)
+    end
+  end
+
   describe '.refresh_all!' do
     it 'materializes hits and recreates them idempotently' do
       pin = { 'identity' => 'alamofire', 'state' => { 'version' => '5.9.1', 'revision' => 'abc' } }

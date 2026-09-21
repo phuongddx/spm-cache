@@ -31,6 +31,16 @@ module SPMCache
           super
         end
 
+        def publish_run_scope!
+          super
+          run_scope = Core::Config.instance
+          return unless run_scope.respond_to?(:run_sdk=)
+
+          run_scope.run_sdk = @sdk_name
+          run_scope.run_merge_slices = @sdk_name == 'all'
+          run_scope.run_library_evolution = @no_lib_evo
+        end
+
         def run
           raise 'Target name required' unless @target_name
 
