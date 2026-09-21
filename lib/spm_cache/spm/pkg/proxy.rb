@@ -39,6 +39,12 @@ module SPMCache
           gen_umbrella(lockfile_path, umbrella_dir)
           between_umbrella_and_proxy&.call
           invalidate_cache
+          # Swift decides hits through plain-name paths, so pointers must be
+          # current before gen-proxy inspects the cache. refresh_all! fails open.
+          Cache::Pointer.refresh_all!(
+            cache_dir: cache_dir, lockfile_path: lockfile_path,
+            graph_path: Core::Config.instance.proxy_graph_path, config: Core::Config.instance
+          )
           # cache_only wins outright over ignore when non-empty; ignore is
           # skipped entirely rather than combined (single filter axis).
           if cache_only.any?
@@ -68,7 +74,7 @@ module SPMCache
         end
 
         def load_graph
-          graph_path = File.join(Core::Config.instance.proxy_dir, "graph.json")
+          graph_path = Core::Config.instance.proxy_graph_path
           return @graph = nil unless File.exist?(graph_path)
 
           @graph = JSON.parse(File.read(graph_path))
@@ -99,6 +105,7 @@ module SPMCache
         def proxy_package_swift
           File.join(Core::Config.instance.proxy_dir, "Package.swift")
         end
+
       end
     end
   end

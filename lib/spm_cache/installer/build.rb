@@ -71,7 +71,7 @@ module SPMCache
 
           Core::UI.info "Building #{missed.size} target(s): #{missed.join(', ')}..."
           begin
-            fingerprint_context = Cache::Fingerprint.context(config: fingerprint_config)
+            fingerprint_context = Cache::Fingerprint.context(config: Core::Config.instance)
           rescue StandardError => e
             Core::UI.warn "  fingerprint context unavailable: #{e.message}; storing unhashed"
             fingerprint_context = nil
@@ -242,15 +242,6 @@ module SPMCache
         sdk == 'all' ? SPM::Package::DEFAULT_DESTINATIONS : [sdk]
       end
 
-      # Bridge Core::Config to Fingerprint's run-scope contract until Task 3
-      # promotes those accessors. Builder always emits library evolution, and
-      # "all" already means both slices in the existing destination resolver.
-      def fingerprint_config
-        Struct.new(:run_sdk, :run_config, :run_merge_slices, :run_library_evolution).new(
-          @config.default_sdk, @config_name, @config.default_sdk == 'all', true
-        )
-      end
-
       # Lockfile packages are identity-keyed, while graph/build names are
       # usually product (or module) names. Index once per run by every name a
       # package can be reached by so fingerprinting receives the real pin.
@@ -283,7 +274,7 @@ module SPMCache
       # Identity fingerprinting is best-effort, so absent or malformed input
       # means "no dependency edges" rather than a build failure.
       def load_graph_entries
-        path = File.join(@config.proxy_dir, 'graph.json')
+        path = @config.proxy_graph_path
         entries = JSON.parse(File.read(path))
         entries.is_a?(Array) ? entries : []
       rescue SystemCallError, JSON::ParserError

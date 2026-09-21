@@ -36,12 +36,14 @@ module SPMCache
       CONFIG_FILENAME = 'spm-cache.yml'
       LOCKFILE_FILENAME = 'spm-cache.lock'
 
-      attr_accessor :project_dir, :config_path
+      attr_accessor :project_dir, :config_path, :run_sdk, :run_config,
+                    :run_merge_slices, :run_library_evolution
 
       def initialize
         @project_dir = Dir.pwd
         @config_path = File.join(@project_dir, CONFIG_FILENAME)
         @raw = DEFAULT_CONFIG.dup
+        reset_run_scope!
       end
 
       def self.instance
@@ -230,6 +232,10 @@ module SPMCache
         File.join(project_dir, LOCKFILE_FILENAME)
       end
 
+      def proxy_graph_path
+        File.join(proxy_dir, 'graph.json')
+      end
+
       def remote_config(config)
         remote = raw['remote'] || {}
         remote[config] || remote[config.to_s]
@@ -292,6 +298,14 @@ module SPMCache
 
       def reset!
         @raw = DEFAULT_CONFIG.dup
+        reset_run_scope!
+      end
+
+      def reset_run_scope!
+        @run_sdk = Command::Options::SDK
+        @run_config = Command::Options::CONFIG
+        @run_merge_slices = Command::Options::MERGE_SLICES
+        @run_library_evolution = Command::Options::LIBRARY_EVOLUTION
       end
     end
   end

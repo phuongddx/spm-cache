@@ -23,10 +23,6 @@ module SPMCache
     # `Installer::Build`. Encapsulates the per-destination build loop, framework
     # assembly, and xcframework creation.
     module BuildPipeline
-      # Fingerprinting needs run-scope values before Task 3 promotes them to
-      # first-class Core::Config accessors.
-      FingerprintConfig = Struct.new(:run_sdk, :run_config, :run_merge_slices, :run_library_evolution)
-
       class << self
         include Core::Log
 
@@ -63,8 +59,9 @@ module SPMCache
         #   to cascade dependency hashes. Empty by default for legacy callers.
         # @param fingerprint_context [Hash, nil] precomputed identity context.
         #   nil (the default) leaves the stored name unchanged.
-        # @param pins_override [Hash, nil] test seam for graph pins. Production
-        #   callers leave it nil and resolve pins from the resolved file.
+        # @param pins_override [Hash, nil] product-aware pin map. Production
+        #   callers pass Installer::Build's module-keyed map; when omitted,
+        #   pipeline falls back to an identity-only resolved-file lookup.
         def run(name:, pkg_dir:, destinations:, out_dir:, library_evolution: true, resolved_pins_file: nil,
                 clones_dir: nil, config: nil, run_log: nil, graph_entries: [], fingerprint_context: nil,
                 pins_override: nil)
@@ -109,7 +106,7 @@ module SPMCache
                 pin_map = pins_override || { name => pin_for_target(resolved_pins_file, name) }
                 hashes = Cache::Fingerprint.map_for(
                   graph_entries: graph_entries, pins: pin_map,
-                  config: fingerprint_config(fingerprint_context),
+                  config: Core::Config.instance,
                   toolchain: toolchain_from(fingerprint_context)
                 )
                 cache_key = hashes[name]
@@ -251,19 +248,6 @@ module SPMCache
         def pin_for_target(resolved_pins_file, name)
           pins = Core::PackageResolved.pins_or_nil(resolved_pins_file) || []
           pins.find { |pin| pin["identity"] == name } || {}
-        end
-
-        # Bridge until run-scope accessors exist on Core::Config. A provided
-        # context is authoritative; otherwise fingerprinting reads live Config.
-        def fingerprint_config(fingerprint_context)
-          return Core::Config.instance unless fingerprint_context
-
-          FingerprintConfig.new(
-            fingerprint_context["sdk"],
-            fingerprint_context["config"],
-            fingerprint_context["merge_slices"],
-            fingerprint_context["library_evolution"],
-          )
         end
 
         def toolchain_from(context)

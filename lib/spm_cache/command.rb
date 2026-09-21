@@ -31,11 +31,22 @@ module SPMCache
       @run_log = argv.flag?('run-log', true)
       @merge_slices = argv.flag?('merge-slices', true)
       @library_evolution = argv.flag?('library-evolution', true)
+      publish_run_scope!
       super
     end
 
     def validate!
       super
+    end
+
+    def publish_run_scope!
+      run_scope = Core::Config.instance
+      return unless run_scope.respond_to?(:run_sdk=)
+
+      run_scope.run_sdk = @sdk || Options::SDK
+      run_scope.run_config = @config || Options::CONFIG
+      run_scope.run_merge_slices = @merge_slices.nil? ? Options::MERGE_SLICES : @merge_slices
+      run_scope.run_library_evolution = @library_evolution.nil? ? Options::LIBRARY_EVOLUTION : @library_evolution
     end
 
     def run
