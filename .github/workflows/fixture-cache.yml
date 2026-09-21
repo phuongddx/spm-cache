@@ -40,29 +40,36 @@ jobs:
       - name: Generate fixture project
         run: bundle exec ruby script/generate-fixture-app.rb
 
-      - name: Build FixtureKit cache
+      - name: Build Logging cache
         working-directory: spec/fixtures/fixture-app
-        run: bundle exec ../../../bin/spm-cache build FixtureKit
+        run: bundle exec ../../../bin/spm-cache build Logging
+
+      - name: Integrate cache and materialize pointers
+        working-directory: spec/fixtures/fixture-app
+        run: bundle exec ../../../bin/spm-cache
 
       - name: Assert cache identity
         working-directory: spec/fixtures/fixture-app
         run: |
           set -euo pipefail
           CACHE_DIR="$HOME/.spm-cache/debug"
-          fixture_artifacts=$(ls "$CACHE_DIR" | grep -E '^FixtureKit-[0-9a-f]{8}\.xcframework$')
-          test "$(printf '%s\n' "$fixture_artifacts" | wc -l | tr -d ' ')" -eq 1
-          test -L "$CACHE_DIR/FixtureKit.xcframework"
-          sidecar=$(ls "$CACHE_DIR"/FixtureKit-*.xcframework.provenance.json | head -1)
+          logging_artifacts=$(ls "$CACHE_DIR" | grep -E '^Logging-[0-9a-f]{8}\.xcframework$')
+          test "$(printf '%s\n' "$logging_artifacts" | wc -l | tr -d ' ')" -eq 1
+          test -L "$CACHE_DIR/Logging.xcframework"
+          test "$(readlink "$CACHE_DIR/Logging.xcframework")" = "$logging_artifacts"
+          sidecar=$(ls "$CACHE_DIR"/Logging-*.xcframework.provenance.json | head -1)
           grep -q '"cache_key"' "$sidecar"
           grep -q '"last_used_at"' "$sidecar"
-          printf 'FixtureKit artifact: %s\n' "$fixture_artifacts"
-          printf 'FixtureKit sidecar: %s\n' "$sidecar"
+          printf 'Logging artifact: %s\n' "$logging_artifacts"
+          printf 'Logging pointer: %s -> %s\n' \
+            "$CACHE_DIR/Logging.xcframework" "$(readlink "$CACHE_DIR/Logging.xcframework")"
+          printf 'Logging sidecar: %s\n' "$sidecar"
 
       - name: Assert second-run fast path
         working-directory: spec/fixtures/fixture-app
         run: |
           set -o pipefail
-          bundle exec ../../../bin/spm-cache build FixtureKit 2>&1 | tee /tmp/second.log
+          bundle exec ../../../bin/spm-cache build Logging 2>&1 | tee /tmp/second.log
           grep -q 'No targets to build' /tmp/second.log
 
       - name: Garbage-collect cache
@@ -71,5 +78,5 @@ jobs:
           set -euo pipefail
           bundle exec ../../../bin/spm-cache cache gc --dry-run | tee /tmp/gc-dry.log
           bundle exec ../../../bin/spm-cache cache gc | tee /tmp/gc-real.log
-          fixture=$(ls "$HOME/.spm-cache/debug" | grep -E '^FixtureKit-[0-9a-f]{8}\.xcframework$')
-          test -d "$HOME/.spm-cache/debug/$fixture"
+          logging=$(ls "$HOME/.spm-cache/debug" | grep -E '^Logging-[0-9a-f]{8}\.xcframework$')
+          test -d "$HOME/.spm-cache/debug/$logging"
