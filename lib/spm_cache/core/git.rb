@@ -49,7 +49,7 @@ module SPMCache
       end
 
       def rm(*paths)
-        Sh.run("git rm --cached --recursive --ignore-unmatch -- #{Shellwords.join(paths)}", cwd: dir)
+        Sh.run("git rm --cached -r --ignore-unmatch -- #{Shellwords.join(paths)}", cwd: dir)
       end
 
       def commit(message)

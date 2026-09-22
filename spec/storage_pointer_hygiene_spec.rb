@@ -1,6 +1,7 @@
 # frozen_string_literal: true
 
 require 'spec_helper'
+require 'open3'
 
 # rubocop:disable Metrics/BlockLength
 RSpec.describe SPMCache::Storage::GitStorage do
@@ -56,13 +57,55 @@ RSpec.describe SPMCache::Storage::GitStorage do
     expect(added_paths).to eq(['--ignore-removal', '--',
                                File.join(cache_dir, 'Alamofire-a1b2c3d4.xcframework'),
                                File.join(cache_dir, 'Alamofire-a1b2c3d4.xcframework.provenance.json')])
-    expect(removed_paths).to eq(['--cached', '--recursive', '--ignore-unmatch', '--',
+    expect(removed_paths).to eq(['--cached', '-r', '--ignore-unmatch', '--',
                                  File.join(cache_dir, 'legacy-Alamofire.xcframework')])
     expect(File.directory?(File.join(cache_dir, 'Alamofire-a1b2c3d4.xcframework'))).to be(true)
     expect(File.exist?(File.join(cache_dir, 'Alamofire.xcframework'))).to be(false)
   end
 end
 # rubocop:enable Metrics/BlockLength
+
+RSpec.describe SPMCache::Storage::GitStorage, 'real non-canonical git cleanup' do
+  it 'cleans non-canonical entries with the real git command used by push' do
+    repo_dir = Dir.mktmpdir('spm-cache-git-rm-real')
+    legacy_file = File.join(repo_dir, 'legacy-Alamofire', 'Alamofire.xcframework', 'marker')
+    canonical_file = File.join(repo_dir, 'Alamofire-a1b2c3d4.xcframework', 'marker')
+
+    SPMCache::Core::Git.new(repo_dir).init
+    run_git(repo_dir, 'config', 'user.name', 'spm-cache-spec')
+    run_git(repo_dir, 'config', 'user.email', 'spec@example.test')
+    FileUtils.mkdir_p(File.dirname(legacy_file))
+    File.write(legacy_file, 'legacy')
+    run_git(repo_dir, 'add', File.join(repo_dir, 'legacy-Alamofire'))
+    run_git(repo_dir, 'commit', '-m', 'seed legacy cache')
+    FileUtils.mkdir_p(File.dirname(canonical_file))
+    File.write(canonical_file, 'canonical')
+    File.write("#{File.dirname(canonical_file)}.provenance.json", '{}')
+
+    storage = described_class.new(remote_url: 'https://example.test/cache.git',
+                                  branch: 'main', cache_dir: repo_dir)
+    allow_any_instance_of(SPMCache::Core::Git).to receive(:push)
+
+    expect { storage.push }.not_to raise_error
+
+    tracked = run_git(repo_dir, 'ls-files')
+    aggregate_failures do
+      expect(tracked).not_to include('legacy-Alamofire/Alamofire.xcframework/marker')
+      expect(File.file?(legacy_file)).to be(true)
+      expect(tracked).to include('Alamofire-a1b2c3d4.xcframework/marker')
+      expect(tracked).to include('Alamofire-a1b2c3d4.xcframework.provenance.json')
+    end
+  ensure
+    FileUtils.remove_entry(repo_dir)
+  end
+
+  def run_git(repo_dir, *arguments)
+    output, error, status = Open3.capture3('git', '-C', repo_dir, *arguments)
+    raise "git #{arguments.join(' ')} failed: #{error}#{output}" unless status.success?
+
+    output
+  end
+end
 
 RSpec.describe SPMCache::Storage::S3Storage do
   subject(:storage) do

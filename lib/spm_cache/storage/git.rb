@@ -63,7 +63,7 @@ module SPMCache
                         synced - [@cache_dir]
         non_canonical.reject! { |path| File.basename(path) == '.git' }
         git.add('--ignore-removal', '--', *synced) if synced.any?
-        git.rm('--cached', '--recursive', '--ignore-unmatch', '--', *non_canonical) if non_canonical.any?
+        git.rm('--cached', '-r', '--ignore-unmatch', '--', *non_canonical) if non_canonical.any?
         begin
           git.commit("Update cache")
         rescue Core::GeneralError
