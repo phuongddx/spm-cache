@@ -1,4 +1,3 @@
-import FixtureKit
 import Logging
 import UIKit
 
@@ -10,7 +9,7 @@ final class AppDelegate: UIResponder, UIApplicationDelegate {
         _ application: UIApplication,
         didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]?
     ) -> Bool {
-        logger.info(FixtureKit.greeting().message)
+        logger.info("Fixture app is ready")
         return true
     }
 }

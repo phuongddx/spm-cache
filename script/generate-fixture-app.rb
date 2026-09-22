@@ -1,3 +1,4 @@
+# rubocop:disable Naming/FileName
 # frozen_string_literal: true
 
 require 'fileutils'
@@ -36,21 +37,16 @@ sources_group = project.main_group.new_group('FixtureApp', 'FixtureApp')
 source = sources_group.new_file('AppDelegate.swift')
 app_target.add_file_references([source])
 
-local_package = project.new(Xcodeproj::Project::Object::XCLocalSwiftPackageReference)
-local_package.relative_path = 'FixtureKit'
-
 remote_package = project.new(Xcodeproj::Project::Object::XCRemoteSwiftPackageReference)
 remote_package.repositoryURL = 'https://github.com/apple/swift-log.git'
 remote_package.requirement = {
   'kind' => 'upToNextMajorVersion',
-  'minimumVersion' => '1.15.1'
+  'minimumVersion' => '1.5.4'
 }
 
-project.root_object.package_references << local_package
 project.root_object.package_references << remote_package
 
 products = {
-  'FixtureKit' => local_package,
   'Logging' => remote_package
 }.map do |product_name, package|
   dependency = project.new(Xcodeproj::Project::Object::XCSwiftPackageProductDependency)
@@ -98,7 +94,7 @@ File.write(
     ```sh
     bundle exec ruby script/generate-fixture-app.rb
     cd spec/fixtures/fixture-app
-    bundle exec ../../../bin/spm-cache build FixtureKit
+    bundle exec ../../../bin/spm-cache build Logging
     ```
 
     The project bundle and all spm-cache runtime state are ignored. The committed
@@ -108,3 +104,5 @@ File.write(
 )
 
 puts "Generated #{Pathname.new(project_path).relative_path_from(Pathname.new(Dir.pwd))}"
+
+# rubocop:enable Naming/FileName

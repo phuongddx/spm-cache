@@ -7,7 +7,7 @@ Run from the repository root:
 ```sh
 bundle exec ruby script/generate-fixture-app.rb
 cd spec/fixtures/fixture-app
-bundle exec ../../../bin/spm-cache build FixtureKit
+bundle exec ../../../bin/spm-cache build Logging
 ```
 
 The project bundle and all spm-cache runtime state are ignored. The committed
