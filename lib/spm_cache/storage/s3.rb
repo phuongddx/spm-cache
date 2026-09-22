@@ -40,7 +40,14 @@ module SPMCache
 
         validate_awscli!
         env = aws_env
-        Core::Sh.run("aws s3 sync #{@cache_dir}/ #{@uri}/ --delete --no-follow-symlinks", env: env)
+        includes = canonical_sync_paths(@cache_dir).map do |path|
+          name = File.basename(path)
+          File.directory?(path) ? ["--include", "#{name}/*"] : ["--include", name]
+        end.flatten
+        Core::Sh.run(
+          "aws s3 sync #{@cache_dir}/ #{@uri}/ --exclude '*' #{includes.join(' ')} --no-follow-symlinks",
+          env: env
+        )
         Core::UI.info("Pushed cache to #{@uri}")
       end
 

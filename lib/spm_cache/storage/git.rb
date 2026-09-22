@@ -52,10 +52,18 @@ module SPMCache
         end
 
         # Pointers are local derived state: never commit them. Next `use`
-        # recreates them from lockfile + fingerprints.
+        # recreates them from lockfile + fingerprints. Existing remote entries
+        # outside the canonical hash/sidecar set are removed from the index,
+        # making pushes additive and schema-filtered without --delete semantics
+        # for canonical artifacts.
         removed = Cache::Pointer.clear_all!(@cache_dir)
         Core::UI.info("Stripped #{removed} local pointer(s) before push") if removed.positive?
-        git.add(".")
+        synced = canonical_sync_paths(@cache_dir)
+        non_canonical = Dir.children(@cache_dir).map { |path| File.join(@cache_dir, path) } -
+                        synced - [@cache_dir]
+        non_canonical.reject! { |path| File.basename(path) == '.git' }
+        git.add('--ignore-removal', '--', *synced) if synced.any?
+        git.rm('--cached', '--recursive', '--ignore-unmatch', '--', *non_canonical) if non_canonical.any?
         begin
           git.commit("Update cache")
         rescue Core::GeneralError
