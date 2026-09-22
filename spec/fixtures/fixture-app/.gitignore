@@ -1,0 +1,9 @@
+FixtureApp.xcodeproj/
+spm-cache/
+spm-cache.lock
+spm-cache.yml
+.spm-cache/
+.spm-cache-build.lock
+Package.resolved.tmp
+
+.swiftpm/

@@ -13,3 +13,4 @@ end
 
 require "spm_cache/command/cache/list"
 require "spm_cache/command/cache/clean"
+require "spm_cache/command/cache/gc"

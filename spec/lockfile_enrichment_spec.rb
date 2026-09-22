@@ -28,7 +28,7 @@ RSpec.describe SPMCache::Installer, "#enrich_lockfile_products" do
   # Target objects are built through the real Target.from_raw factory so a
   # stub can never disagree with the real type dispatch about what counts
   # as binary.
-  def stub_desc_products(pkg_dir, products, targets: [])
+  def stub_desc_products(pkg_dir, products, targets: [], dependencies: [])
     fake_desc = instance_double(SPMCache::SPM::Desc::Description)
     allow(SPMCache::SPM::Desc::Description).to receive(:new)
       .with(hash_including(pkg_dir: pkg_dir)).and_return(fake_desc)
@@ -38,6 +38,9 @@ RSpec.describe SPMCache::Installer, "#enrich_lockfile_products" do
     )
     allow(fake_desc).to receive(:targets).and_return(
       targets.map { |t| SPMCache::SPM::Desc::Target.from_raw(t, pkg_dir: pkg_dir) },
+    )
+    allow(fake_desc).to receive(:dependencies).and_return(
+      dependencies.map { |d| SPMCache::SPM::Desc::Dependency.new(raw: d, pkg_dir: pkg_dir) },
     )
   end
 
@@ -70,6 +73,24 @@ RSpec.describe SPMCache::Installer, "#enrich_lockfile_products" do
     saved = JSON.parse(File.read(lockfile_path))
     pkg = saved["Fake.xcodeproj"]["packages"].first
     expect(pkg["products"]).to eq([{ "name" => "Alamofire", "type" => "library", "targets" => [] }])
+  end
+
+  it "records resolved package dependency identities beside product metadata" do
+    checkout_dir = File.join(checkouts_root, "Consumer")
+    FileUtils.mkdir_p(checkout_dir)
+    stub_desc_products(
+      checkout_dir,
+      [{ "name" => "Consumer", "type" => { "library" => ["automatic"] } }],
+      dependencies: [{ "identity" => "swift-log", "url" => "https://github.com/apple/swift-log.git" }]
+    )
+    write_lockfile([{ "repositoryURL" => "https://github.com/example/Consumer.git", "name" => "Consumer" }])
+
+    installer = make_installer
+    installer.instance_variable_set(:@lockfile, SPMCache::Core::Lockfile.new(lockfile_path))
+    installer.send(:enrich_lockfile_products)
+
+    saved = JSON.parse(File.read(lockfile_path))
+    expect(saved["Fake.xcodeproj"]["packages"].first["dependencies"]).to eq(["swift-log"])
   end
 
   it "leaves an entry unchanged and warns when its checkout cannot be found" do

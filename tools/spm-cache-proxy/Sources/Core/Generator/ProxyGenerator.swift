@@ -61,6 +61,29 @@ struct ProxyGenerator {
         return !matchesAnyPattern(pkg, cacheOnlyPatterns)
     }
 
+    /// Translate resolved package-dependency identities into the product/module
+    /// names used as graph nodes. Product-precise edges require each package's
+    /// target graph; package metadata is the reliable common denominator and is
+    /// the sanctioned package-level fallback.
+    private func dependencyModules(
+        for dependencies: [String]?,
+        packages: [Lockfile.PackageRef]
+    ) -> [String] {
+        guard let dependencies, !dependencies.isEmpty else { return [] }
+        let dependencySet = Set(dependencies)
+        var modules: [String] = []
+
+        for package in packages {
+            let identities = [package.name, package.slug, package.resolvedProductName]
+            guard identities.contains(where: { $0.map(dependencySet.contains) ?? false }) else { continue }
+
+            for module in package.libraryProducts.map(\.name) where !modules.contains(module) {
+                modules.append(module)
+            }
+        }
+        return modules
+    }
+
     func generate(for packages: [Lockfile.PackageRef], consumedProducts: Set<String> = []) throws -> [GraphEntry] {
         try outputDir.recreate()
         let proxiesDir = outputDir.appendingPathComponent(".proxies")
@@ -111,6 +134,7 @@ struct ProxyGenerator {
             let slug = pkg.slug
             let ignored = isIgnored(pkg)
             let excluded = isCacheOnlyExcluded(pkg)
+            let dependencies = dependencyModules(for: pkg.dependencies, packages: packages)
 
             // Each library product gets its own independent hit/miss status;
             // ignored/excluded packages are always source, even when a cached
@@ -167,7 +191,7 @@ struct ProxyGenerator {
                 entries.append(GraphEntry(
                     module: build.product.name,
                     status: build.status,
-                    dependencies: [],
+                    dependencies: dependencies,
                     hasMacro: false
                 ))
             }

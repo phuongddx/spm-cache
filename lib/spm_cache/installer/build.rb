@@ -1,6 +1,7 @@
 # frozen_string_literal: true
 
 require 'fileutils'
+require 'json'
 
 require 'spm_cache/installer'
 require 'spm_cache/spm/build_pipeline'
@@ -69,8 +70,36 @@ module SPMCache
           FileUtils.mkdir_p(cache_out)
 
           Core::UI.info "Building #{missed.size} target(s): #{missed.join(', ')}..."
+          begin
+            fingerprint_context = Cache::Fingerprint.context(config: Core::Config.instance)
+          rescue StandardError => e
+            Core::UI.warn "  fingerprint context unavailable: #{e.message}; storing unhashed"
+            fingerprint_context = nil
+          end
+          graph_entries = load_graph_entries
+          pins_override = module_pin_map(@lockfile)
           missed.each do |target_name|
-            build_single_target(target_name, checkouts, destinations, cache_out, resolved_pins_file, @config.clones_dir)
+            build_single_target(
+              target_name, checkouts, destinations, cache_out, resolved_pins_file,
+              @config.clones_dir,
+              graph_entries: graph_entries,
+              fingerprint_context: fingerprint_context,
+              pins_override: pins_override
+            )
+          end
+
+          return unless @config.cache_auto_evict?
+
+          begin
+            budget = @config.cache_max_size_gb * 1024 * 1024 * 1024
+            plan = Cache::GC.watermark_plan(cache_dir: cache_out, budget_bytes: budget,
+                                            protect: eviction_protect_hashes(cache_out))
+            if plan.entries.any?
+              Cache::GC.execute!(plan)
+              Core::UI.info "Auto-evicted #{plan.entries.size} artifact(s), reclaimed #{plan.reclaimed_bytes} bytes"
+            end
+          rescue StandardError => e
+            Core::UI.warn "auto-evict failed (ignored): #{e.message}"
           end
         ensure
           release_build_lock(lock)
@@ -185,7 +214,9 @@ module SPMCache
         requested.flat_map { |t| identity_to_products[t] || [t] }.uniq
       end
 
-      def build_single_target(target_name, checkouts, destinations, cache_out, resolved_pins_file, clones_dir = nil)
+      # rubocop:disable Metrics/ParameterLists
+      def build_single_target(target_name, checkouts, destinations, cache_out, resolved_pins_file, clones_dir = nil,
+                              graph_entries: [], fingerprint_context: nil, pins_override: nil)
         pkg_dir = checkouts[target_name]
         unless pkg_dir && File.directory?(pkg_dir)
           Core::UI.warn "checkout not found for '#{target_name}'; skipping"
@@ -206,8 +237,13 @@ module SPMCache
             # D-04/LOGS-01: thread the active run log (nil when no run log is
             # open) so the pipeline brackets this package and activates the
             # xcodebuild live sinks.
-            run_log: Core::RunLog.current
+            run_log: Core::RunLog.current,
+            graph_entries: graph_entries,
+            fingerprint_context: fingerprint_context,
+            pins_override: pins_override
           )
+          record_written_cache_key(target_name, result)
+          refresh_target_pointer(target_name, result)
           Core::UI.info "  Cached: #{result}"
         rescue StandardError => e
           raise unless @config.ignore_build_errors?
@@ -215,10 +251,87 @@ module SPMCache
           Core::UI.warn "  #{target_name} build failed (continuing): #{e.message}"
         end
       end
+      # rubocop:enable Metrics/ParameterLists
+
+      def record_written_cache_key(target_name, result)
+        hash8 = File.basename(result.to_s)[/-([0-9a-f]{8})\.xcframework\z/, 1]
+        return unless hash8
+
+        (@written_cache_keys ||= {})[target_name] = hash8
+      end
+
+      # Keep the plain-name path live as soon as its durable hash-named store
+      # exists. Fail-open preserves the established cache contract: pointer
+      # repair problems are visible but never turn a successful build into a
+      # failed command.
+      def refresh_target_pointer(target_name, result)
+        hash8 = File.basename(result.to_s)[/-([0-9a-f]{8})\.xcframework\z/, 1]
+        return unless hash8
+
+        Cache::Pointer.materialize!(cache_dir: @config.cache_dir(@config_name),
+                                    module_name: target_name, hash8: hash8)
+      rescue StandardError => e
+        Core::UI.warn "  pointer refresh failed for #{target_name} (continuing): #{e.message}"
+      end
+
+      # Written artifacts are obviously protected; additionally protect the
+      # exact hash currently selected for each cachemap hit so a build-only
+      # auto-eviction pass cannot delete an artifact the completed graph still
+      # serves through its plain-name pointer.
+      def eviction_protect_hashes(cache_dir)
+        hit_hashes = @cachemap.hit.filter_map do |module_name|
+          pointer = File.join(cache_dir, "#{module_name}.xcframework")
+          next unless File.symlink?(pointer)
+
+          File.basename(File.readlink(pointer))[/-([0-9a-f]{8})\.xcframework\z/, 1]
+        end
+        ((@written_cache_keys || {}).values + hit_hashes).uniq
+      end
 
       def resolve_destinations
         sdk = @config.default_sdk
         sdk == 'all' ? SPM::Package::DEFAULT_DESTINATIONS : [sdk]
+      end
+
+      # Lockfile packages are identity-keyed, while graph/build names are
+      # usually product (or module) names. Index once per run by every name a
+      # package can be reached by so fingerprinting receives the real pin.
+      def module_pin_map(lockfile)
+        return {} unless lockfile
+
+        lockfile.projects.each_value.each_with_object({}) do |project_data, map|
+          (project_data['packages'] || []).each do |package_data|
+            pkg = Core::Lockfile::Pkg.new(package_data)
+            pin = lockfile_pin(pkg)
+            names = [pin['identity']] +
+                    pkg.products.filter_map { |product| product['name'] if product.is_a?(Hash) }
+            names.compact.each { |name| map[name] = pin unless name.empty? }
+          end
+        end
+      end
+
+      def lockfile_pin(pkg)
+        {
+          'identity' => pkg.raw['identity'] || pkg.raw['name'] || pkg.name,
+          'state' => {
+            'version' => pkg.version,
+            'revision' => pkg.revision,
+            'branch' => pkg.branch
+          }
+        }
+      end
+
+      # Reads the same proxy graph consumed by gen_cachemap_viz/Cachemap.
+      # Identity fingerprinting is best-effort, so absent or malformed input
+      # means "no dependency edges" rather than a build failure.
+      def load_graph_entries
+        path = @config.proxy_graph_path
+        return [] unless path
+
+        entries = JSON.parse(File.read(path))
+        entries.is_a?(Array) ? entries : []
+      rescue SystemCallError, JSON::ParserError
+        []
       end
     end
   end

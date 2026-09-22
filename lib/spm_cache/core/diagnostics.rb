@@ -7,6 +7,8 @@ require 'spm_cache/core/config'
 require 'spm_cache/core/system'
 require 'spm_cache/core/package_resolved'
 require 'spm_cache/core/diff_detector'
+require 'spm_cache/cache/fingerprint'
+require 'spm_cache/cache/inventory'
 
 module SPMCache
   module Core
@@ -115,6 +117,78 @@ module SPMCache
           return [:ok, 'spm-cache.lock is unreadable — cannot compare'] if locked.nil?
 
           compare_lock_to_host(locked, host_pin_map(host_pins))
+        end
+
+        def read_graph_entries(path)
+          parsed = JSON.parse(File.read(path))
+          parsed.is_a?(Array) ? parsed : []
+        rescue JSON::ParserError, SystemCallError
+          []
+        end
+
+        # rubocop:disable Metrics/MethodLength
+        def cache_fingerprint_result(cfg)
+          graph_entries = read_graph_entries(cfg.proxy_graph_path)
+          pins = pins_from_lockfile(cfg.lockfile_path)
+          toolchain = Cache::Fingerprint.toolchain
+          first_map = Cache::Fingerprint.map_for(
+            graph_entries: graph_entries, pins: pins, config: cfg, toolchain: toolchain
+          )
+          second_map = Cache::Fingerprint.map_for(
+            graph_entries: graph_entries, pins: pins, config: cfg, toolchain: toolchain
+          )
+
+          invalid_keys = missing_cache_key_names(cfg)
+          if first_map != second_map
+            detail = invalid_keys.empty? ? '' : "; invalid cache keys: #{invalid_keys.join(', ')}"
+            return [:fail, "Cache fingerprint changed between computations#{detail}"]
+          end
+
+          if invalid_keys.any?
+            [:warn, "Cache artifacts missing or invalid sidecar cache_key: #{invalid_keys.join(', ')}"]
+          else
+            [:ok, "Cache fingerprint map is deterministic (#{first_map.size} package(s))"]
+          end
+        end
+        # rubocop:enable Metrics/MethodLength
+
+        def pins_from_lockfile(path)
+          data = JSON.parse(File.read(path))
+          projects = data['projects'] || data
+          projects.each_value.flat_map { |project| project_pins(project) }.to_h
+        rescue JSON::ParserError, SystemCallError
+          {}
+        end
+
+        def project_pins(project)
+          project.fetch('packages', []).flat_map do |package|
+            pin = pin_for_package(package)
+            names = [package['identity'], package['name']]
+            names.concat(package.fetch('products', []).map { |product| product['name'] if product.is_a?(Hash) })
+            names.compact.uniq.map { |name| [name, pin] }
+          end
+        end
+
+        def pin_for_package(package)
+          state = package.slice('version', 'revision', 'branch')
+          { 'identity' => package['identity'] || package['name'], 'state' => state }
+        end
+
+        def missing_cache_key_names(cfg)
+          Cache::Inventory.scan(config: cfg).filter_map do |entry|
+            next entry.name if entry.hash8.nil? && !entry.name.start_with?('legacy-')
+            next entry.name if entry.hash8 && !valid_cache_key_sidecar?(cfg, entry)
+          end
+        end
+
+        def valid_cache_key_sidecar?(cfg, entry)
+          sidecar = File.join(cfg.cache_dir(entry.config), "#{entry.name}.xcframework.provenance.json")
+          return false unless File.exist?(sidecar)
+
+          parsed = JSON.parse(File.read(sidecar))
+          parsed.is_a?(Hash) && parsed['cache_key'] == entry.hash8
+        rescue JSON::ParserError, SystemCallError
+          false
         end
 
         # Entries with no repositoryURL are excluded: SwiftPM never lists a
@@ -271,6 +345,22 @@ module SPMCache
         end
       rescue StandardError => e
         [:warn, "Could not inspect cache dir: #{e.message}"]
+      end
+
+      register('cache_fingerprint',
+               fix_hint: 'Run `spm-cache use` once so hash-linked artifacts are rebuilt and refreshed') do |config:|
+        cfg = config || Config.instance
+        has_project_context = cfg.respond_to?(:lockfile_path) && cfg.respond_to?(:project_dir) &&
+                              cfg.respond_to?(:proxy_graph_path)
+        next [:ok, 'No project context available — skipping cache fingerprint check'] unless has_project_context
+
+        graph_path = cfg.proxy_graph_path
+        next [:ok, 'No proxy graph yet — cache fingerprint check is not applicable'] if graph_path.nil?
+
+        lock_exists = File.exist?(cfg.lockfile_path)
+        next [:ok, 'No spm-cache.lock yet — cache fingerprint check is not applicable'] unless lock_exists
+
+        cache_fingerprint_result(cfg)
       end
 
       register('library_evolution_compatibility',

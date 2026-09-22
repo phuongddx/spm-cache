@@ -26,6 +26,7 @@ struct Lockfile: Codable {
         let version: String?
         let revision: String?
         let products: [ProductRef]?
+        let dependencies: [String]?
 
         init(
             repositoryURL: String?,
@@ -34,7 +35,8 @@ struct Lockfile: Codable {
             productName: String?,
             version: String?,
             revision: String?,
-            products: [ProductRef]? = nil
+            products: [ProductRef]? = nil,
+            dependencies: [String]? = nil
         ) {
             self.repositoryURL = repositoryURL
             self.pathFromRoot = pathFromRoot
@@ -43,6 +45,7 @@ struct Lockfile: Codable {
             self.version = version
             self.revision = revision
             self.products = products
+            self.dependencies = dependencies
         }
 
         var isLocal: Bool {
@@ -175,7 +178,8 @@ struct Lockfile: Codable {
                 productName: pkgDict["product_name"] as? String,
                 version: pkgDict["version"] as? String,
                 revision: pkgDict["revision"] as? String,
-                products: Lockfile.parseProducts(pkgDict)
+                products: Lockfile.parseProducts(pkgDict),
+                dependencies: pkgDict["dependencies"] as? [String]
             )
         }
         self.dependencies = (dict["dependencies"] as? [String: [String]]) ?? [:]

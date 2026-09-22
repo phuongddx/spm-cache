@@ -1,5 +1,7 @@
 # frozen_string_literal: true
 
+require 'shellwords'
+
 module SPMCache
   module Core
     class Git
@@ -43,7 +45,11 @@ module SPMCache
       end
 
       def add(*paths)
-        Sh.run("git add #{paths.join(' ')}", cwd: dir)
+        Sh.run("git add #{Shellwords.join(paths)}", cwd: dir)
+      end
+
+      def rm(*paths)
+        Sh.run("git rm --cached -r --ignore-unmatch -- #{Shellwords.join(paths)}", cwd: dir)
       end
 
       def commit(message)

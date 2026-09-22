@@ -75,6 +75,19 @@ RSpec.describe SPMCache::Core::Lockfile do
     end
   end
 
+  describe "Pkg#dependencies" do
+    it "round-trips resolved package dependency identities through #to_h" do
+      data = {
+        "repositoryURL" => "https://github.com/example/Consumer.git",
+        "name" => "Consumer",
+        "dependencies" => ["swift-log"],
+      }
+      pkg = SPMCache::Core::Lockfile::Pkg.new(data)
+      expect(pkg.dependencies).to eq(["swift-log"])
+      expect(pkg.to_h["dependencies"]).to eq(["swift-log"])
+    end
+  end
+
   describe "#empty?" do
     it "returns false when data present" do
       expect(lockfile.empty?).to be false

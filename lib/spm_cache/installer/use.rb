@@ -4,6 +4,7 @@ require 'spm_cache/installer'
 
 module SPMCache
   class Installer
+    # Integrates cached dependencies without regenerating an unchanged graph.
     class Use < Installer
       # Integrate the proxy package. When spm-cache.lock already exists and
       # the live Xcode SPM graph matches it (DiffDetector reports no changes)
@@ -13,6 +14,7 @@ module SPMCache
       # full regeneration so the proxy stays in sync transparently. This is the
       # structural moat vs Scipio, which requires a separate manifest the user
       # must edit by hand on every dependency change.
+      # rubocop:disable Metrics/AbcSize, Metrics/MethodLength
       def perform_install
         Core::UI.section('spm-cache') do
           verify_projects!
@@ -37,6 +39,7 @@ module SPMCache
               # the real lockfile instead of nil, which would otherwise strip
               # every plugin-only package reference on each fast-path run.
               @lockfile = Core::Lockfile.new(@config.lockfile_path)
+              refresh_fast_path_pointers
               gen_supporting_files
               integrate_proxy_into_project
               gen_cachemap_viz
@@ -55,6 +58,7 @@ module SPMCache
           end
         end
       end
+      # rubocop:enable Metrics/AbcSize, Metrics/MethodLength
 
       private
 
@@ -67,6 +71,7 @@ module SPMCache
       # defers to an in-flight build instead of racing its rm_rf/writes
       # (Pitfall 15). A BLOCKING flock, not a trylock-and-retry -- the OS's
       # own blocking semantics are the whole mechanism, no polling needed.
+      # rubocop:disable Metrics/MethodLength
       def with_build_lock
         path = @config.build_lock_path
         FileUtils.mkdir_p(File.dirname(path))
@@ -87,6 +92,23 @@ module SPMCache
           lock.flock(File::LOCK_UN)
           lock.close
         end
+      end
+      # rubocop:enable Metrics/MethodLength
+
+      # Fast-path lockfile inspection deliberately skips Proxy#prepare, but
+      # hash-store pointers must still be repaired before Swift's proxy reads
+      # plain-name paths. The preserved graph supplies product dependency
+      # edges; failures leave stale pointers in place rather than breaking
+      # integration.
+      def refresh_fast_path_pointers
+        Cache::Pointer.refresh_all!(
+          cache_dir: @config.cache_dir(@config_name),
+          lockfile_path: @config.lockfile_path,
+          graph_path: @config.proxy_graph_path,
+          config: @config
+        )
+      rescue StandardError => e
+        Core::UI.warn "pointer refresh failed (fail-open): #{e.message}"
       end
 
       # The fast path applies only when:

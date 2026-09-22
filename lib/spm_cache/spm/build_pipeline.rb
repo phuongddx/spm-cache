@@ -26,8 +26,9 @@ module SPMCache
       class << self
         include Core::Log
 
-        # Build `name` from `pkg_dir` into a multi-slice xcframework located at
-        # `out_dir/<name>.xcframework`. Returns the output path on success.
+        # Build `name` from `pkg_dir` into a multi-slice xcframework. Return
+        # the durable hash-suffixed path when a fingerprint is available, or
+        # the legacy plain-name output path otherwise.
         #
         # @param name [String] scheme / product name to build
         # @param pkg_dir [String] package checkout directory containing Package.swift
@@ -55,8 +56,16 @@ module SPMCache
         #   it -- byte-identical to pre-Plan-12-04 behavior, so every caller
         #   that passes nothing (all existing specs, `pkg build` without an
         #   active log) is unaffected.
+        # @param graph_entries [Array<Hash>] SPM graph nodes used by Fingerprint
+        #   to cascade dependency hashes. Empty by default for legacy callers.
+        # @param fingerprint_context [Hash, nil] precomputed identity context.
+        #   nil (the default) leaves the stored name unchanged.
+        # @param pins_override [Hash, nil] product-aware pin map. Production
+        #   callers pass Installer::Build's module-keyed map; when omitted,
+        #   pipeline falls back to an identity-only resolved-file lookup.
         def run(name:, pkg_dir:, destinations:, out_dir:, library_evolution: true, resolved_pins_file: nil,
-                clones_dir: nil, config: nil, run_log: nil)
+                clones_dir: nil, config: nil, run_log: nil, graph_entries: [], fingerprint_context: nil,
+                pins_override: nil)
           raise "Target name required" if name.nil? || name.empty?
 
           # D-04/SC2 (LOGS-01): package brackets at the single consolidated
@@ -87,11 +96,40 @@ module SPMCache
                                                        out_dir: out_dir, library_evolution: library_evolution,
                                                        clones_dir: clones_dir, run_log: run_log)
             success = true
+            # Content-hash rename (spec §2): durable artifact becomes
+            # {module}-{hash8}.xcframework. Fail-open: fingerprint error keeps
+            # the plain name (legacy path) and warns -- cache must never break
+            # a build.
+            cache_key = nil
+            cache_key_inputs = nil
+            if fingerprint_context
+              begin
+                pin_map = pins_override || { name => pin_for_target(resolved_pins_file, name) }
+                hashes = Cache::Fingerprint.map_for(
+                  graph_entries: graph_entries, pins: pin_map,
+                  config: Core::Config.instance,
+                  toolchain: toolchain_from(fingerprint_context)
+                )
+                cache_key = hashes[name]
+                if cache_key
+                  hash_path = File.join(File.dirname(result), "#{name}-#{cache_key}.xcframework")
+                  FileUtils.rm_rf(hash_path)
+                  FileUtils.mv(result, hash_path)
+                  result = hash_path
+                  cache_key_inputs = { 'pin' => Cache::Fingerprint.pin_data(pin_map[name] || {}),
+                                       'dependencies' => hashes.reject { |k, _| k == name },
+                                       'context' => fingerprint_context }
+                end
+              rescue StandardError => e
+                Core::UI.warn "  fingerprint failed for #{name}: #{e.message}; storing unhashed"
+              end
+            end
             begin
               # D-04: fidelity phase marker immediately before report_fidelity.
               emit_run_log_event(run_log, "phase", name: "fidelity")
               report_fidelity(name: name, pkg_dir: pkg_dir, output_path: result, seeded: seeded,
-                               intended_pin_map: intended_pin_map, config: config, destinations: built_destinations)
+                               intended_pin_map: intended_pin_map, config: config, destinations: built_destinations,
+                               cache_key: cache_key, cache_key_inputs: cache_key_inputs)
             rescue StandardError => e
               # report_fidelity's doc comment claims it "never raises", but only
               # write_provenance_sidecar's own rescue enforces that -- the pin-map
@@ -144,7 +182,9 @@ module SPMCache
         # value back into `run`. Never raises -- this always runs on the
         # success path, so `ignore_build_errors?` can never mask the
         # resolution-incompatible status (Pitfall 2).
-        def report_fidelity(name:, pkg_dir:, output_path:, seeded:, intended_pin_map:, config:, destinations:)
+        # rubocop:disable Metrics/ParameterLists
+        def report_fidelity(name:, pkg_dir:, output_path:, seeded:, intended_pin_map:, config:, destinations:,
+                            cache_key: nil, cache_key_inputs: nil)
           unless seeded
             # CACHE-02 (09-01): write an explicit not-graph-pinned sidecar
             # with empty pins instead of deleting it. A totally-absent
@@ -171,12 +211,14 @@ module SPMCache
             preserved_pins = existing_sidecar_pins(output_path)
             if preserved_pins&.any?
               write_provenance_sidecar(output_path, status: "host-pinned", pins: preserved_pins,
-                                                     config: config, destinations: destinations)
+                                                     config: config, destinations: destinations,
+                                                     cache_key: cache_key, cache_key_inputs: cache_key_inputs)
               return
             end
 
             write_provenance_sidecar(output_path, status: "not-graph-pinned", pins: {},
-                                                   config: config, destinations: destinations)
+                                                   config: config, destinations: destinations,
+                                                   cache_key: cache_key, cache_key_inputs: cache_key_inputs)
             return
           end
 
@@ -195,7 +237,23 @@ module SPMCache
           Core::UI.info "  #{name}: #{status}#{suffix}"
 
           write_provenance_sidecar(output_path, status: status, pins: realized_pin_map || {},
-                                                 config: config, destinations: destinations)
+                                                 config: config, destinations: destinations,
+                                                 cache_key: cache_key, cache_key_inputs: cache_key_inputs)
+        end
+        # rubocop:enable Metrics/ParameterLists
+
+        # Fallback/test-seam lookup only: Package.resolved has no product
+        # metadata, so this can only match identity-keyed pins. Production
+        # passes Installer::Build's product-aware module map instead. Missing
+        # metadata fails open to an empty pin.
+        def pin_for_target(resolved_pins_file, name)
+          pins = Core::PackageResolved.pins_or_nil(resolved_pins_file) || []
+          pins.find { |pin| pin["identity"] == name } || {}
+        end
+
+        def toolchain_from(context)
+          { swift_version: context && context["swift_version"],
+            xcode_version: context && context["xcode_version"] }
         end
 
         # Diff scope is the INTERSECTION of intended and realized pin
@@ -262,15 +320,25 @@ module SPMCache
         # genuine build failure by ignore_build_errors? handling (Pitfall 2)
         # -- the xcframework this sidecar describes already built
         # successfully, so a metadata-write failure must never mask that.
-        def write_provenance_sidecar(output_path, status:, pins:, config:, destinations:)
+        # rubocop:disable Metrics/ParameterLists
+        def write_provenance_sidecar(output_path, status:, pins:, config:, destinations:,
+                                     cache_key: nil, cache_key_inputs: nil)
           destination = "#{output_path}.provenance.json"
-          content = JSON.generate(
+          fields = {
             fidelity_status: status,
             pins: pins,
             spm_cache_version: SPMCache::VERSION,
             config: config,
             destinations: destinations,
-          )
+          }
+          if cache_key
+            fields.merge!(
+              cache_key: cache_key,
+              cache_key_inputs: cache_key_inputs,
+              last_used_at: Time.now.to_i,
+            )
+          end
+          content = JSON.generate(fields)
 
           tmp = Tempfile.new(["provenance", ".tmp"], File.dirname(destination))
           tmp.write(content)
@@ -280,6 +348,7 @@ module SPMCache
           tmp&.unlink
           Core::UI.warn "  could not write provenance sidecar for #{File.basename(output_path)}: #{e.message}"
         end
+        # rubocop:enable Metrics/ParameterLists
 
         # Classifies `pkg_dir` before seeding anything (D-04): a vendored
         # `.xcodeproj` checkout ignores `Package.resolved` entirely (Pitfall

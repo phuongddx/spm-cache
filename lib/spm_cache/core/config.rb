@@ -28,7 +28,10 @@ module SPMCache
         'runs_max_mb' => 500,
         # Dashboard state-table auto-poll interval in seconds
         # (13-UI-SPEC "server-configurable" auto-refresh, default 5s).
-        'web_poll_seconds' => 5
+        'web_poll_seconds' => 5,
+        # Per-config-dir GC budget and opt-in eviction after successful
+        # stores; `spm-cache cache gc` remains always available.
+        'cache' => { 'max_size_gb' => 20, 'auto_evict' => false }
       }.freeze
 
       SANDBOX_DIR = 'spm-cache'
@@ -36,12 +39,14 @@ module SPMCache
       CONFIG_FILENAME = 'spm-cache.yml'
       LOCKFILE_FILENAME = 'spm-cache.lock'
 
-      attr_accessor :project_dir, :config_path
+      attr_accessor :project_dir, :config_path, :run_sdk, :run_config,
+                    :run_merge_slices, :run_library_evolution
 
       def initialize
         @project_dir = Dir.pwd
         @config_path = File.join(@project_dir, CONFIG_FILENAME)
         @raw = DEFAULT_CONFIG.dup
+        reset_run_scope!
       end
 
       def self.instance
@@ -230,6 +235,14 @@ module SPMCache
         File.join(project_dir, LOCKFILE_FILENAME)
       end
 
+      def proxy_graph_path
+        live_path = File.join(proxy_dir, 'graph.json')
+        return live_path if File.exist?(live_path)
+
+        snapshot_path = "#{live_path}.last"
+        File.exist?(snapshot_path) ? snapshot_path : nil
+      end
+
       def remote_config(config)
         remote = raw['remote'] || {}
         remote[config] || remote[config.to_s]
@@ -286,12 +299,33 @@ module SPMCache
         DEFAULT_CONFIG['web_poll_seconds']
       end
 
+      # Cache GC budget and opt-in auto-eviction. Integer()-coerced with
+      # rescue-to-default, runs_keep posture: spm-cache.yml is user-authored,
+      # not adversarial -- a typo falls back to the 20 GB default.
+      def cache_max_size_gb
+        Integer(raw.dig('cache', 'max_size_gb') || DEFAULT_CONFIG.fetch('cache').fetch('max_size_gb'))
+      rescue ArgumentError, TypeError
+        DEFAULT_CONFIG.fetch('cache').fetch('max_size_gb')
+      end
+
+      def cache_auto_evict?
+        raw.dig('cache', 'auto_evict') == true
+      end
+
       def should_ignore?(package_name)
         ignore_list.any? { |pattern| File.fnmatch(pattern, package_name) }
       end
 
       def reset!
         @raw = DEFAULT_CONFIG.dup
+        reset_run_scope!
+      end
+
+      def reset_run_scope!
+        @run_sdk = Command::Options::SDK
+        @run_config = Command::Options::CONFIG
+        @run_merge_slices = Command::Options::MERGE_SLICES
+        @run_library_evolution = Command::Options::LIBRARY_EVOLUTION
       end
     end
   end

@@ -128,6 +128,47 @@ struct ProxyGeneratorTests {
         #expect(appAuthCoreShimDir.exists)
     }
 
+    @Test("GenProxy records package dependencies as real graph product edges")
+    func twoPackageFixtureEmitsDependencyEdges() throws {
+        let tmp = try makeTempDir()
+        defer { try? FileManager.default.removeItem(at: tmp) }
+
+        let upstream = Lockfile.PackageRef(
+            repositoryURL: "https://github.com/apple/swift-log.git",
+            pathFromRoot: nil,
+            name: "swift-log",
+            productName: nil,
+            version: "1.5.4",
+            revision: nil,
+            products: [.init(name: "Logging", type: "library", targets: ["Logging"])]
+        )
+        let consumer = Lockfile.PackageRef(
+            repositoryURL: "https://github.com/example/Consumer.git",
+            pathFromRoot: nil,
+            name: "consumer",
+            productName: nil,
+            version: nil,
+            revision: nil,
+            products: [.init(name: "Consumer", type: "library", targets: ["Consumer"])],
+            dependencies: ["swift-log"]
+        )
+
+        let generator = ProxyGenerator(
+            cache: BinariesCache(dir: tmp.appendingPathComponent("cache")),
+            outputDir: tmp.appendingPathComponent("proxy")
+        )
+        let entries = try generator.generate(for: [upstream, consumer])
+
+        #expect(entries.first { $0.module == "Consumer" }?.dependencies == ["Logging"])
+
+        let graphPath = tmp.appendingPathComponent("graph.json")
+        try GraphGenerator(entries: entries, outputPath: graphPath).generate()
+        let graph = try JSONSerialization.jsonObject(with: Data(contentsOf: graphPath)) as! [[String: Any]]
+        let edge = graph.first { ($0["data"] as? [String: Any])?["source"] as? String == "Consumer" }
+        let edgeData = edge?["data"] as? [String: Any] ?? [:]
+        #expect(edgeData["target"] as? String == "Logging")
+    }
+
     // Reproduces swift-numerics' RealModule -> _NumericsShims shape: a hit
     // product whose own `.swiftinterface` needs a private (non-product)
     // Clang-target dependency resolvable on its own. The Ruby build

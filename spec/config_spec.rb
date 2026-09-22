@@ -4,6 +4,7 @@ require 'spec_helper'
 require 'tmpdir'
 require 'fileutils'
 require 'yaml'
+# rubocop:disable Metrics/BlockLength
 
 RSpec.describe SPMCache::Core::Config do
   subject(:config) { described_class.instance }
@@ -171,4 +172,32 @@ RSpec.describe SPMCache::Core::Config do
       end
     end
   end
+  describe '#cache_max_size_gb and #cache_auto_evict?' do
+    def write_yml(keys)
+      dir = Dir.mktmpdir
+      path = File.join(dir, 'spm-cache.yml')
+      File.write(path, YAML.dump(keys))
+      config.config_path = path
+      config.load
+    ensure
+      FileUtils.remove_entry(dir)
+    end
+
+    it 'defaults to a 20 GB budget with auto-eviction disabled' do
+      expect(config.cache_max_size_gb).to eq(20)
+      expect(config.cache_auto_evict?).to be(false)
+    end
+
+    it 'reads overrides from a written spm-cache.yml' do
+      write_yml('cache' => { 'max_size_gb' => 3, 'auto_evict' => true })
+      expect(config.cache_max_size_gb).to eq(3)
+      expect(config.cache_auto_evict?).to be(true)
+    end
+
+    it 'coerces a non-integer max_size_gb back to 20' do
+      config.raw['cache'] = { 'max_size_gb' => 'x' }
+      expect(config.cache_max_size_gb).to eq(20)
+    end
+  end
 end
+# rubocop:enable Metrics/BlockLength
