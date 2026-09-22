@@ -14,14 +14,12 @@ module SPMCache
             ['--dry-run', 'Show what would be removed'],
             ['--dry', 'Alias for --dry-run'],
             ['--max-size=GB', 'Budget per config directory (default: 20)'],
-            ['--all-configs', 'Explicitly process debug and release']
           ].concat(super)
         end
 
         def initialize(argv)
           @dry = argv.flag?('dry-run', argv.flag?('dry', false))
           @max_size = argv.option('max-size')
-          @all_configs = argv.flag?('all-configs', true)
           super
         end
 

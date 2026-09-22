@@ -68,6 +68,10 @@ RSpec.describe SPMCache::Command::Cache::GC do
     lock&.close
   end
 
+  it 'does not expose the unused --all-configs option' do
+    expect(described_class.options.map(&:first)).not_to include('--all-configs')
+  end
+
   it 'plans both config directories with the configured budget' do
     stub_plans(max_size_bytes: 3 * 1024**3)
     allow(config).to receive(:cache_max_size_gb).and_return(3)
