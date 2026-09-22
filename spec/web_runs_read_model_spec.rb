@@ -116,20 +116,29 @@ RSpec.describe 'SPMCache::Web::ReadModels::Runs (CP10 derivation + D-12 listing)
       begin
         file.flock(File::LOCK_EX)
         taken << true
-        release.pop(timeout: 10)
+        pop_with_timeout(release, 10)
       ensure
         file.flock(File::LOCK_UN)
         file.close
       end
     end
-    taken.pop(timeout: 5)
+    pop_with_timeout(taken, 5)
     begin
       yield
     ensure
-      release << true
-      holder.join(5) || holder.kill
+        release << true
+        holder.join(5) || holder.kill
+      end
     end
-  end
+
+    # Queue#pop(timeout:) raises ThreadError on timeout in Ruby 3.1;
+    # 3.2+ returns nil. Normalize so both timeout call sites behave
+    # identically across the supported ruby matrix (>= 3.1).
+    def pop_with_timeout(queue, timeout)
+      queue.pop(timeout: timeout)
+    rescue ThreadError
+      nil
+    end
 
   # -- 1. the probe ------------------------------------------------------
 
