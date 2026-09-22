@@ -416,6 +416,7 @@ module SPMCache
           # BinaryTarget subclass the factory dispatches to), hence send.
           binary_target = desc.targets.any? { |t| t.send(:binary?) }
           products = desc.products.map { |p| { "name" => p.name, "type" => p.type, "targets" => p.target_names } }
+          package_dependencies = desc.dependencies.filter_map(&:name).compact.uniq
           products = products_from_manifest_fallback(checkout_dir) if products.empty?
           if products.empty?
             Core::UI.warn "'swift package describe' returned no products for '#{pkg_data['name'] || slug_for(pkg_data)}'; product metadata not enriched (legacy fallback applies)"
@@ -423,6 +424,7 @@ module SPMCache
           end
 
           pkg_data["products"] = products
+          pkg_data["dependencies"] = package_dependencies
           pkg_data["binary_target"] = binary_target
         end
 
@@ -451,6 +453,7 @@ module SPMCache
 
       (proj_data["packages"] || []).each do |pkg_data|
         pkg_data.delete("products")
+        pkg_data.delete("dependencies")
         pkg_data.delete("binary_target")
       end
     end
