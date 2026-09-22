@@ -24,7 +24,10 @@ module SPMCache
 
         def materialize!(cache_dir:, module_name:, hash8:)
           target = File.join(cache_dir, "#{module_name}-#{hash8}.xcframework")
-          return false unless File.directory?(target)
+          unless File.directory?(target)
+            remove_stale_pointers!(cache_dir, module_name)
+            return false
+          end
 
           link_atomic(cache_dir, "#{module_name}.xcframework", "#{module_name}-#{hash8}.xcframework")
           link_sidecars(cache_dir, module_name, hash8)
@@ -61,6 +64,17 @@ module SPMCache
         end
 
         private
+
+        def remove_stale_pointers!(cache_dir, module_name)
+          pointer = File.join(cache_dir, "#{module_name}.xcframework")
+          return unless File.symlink?(pointer)
+
+          FileUtils.rm_f(pointer)
+          %w[provenance shims].each do |kind|
+            sidecar = "#{pointer}.#{kind}.json"
+            FileUtils.rm_f(sidecar) if File.symlink?(sidecar)
+          end
+        end
 
         def materialize_hashes(hashes, cache_dir:)
           hashes.each_with_object({}) do |(module_name, hash8), materialized|

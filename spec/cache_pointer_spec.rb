@@ -43,6 +43,23 @@ RSpec.describe SPMCache::Cache::Pointer do
                                           hash8: 'deadbeef')).to be(false)
       expect(File.exist?(File.join(dir, 'X.xcframework'))).to be(false)
     end
+
+    it 'removes a stale plain pointer and sidecars when the target is absent' do
+      File.symlink('X-deadbeef.xcframework', File.join(dir, 'X.xcframework'))
+      File.symlink('X-deadbeef.xcframework.provenance.json',
+                   File.join(dir, 'X.xcframework.provenance.json'))
+      File.symlink('X-deadbeef.xcframework.shims.json',
+                   File.join(dir, 'X.xcframework.shims.json'))
+
+      expect(described_class.materialize!(cache_dir: dir, module_name: 'X',
+                                          hash8: 'deadbeef')).to be(false)
+
+      aggregate_failures do
+        expect(File.symlink?(File.join(dir, 'X.xcframework'))).to be(false)
+        expect(File.exist?(File.join(dir, 'X.xcframework.provenance.json'))).to be(false)
+        expect(File.exist?(File.join(dir, 'X.xcframework.shims.json'))).to be(false)
+      end
+    end
   end
 
   describe '.quarantine_legacy!' do

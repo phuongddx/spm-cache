@@ -16,12 +16,15 @@ RSpec.describe SPMCache::Installer::Build, 'opt-in auto-eviction' do
       'Beta' => File.join(tmpdir, 'Beta-bbbbbbbb.xcframework')
     }
   end
+  let(:hit_artifact) { File.join(tmpdir, 'Gamma-dddddddd.xcframework') }
+  let(:hit_pointer) { File.join(tmpdir, 'Gamma.xcframework') }
 
   let(:cachemap) do
     SPMCache::Cache::Cachemap.new(
       graph_data: [
         { 'module' => 'Alpha', 'status' => 'missed' },
-        { 'module' => 'Beta', 'status' => 'missed' }
+        { 'module' => 'Beta', 'status' => 'missed' },
+        { 'module' => 'Gamma', 'status' => 'hit' }
       ]
     )
   end
@@ -32,6 +35,8 @@ RSpec.describe SPMCache::Installer::Build, 'opt-in auto-eviction' do
       FileUtils.mkdir_p(path)
       FileUtils.mkdir_p(File.join(checkout_dir, name))
     end
+    FileUtils.mkdir_p(File.join(hit_artifact, 'iphonesimulator'))
+    File.symlink(hit_artifact, hit_pointer)
 
     allow_any_instance_of(SPMCache::Installer).to receive(:perform_install).and_wrap_original do |original, *_args|
       receiver = original.receiver
@@ -71,6 +76,7 @@ RSpec.describe SPMCache::Installer::Build, 'opt-in auto-eviction' do
 
     expect(SPMCache::Cache::GC).not_to have_received(:watermark_plan)
     expect(written_artifacts.values).to all(satisfy { |path| File.exist?(path) })
+    expect(File.symlink?(File.join(tmpdir, 'Alpha.xcframework'))).to be(true)
   end
 
   context 'when auto-eviction is enabled and usage is below the watermark' do
@@ -86,10 +92,11 @@ RSpec.describe SPMCache::Installer::Build, 'opt-in auto-eviction' do
       expect(SPMCache::Cache::GC).to have_received(:watermark_plan).with(
         cache_dir: tmpdir,
         budget_bytes: 1024 * 1024 * 1024,
-        protect: %w[aaaaaaaa bbbbbbbb]
+        protect: %w[aaaaaaaa bbbbbbbb dddddddd]
       )
       expect(SPMCache::Cache::GC).not_to have_received(:execute!)
       expect(written_artifacts.values).to all(satisfy { |path| File.exist?(path) })
+      expect(File.directory?(hit_artifact)).to be(true)
     end
   end
 
@@ -121,10 +128,11 @@ RSpec.describe SPMCache::Installer::Build, 'opt-in auto-eviction' do
       expect(SPMCache::Cache::GC).to have_received(:watermark_plan).with(
         cache_dir: tmpdir,
         budget_bytes: 1024 * 1024 * 1024,
-        protect: %w[aaaaaaaa bbbbbbbb]
+        protect: %w[aaaaaaaa bbbbbbbb dddddddd]
       )
       expect(SPMCache::Cache::GC).to have_received(:execute!).with(plan)
       expect(written_artifacts.values).to all(satisfy { |path| File.exist?(path) })
+      expect(File.directory?(hit_artifact)).to be(true)
       expect(File.exist?(old_artifact)).to be(false)
       expect(File.exist?(old_sidecar)).to be(false)
     end

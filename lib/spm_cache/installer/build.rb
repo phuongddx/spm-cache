@@ -93,7 +93,7 @@ module SPMCache
           begin
             budget = @config.cache_max_size_gb * 1024 * 1024 * 1024
             plan = Cache::GC.watermark_plan(cache_dir: cache_out, budget_bytes: budget,
-                                            protect: (@written_cache_keys || {}).values)
+                                            protect: eviction_protect_hashes(cache_out))
             if plan.entries.any?
               Cache::GC.execute!(plan)
               Core::UI.info "Auto-evicted #{plan.entries.size} artifact(s), reclaimed #{plan.reclaimed_bytes} bytes"
@@ -243,6 +243,7 @@ module SPMCache
             pins_override: pins_override
           )
           record_written_cache_key(target_name, result)
+          refresh_target_pointer(target_name, result)
           Core::UI.info "  Cached: #{result}"
         rescue StandardError => e
           raise unless @config.ignore_build_errors?
@@ -257,6 +258,34 @@ module SPMCache
         return unless hash8
 
         (@written_cache_keys ||= {})[target_name] = hash8
+      end
+
+      # Keep the plain-name path live as soon as its durable hash-named store
+      # exists. Fail-open preserves the established cache contract: pointer
+      # repair problems are visible but never turn a successful build into a
+      # failed command.
+      def refresh_target_pointer(target_name, result)
+        hash8 = File.basename(result.to_s)[/-([0-9a-f]{8})\.xcframework\z/, 1]
+        return unless hash8
+
+        Cache::Pointer.materialize!(cache_dir: @config.cache_dir(@config_name),
+                                    module_name: target_name, hash8: hash8)
+      rescue StandardError => e
+        Core::UI.warn "  pointer refresh failed for #{target_name} (continuing): #{e.message}"
+      end
+
+      # Written artifacts are obviously protected; additionally protect the
+      # exact hash currently selected for each cachemap hit so a build-only
+      # auto-eviction pass cannot delete an artifact the completed graph still
+      # serves through its plain-name pointer.
+      def eviction_protect_hashes(cache_dir)
+        hit_hashes = @cachemap.hit.filter_map do |module_name|
+          pointer = File.join(cache_dir, "#{module_name}.xcframework")
+          next unless File.symlink?(pointer)
+
+          File.basename(File.readlink(pointer))[/-([0-9a-f]{8})\.xcframework\z/, 1]
+        end
+        ((@written_cache_keys || {}).values + hit_hashes).uniq
       end
 
       def resolve_destinations
